@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+gpse External Dependency Checker
+================================
+Detects third-party command-line tools (e.g. PLINK) required by the
+analysis pipeline and reports their availability / version.
+
+Typical usage:
+    from gpse.utils.dependency_checker import check_all_external_tools
+    results = check_all_external_tools(tools_config)
+"""
+
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+from typing import Any
+
+
+def _run_cmd(cmd: list[str]) -> tuple[int, str, str]:
+    """Run a command and return (returncode, stdout, stderr)."""
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return proc.returncode, proc.stdout, proc.stderr
+    except FileNotFoundError:
+        return 127, "", "command not found"
+    except subprocess.TimeoutExpired:
+        return 124, "", "timed out"
+    except Exception as exc:
+        return 1, "", str(exc)
+
+
+def _extract_version(text: str) -> str | None:
+    """Try to extract a version string from tool output."""
+    # Common patterns: v1.2.3, 1.2.3, PLINK v1.90b6.21, etc.
+    patterns = [
+        r"v?(\d+\.\d+[^\s]*)",            # v1.90b6.21  or  1.90b6.21
+        r"version\s*:?\s*v?(\d+\.\d+[^\s]*)",  # version: 1.2.3
+        r"(\d+\.\d+\.\d+)",                # 1.2.3
+        r"(\d+\.\d+)",                     # 1.90
+    ]
+    for pat in patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _version_tuple(ver: str | None) -> tuple[int, ...]:
+    """Convert a version string like '1.90b6' → (1, 90, 6) for comparison."""
+    if ver is None:
+        return (0,)
+    # Strip leading 'v', split by dots, keep only numeric parts
+    cleaned = ver.lstrip("vV")
+    parts = re.split(r"[.\-+]", cleaned)
+    result: list[int] = []
+    for p in parts:
+        num = re.match(r"(\d+)", p)
+        if num:
+            result.append(int(num.group(1)))
+    return tuple(result) if result else (0,)
+
+
+def _meets_min_version(current: str | None, minimum: str | None) -> bool:
+    """Return True if *current* >= *minimum*."""
+    if minimum is None:
+        return True
+    if current is None:
+        return False
+    return _version_tuple(current) >= _version_tuple(minimum)
+
+
+def check_external_tool(
+    name: str,
+    cmd: str = None,
+    version_flag: str = "--version",
+    min_version: str | None = None,
+    **_: Any,
+) -> dict[str, Any]:
+    """
+    Check a single external tool.
+
+    Parameters
+    ----------
+    name : str
+        Human-readable tool name.
+    cmd : str, optional
+        Command to invoke. Defaults to *name*.
+    version_flag : str
+        Flag passed to the command to obtain version info.
+    min_version : str, optional
+        Minimum acceptable version.
+
+    Returns
+    -------
+    dict
+        {
+            "name": str,
+            "available": bool,
+            "path": str | None,
+            "version": str | None,
+            "min_version": str | None,
+            "version_ok": bool,
+            "raw_output": str,
+        }
+    """
+    cmd = cmd or name
+    result: dict[str, Any] = {
+        "name": name,
+        "available": False,
+        "path": None,
+        "version": None,
+        "min_version": min_version,
+        "version_ok": True,
+        "raw_output": "",
+    }
+
+    # 1. Locate executable
+    exe = shutil.which(cmd)
+    if exe is None:
+        result["raw_output"] = f"'{cmd}' not found in PATH"
+        result["version_ok"] = False
+        return result
+
+    result["path"] = exe
+    result["available"] = True
+
+    # 2. Query version
+    rc, stdout, stderr = _run_cmd([cmd, version_flag])
+    raw = (stdout + "\n" + stderr).strip()
+    result["raw_output"] = raw
+
+    version = _extract_version(raw)
+    result["version"] = version
+
+    # 3. Check minimum version
+    if min_version is not None:
+        result["version_ok"] = _meets_min_version(version, min_version)
+
+    return result
+
+
+def check_all_external_tools(
+    tools_config: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """
+    Batch-check every tool defined in *tools_config*.
+
+    Parameters
+    ----------
+    tools_config : list[dict] | None
+        Usually loaded from ``software.yaml`` under the
+        ``external_tools`` key.
+
+    Returns
+    -------
+    list[dict]
+        One result dict per tool, in the same order.
+    """
+    if not tools_config:
+        return []
+    return [check_external_tool(**tool) for tool in tools_config]
+
+
+def format_tool_status(tool: dict[str, Any]) -> str:
+    """
+    Return a short Rich-formatted status string for a tool.
+    """
+    if not tool["available"]:
+        return f"[red]✗ {tool['name']} — not found[/red]"
+    ver = tool.get("version") or "unknown"
+    if tool.get("min_version") and not tool.get("version_ok", True):
+        return f"[yellow]⚠ {tool['name']} {ver} < required {tool['min_version']}[/yellow]"
+    return f"[green]✓ {tool['name']} {ver}[/green]"
+
+
+def assert_required_tools(results: list[dict[str, Any]]) -> None:
+    """
+    Raise RuntimeError if any tool marked ``required: true`` is missing
+    or below its minimum version.
+    """
+    failures = []
+    for r in results:
+        if not r.get("available"):
+            failures.append(f"{r['name']}: not found")
+        elif not r.get("version_ok", True):
+            failures.append(
+                f"{r['name']}: version {r.get('version')} < required {r.get('min_version')}"
+            )
+    if failures:
+        raise RuntimeError(
+            "Missing or incompatible external dependencies:\n  • "
+            + "\n  • ".join(failures)
+        )
+
+
+if __name__ == "__main__":
+    # Quick smoke-test
+    _demo_tools = [
+        {"name": "plink", "cmd": "plink", "version_flag": "--version", "min_version": "1.90"},
+        {"name": "python", "cmd": "python3", "version_flag": "--version"},
+    ]
+    for res in check_all_external_tools(_demo_tools):
+        print(format_tool_status(res))

@@ -21,9 +21,11 @@ if __name__ == "__main__":
         sys.path.insert(0, str(_project_root))
     from gpse.utils.configuration import load_software_config
     from gpse.utils.print_utils import print_info_table, print_section_panel, print_in_columns, console
+    from gpse.utils.dependency_checker import check_all_external_tools
 else:
     from .configuration import load_software_config
     from .print_utils import print_info_table, print_section_panel, print_in_columns, console
+    from .dependency_checker import check_all_external_tools
 
 
 def _get_project_deps():
@@ -52,16 +54,38 @@ def _get_deps_info(deps):
             return "[red]Not Found[/red]"
     return {pkg: get_ver(pkg) for pkg in deps}
 
-def show_versions(project_name=None, deps=None, extras=None):
+def _get_external_tools_info(software_conf: dict | None = None):
+    """Check external tools defined in software.yaml and return a status dict."""
+    if software_conf is None:
+        software_conf = load_software_config()
+    tools_cfg = software_conf.get("external_tools", [])
+    if not tools_cfg:
+        return {}
+    results = check_all_external_tools(tools_cfg)
+    return {
+        r["name"]: (
+            f"[green]{r.get('version', 'OK')}[/green]"
+            if r["available"] and r.get("version_ok", True)
+            else (
+                f"[yellow]{r.get('version', 'low')} < {r.get('min_version')}[/yellow]"
+                if r["available"]
+                else "[red]Not Found[/red]"
+            )
+        )
+        for r in results
+    }
+
+def show_versions(project_name=None, deps=None, extras=None, software_conf=None):
     """
     Print debug version and system information with rich beauty.
     When *deps* is None, dependencies are auto-read from pyproject.toml.
+    External tools are auto-checked from software.yaml.
     """
     if deps is None:
         deps = _get_project_deps()
     tables = []
-    
-    # 1. Dependencies Table
+
+    # 1. Python Dependencies Table
     deps_info = _get_deps_info(deps)
     tables.append(print_info_table(
         title=f"[bold blue]{project_name}[/bold blue] Deps",
@@ -71,7 +95,19 @@ def show_versions(project_name=None, deps=None, extras=None):
         return_table=True
     ))
 
-    # 2. Software Metadata Table
+    # 2. External Tools Table
+    ext_tools_info = _get_external_tools_info(software_conf)
+    if ext_tools_info:
+        tables.append(print_info_table(
+            title="[bold yellow]External Tools[/bold yellow]",
+            data=ext_tools_info,
+            column_names=["Tool", "Status"],
+            header_style="bold yellow",
+            border_style="yellow",
+            return_table=True
+        ))
+
+    # 3. Software Metadata Table
     right_tables = []
     if extras:
         right_tables.append(print_info_table(
@@ -83,7 +119,7 @@ def show_versions(project_name=None, deps=None, extras=None):
             return_table=True
         ))
 
-    # 3. System Environment Table
+    # 4. System Environment Table
     right_tables.append(print_info_table(
         title="[bold cyan]System Environment[/bold cyan]",
         data=_get_sys_info(),
@@ -105,15 +141,19 @@ def show_versions(project_name=None, deps=None, extras=None):
     for rt in right_tables:
         right_column.add_row(rt)
 
-    # Print Deps on the left, stacked info on the right
-    print_in_columns([tables[0], right_column])
+    # Print Deps (+ External Tools) on the left, stacked info on the right
+    left_column = RichTable(show_header=False, box=None, padding=0, expand=False)
+    for t in tables:
+        left_column.add_row(t)
+
+    print_in_columns([left_column, right_column])
 
 if __name__ == "__main__":
     # get software configuration from the config file
     _software_conf = load_software_config()
     sw = _software_conf.get("software", {})
-    
-    # Show versions with full metadata (deps auto-read from pyproject.toml)
+
+    # Show versions with full metadata (deps + external tools auto-read)
     show_versions(
         project_name=sw.get("app_name", "gpse"),
         deps=None,
@@ -123,5 +163,6 @@ if __name__ == "__main__":
             "Email": sw.get("email", "unknown"),
             "URL": sw.get("url", ""),
             "Description": sw.get("description", "")
-        }
+        },
+        software_conf=_software_conf,
     )

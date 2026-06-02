@@ -5,3 +5,11 @@ software:
   email: "1468835852@qq.com, zhangjian199567@outlook.com"
   url: https://github.com/<project>/gpse
   description: "Genomic Prediction with Stacking Ensemble for horticultural crops"
+
+external_tools:
+  - name: plink
+    cmd: plink
+    version_flag: --version
+    min_version: "1.90"
+    required: true
+    description: "PLINK 1.9 for genomic data format conversion and SNP extraction"
