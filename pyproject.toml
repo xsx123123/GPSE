@@ -1,0 +1,81 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "gpse"
+version = "0.0.1"
+description = "Genomic Prediction with Stacking Ensemble for horticultural crops"
+readme = "README.md"
+license = "MIT"
+authors = [
+    "XIAOLIU <1468835852@qq.com>",
+    "JZHANG <zhangjian199567@outlook.com>",
+]
+keywords = [
+    "genomic selection",
+    "machine learning",
+    "stacking",
+    "ensemble learning",
+    "horticulture",
+    "breeding",
+    "GWAS",
+    "SNP",
+    "genomic prediction",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+homepage = "https://github.com/<project>/gpse"
+repository = "https://github.com/<project>/gpse"
+packages = [{include = "gpse"}]
+include = [
+    "gpse/config/*.yaml",
+    "gpse/report/templates/*.j2",
+]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pandas = ">=1.5.0"
+numpy = ">=1.23.0"
+scipy = ">=1.9.0"
+scikit-learn = ">=1.2.0"
+xgboost = ">=1.7.0"
+lightgbm = ">=4.0.0"
+catboost = ">=1.2.0"
+optuna = ">=3.0.0"
+joblib = ">=1.2.0"
+ngboost = ">=0.5.0"
+rich = "^15.0.0"
+tomli = "^2.0.1"
+pyyaml = "^6.0"
+rich-gradient = "^0.3.0"
+loguru = "^0.7.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+black = "^24.0"
+flake8 = "^7.0"
+mypy = "^1.0"
+
+[tool.poetry.scripts]
+gpse = "gpse.cli:main"
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

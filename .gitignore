@@ -1,0 +1,95 @@
+# =============================================================================
+# Python
+# =============================================================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Environment variables / secrets
+.env
+.env.local
+*.env
+
+# =============================================================================
+# Testing & Linting
+# =============================================================================
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# =============================================================================
+# IDE / Editor
+# =============================================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# =============================================================================
+# Jupyter / IPython
+# =============================================================================
+.ipynb_checkpoints/
+*.ipynb
+
+# =============================================================================
+# Poetry
+# =============================================================================
+poetry.lock
+
+# =============================================================================
+# Project-specific: GPSE Genomic Prediction
+# =============================================================================
+
+# ---- Trained models & outputs ----
+*.pkl
+*.joblib
+optimization_results/
+logs/
+cv_folds/
+
+# ---- Large genomic data files ----
+*.vcf
+*.vcf.gz
+*.bed
+*.bim
+*.fam
+*.ped
+*.map
+
+# ---- CSV matrices / intermediate data ----
+*.csv
+
+# ---- Phenotype data directories (from scripts) ----
+melon_phenotyp_*/
+tomato_phenotyp_*/
+melon_processed_data/
+melon_test_processed_data/
+melon_multi_traits_results/
+melon_test_results/
+
+# ---- Temporary / output dirs ----
+test_output/
+test_pkg_output/
+result/
+scripts/

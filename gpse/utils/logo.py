@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+gpse Logo Display Module
+================================
+This module provides beautiful logo display functionality using rich library.
+It can be imported and called from main.py to display the application logo.
+"""
+import random
+from rich import box
+from rich.text import Text
+from rich.panel import Panel
+from rich.align import Align
+from rich.console import Console
+from rich_gradient import Gradient
+
+# Load custom functions from the configuration module
+# Compatible with both package import and direct execution
+if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    _project_root = Path(__file__).resolve().parent.parent.parent
+    if str(_project_root) not in sys.path:
+        sys.path.insert(0, str(_project_root))
+    from gpse.utils.configuration import load_software_config
+else:
+    from .configuration import load_software_config
+
+try:
+    from rich_gradient import Text as GradientText
+    GRADIENT_AVAILABLE = True
+except ImportError:
+    GRADIENT_AVAILABLE = False
+
+
+class LogoDisplay:
+    """
+    Logo display class using rich for beautiful terminal output
+    """
+    GRADIENT_SCHEMES = {
+        "sunset": ["#FF0080", "#FF8C00", "#FFD700"],
+        "ocean": ["#00CED1", "#1E90FF", "#000080"], 
+        "forest": ["#32CD32", "#228B22", "#006400"],
+        "fire": ["#FF0000", "#FF4500", "#FFD700"],
+        "purple_haze": ["#9370DB", "#8A2BE2", "#4B0082"],
+        "rainbow": ["red", "#ff9900", "#ff0", "Lime", "cyan", "blue", "magenta"], 
+        "cool_breeze": ["#E0FFFF", "#87CEEB", "#4682B4"], 
+        "autumn": ["#FFD700", "#FF8C00", "#DC143C"],
+        "neon": ["#39FF14", "#00FFFF", "#FF00FF"], 
+        "sakura": ["#FFB7C5", "#FF69B4", "#FF1493"], 
+        "midnight": ["#191970", "#4169E1", "#87CEEB"], 
+        "lava": ["#8B0000", "#FF4500", "#FFA500"],
+        "mint": ["#98FF98", "#00FA9A", "#00CED1"],
+        "desert": ["#F4A460", "#D2691E", "#8B4513"],
+        "galaxy": ["#483D8B", "#6A5ACD", "#9370DB"],
+        "tropical": ["#FF6347", "#FF69B4", "#FFD700"],
+        "cyber": ["#00FFFF", "#00FF00", "#FFFF00"],
+        "monochrome": ["#FFFFFF", "#808080", "#000000"], 
+        "pastel": ["#FFB6C1", "#FFDAB9", "#E0BBE4"],
+        "emerald": ["#50C878", "#008B8B", "#006400"]}
+
+    def __init__(self,
+                 version: str = "v1.0.0",
+                 app_name:str = "gpse",
+                 description:str = "Genome Recombination Analysis Tool",
+                 url: str = "",
+                 rice_color:str = "bold cyan",
+                 gradient_colors: list = None,
+                 use_gradient: bool = False,
+                 gradient_scheme: str = None
+                ):
+        self.console = Console()
+        self.app_name = app_name
+        self.version = version
+        self.description = description
+        self.url = url
+        self.rice_color = rice_color
+        self.use_gradient = use_gradient and GRADIENT_AVAILABLE
+        if gradient_scheme == "random":
+            scheme_name = random.choice(list(self.GRADIENT_SCHEMES.keys()))
+            self.gradient_colors = self.GRADIENT_SCHEMES[scheme_name]
+            self.current_scheme = scheme_name
+        elif gradient_scheme and gradient_scheme in self.GRADIENT_SCHEMES:
+            self.gradient_colors = self.GRADIENT_SCHEMES[gradient_scheme]
+            self.current_scheme = gradient_scheme
+        elif gradient_colors:
+            self.gradient_colors = gradient_colors
+            self.current_scheme = "custom"
+        else:
+            self.gradient_colors = ["cyan", "magenta", "yellow"]
+            self.current_scheme = "default"
+
+
+    def create_ascii_logo(self):
+        """
+        ASCII logos for GPSE
+        GPSE = Genomic Prediction with Stacking Ensemble
+        """
+
+        ascii_type_6 = r"""
+        ╭━━╮ ╭━━╮ ╭━━╮ ╭━━╮
+        ╰╮╭╯ ╰╮╭╯ ╰╮╭╯ ╰╮╭╯
+         ╰╯   ╰╯   ╰╯   ╰╯
+         G    P    S    E
+        """
+
+        ascii_type_9 = r"""
+        ┌─ GPSE ───────────────────────┐
+        │ Genome • Predict • Stack     │
+        └──────────────────────────────┘
+        """
+
+        ascii_type_11 = r"""
+        █▀▀ █▀█ █▀ █▀▀
+        █▄█ █▀▀ ▄█ ██▄
+        """
+
+        ascii_type_14 = r"""
+        ░█▀▀░█▀█░█▀▀░█▀▀
+        ░█▄█░█▀▀░▀▀█░██▄
+        ░░░░░░░░░░░░░░░░
+        """
+
+        ascii_type_15 = r"""
+        ╔═╗╔═╗╔═╗╔═╗
+        ║ ╦║╣ ╚═╗║╣
+        ╚═╝╚═╝╚═╝╚═╝
+        """
+
+        all_logos = [
+            ascii_type_6,
+            ascii_type_9,
+            ascii_type_11,
+            ascii_type_14,
+            ascii_type_15,
+        ]
+
+        return random.choice(all_logos)
+
+    
+    def display_welcome_logo(self):
+        url_line = f"\n        {self.url}\n" if self.url else "\n"
+        welcome_text = f"""{self.app_name}:{self.version}\n        {self.description}{url_line}"""
+        logo_text = self.create_ascii_logo()
+        full_text_content = logo_text + welcome_text
+        
+        if self.use_gradient:
+            text = Gradient(full_text_content, colors=self.gradient_colors)
+        else:
+            text = Text(full_text_content)
+            text.stylize(self.rice_color)
+        
+        self.console.print(text)
+    
+    def _print_app_info(self):
+        info_text = f"""
+        [bold yellow]Version:[/bold yellow] {self.version}
+        [bold yellow]Description:[/bold yellow] {self.description}
+        """
+        info_panel = Panel(
+            Text(info_text, style="dim"),
+            border_style="dim",
+            box=box.SIMPLE,
+            width=50
+        )
+        
+        self.console.print(Align.center(info_panel))
+    
+    def display_mini_logo(self):
+        logo_content = f"{self.app_name}:{self.version}"
+        
+        if self.use_gradient:
+            mini_logo = GradientText(logo_content, colors=self.gradient_colors)
+        else:
+            mini_logo = Text(logo_content, style="bold")
+        
+        self.console.print(Align.center(mini_logo))
+
+def show_logo(style:str ="welcome",
+              version: str = "v1.0.0",
+              app_name:str = "gpse",
+              description:str = "Genome Recombination Analysis Tool",
+              url: str = "",
+              rice_color:str = "bold cyan",
+              use_gradient: bool = True,
+              gradient_colors: list = None,
+              gradient_scheme:str = 'random'
+              ) -> None:
+    """
+    Main entry point function to display a logo.
+    """
+    logo = LogoDisplay(
+        version = version,
+        app_name = app_name,
+        description = description,
+        url = url,
+        rice_color = rice_color,
+        use_gradient = use_gradient,
+        gradient_colors = gradient_colors,
+        gradient_scheme = gradient_scheme
+    )
+    if style == "welcome":
+        logo.display_welcome_logo()
+    elif style == "mini":
+        logo.display_mini_logo()
+    
+def config2logo(config:dict = None) -> None:
+    """
+    Extracts information from a config dictionary to show the "welcome" logo.
+    Accepts either the full config dict (with a 'software' key) or just the
+    software section dict.
+    """
+    # Handle both full config and software-section-only config
+    if "software" in config:
+        sw = config["software"]
+    else:
+        sw = config
+    
+    show_logo(
+        "welcome",
+        version=sw.get("version", "unknown"),
+        app_name=sw.get("app_name", "gpse"),
+        description=sw.get("description", ""),
+        url=sw.get("url", ""),
+        rice_color=sw.get("rice_color", "bold cyan"),
+        use_gradient=True,
+        gradient_scheme="random",
+    )
+
+if __name__ == "__main__":
+    # get software configuration from the config file
+    _software_conf = load_software_config()
+    SOFTWARE_INFO = _software_conf.get("software", {})
+    config2logo(config=SOFTWARE_INFO)
