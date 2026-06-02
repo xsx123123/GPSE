@@ -155,8 +155,24 @@ def check_external_tool(
     return result
 
 
+def _log_single_result(result: dict[str, Any], logger) -> None:
+    """Emit a single tool-check result through a loguru-style logger."""
+    name = result["name"]
+    ver = result.get("version") or "unknown"
+    if not result["available"]:
+        logger.error(f"External tool missing — {name}: not found in PATH")
+    elif not result.get("version_ok", True):
+        logger.warning(
+            f"External tool version too low — {name} {ver} "
+            f"(required >= {result['min_version']})"
+        )
+    else:
+        logger.info(f"External tool OK — {name} {ver}")
+
+
 def check_all_external_tools(
     tools_config: list[dict[str, Any]] | None,
+    logger=None,
 ) -> list[dict[str, Any]]:
     """
     Batch-check every tool defined in *tools_config*.
@@ -166,6 +182,9 @@ def check_all_external_tools(
     tools_config : list[dict] | None
         Usually loaded from ``software.yaml`` under the
         ``external_tools`` key.
+    logger : loguru.Logger | None
+        If given, each tool result is automatically logged at the
+        appropriate level (info / warning / error).
 
     Returns
     -------
@@ -174,7 +193,13 @@ def check_all_external_tools(
     """
     if not tools_config:
         return []
-    return [check_external_tool(**tool) for tool in tools_config]
+    results = []
+    for tool in tools_config:
+        result = check_external_tool(**tool)
+        results.append(result)
+        if logger is not None:
+            _log_single_result(result, logger)
+    return results
 
 
 def format_tool_status(tool: dict[str, Any], use_rich: bool = False) -> str:
@@ -226,10 +251,20 @@ def assert_required_tools(results: list[dict[str, Any]]) -> None:
 
 
 if __name__ == "__main__":
-    # Quick smoke-test
+    # Quick smoke-test — use the project's loguru logger for unified output
+    import sys
+    from pathlib import Path
+
+    _project_root = Path(__file__).resolve().parent.parent.parent
+    if str(_project_root) not in sys.path:
+        sys.path.insert(0, str(_project_root))
+
+    from gpse.utils.log_utils import logger_init
+
+    _logger = logger_init(log_level="INFO")
+
     _demo_tools = [
-        {"name": "plink", "cmd": "plink", "version_flag": "--version", "min_version": "1.90"},
+        {"name": "plink", "cmd": "plink", "version_flag": "--version", "min_version": "1.9"},
         {"name": "python", "cmd": "python3", "version_flag": "--version"},
     ]
-    for res in check_all_external_tools(_demo_tools):
-        print(format_tool_status(res))
+    check_all_external_tools(_demo_tools, logger=_logger)
