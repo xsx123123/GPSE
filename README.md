@@ -1,10 +1,16 @@
-# GPSE (Genomic Prediction with Stacking Ensemble)
+<p align="center">
+  <img src="docs/logo.png" alt="GPSE Logo" width="250">
+</p>
 
-![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Status](https://img.shields.io/badge/status-Alpha-orange)
+<h1 align="center">GPSE (Genomic Prediction with Stacking Ensemble)</h1>
 
-**Genomic Prediction with Stacking Ensemble for horticultural crops.**
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python Version">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
+  <img src="https://img.shields.io/badge/status-Alpha-orange" alt="Status">
+</p>
+
+<p align="center"><strong>Genomic Prediction with Stacking Ensemble for horticultural crops.</strong></p>
 
 GPSE is a comprehensive, machine-learning-based pipeline for genomic selection and prediction. It provides end-to-end functionalities from raw genomic data (VCF/PLINK) preprocessing to hyperparameter optimization, model evaluation, TOPSIS ranking, and Stacking Ensemble prediction.
 
