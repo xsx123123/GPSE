@@ -10,6 +10,6 @@ external_tools:
   - name: plink
     cmd: plink
     version_flag: --version
-    min_version: "1.90"
+    min_version: "1.9"
     required: true
     description: "PLINK 1.9 for genomic data format conversion and SNP extraction"

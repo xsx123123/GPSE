@@ -54,10 +54,15 @@ def _extract_version(text: str) -> str | None:
 
 
 def _version_tuple(ver: str | None) -> tuple[int, ...]:
-    """Convert a version string like '1.90b6' → (1, 90, 6) for comparison."""
+    """Convert a version string like '1.90b6' → (1, 90, 6) for comparison.
+
+    Trailing zero segments are stripped so that '1.9.0' and '1.9'
+    are treated as equivalent — this is important for tools like PLINK
+    where '1.90' and '1.9.0' refer to the same release line.
+    """
     if ver is None:
         return (0,)
-    # Strip leading 'v', split by dots, keep only numeric parts
+    # Strip leading 'v', split by dots / dashes / plus, keep only numeric parts
     cleaned = ver.lstrip("vV")
     parts = re.split(r"[.\-+]", cleaned)
     result: list[int] = []
@@ -65,6 +70,9 @@ def _version_tuple(ver: str | None) -> tuple[int, ...]:
         num = re.match(r"(\d+)", p)
         if num:
             result.append(int(num.group(1)))
+    # Strip trailing zeros so 1.9.0 → 1.9
+    while result and result[-1] == 0:
+        result.pop()
     return tuple(result) if result else (0,)
 
 
@@ -169,16 +177,32 @@ def check_all_external_tools(
     return [check_external_tool(**tool) for tool in tools_config]
 
 
-def format_tool_status(tool: dict[str, Any]) -> str:
+def format_tool_status(tool: dict[str, Any], use_rich: bool = False) -> str:
     """
-    Return a short Rich-formatted status string for a tool.
+    Return a short status string for a tool.
+
+    Parameters
+    ----------
+    tool : dict
+        Result dict from :func:`check_external_tool`.
+    use_rich : bool
+        If *True*, wrap the string with Rich colour markup.
+        If *False* (default), return plain ASCII text suitable
+        for direct printing or logging.
     """
-    if not tool["available"]:
-        return f"[red]✗ {tool['name']} — not found[/red]"
+    name = tool["name"]
     ver = tool.get("version") or "unknown"
+
+    if not tool["available"]:
+        msg = f"✗ {name} — not found"
+        return f"[red]{msg}[/red]" if use_rich else msg
+
     if tool.get("min_version") and not tool.get("version_ok", True):
-        return f"[yellow]⚠ {tool['name']} {ver} < required {tool['min_version']}[/yellow]"
-    return f"[green]✓ {tool['name']} {ver}[/green]"
+        msg = f"⚠ {name} {ver} < required {tool['min_version']}"
+        return f"[yellow]{msg}[/yellow]" if use_rich else msg
+
+    msg = f"✓ {name} {ver}"
+    return f"[green]{msg}[/green]" if use_rich else msg
 
 
 def assert_required_tools(results: list[dict[str, Any]]) -> None:
