@@ -3,7 +3,7 @@ software:
   app_name: gpse
   author: "XIAOLIU, JZHANG"
   email: "1468835852@qq.com, zhangjian199567@outlook.com"
-  url: https://github.com/<project>/gpse
+  url: https://github.com/xsx123123/GPSE
   description: "Genomic Prediction with Stacking Ensemble for horticultural crops"
 
 external_tools:

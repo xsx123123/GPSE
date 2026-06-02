@@ -23,6 +23,7 @@
 import os
 import sys
 import logging
+import argparse
 import json
 import traceback
 from pathlib import Path
@@ -1575,3 +1576,260 @@ class GenomicPredictorV2:
         return all_model_results
 
 
+def main() -> None:
+    """主函数"""
+    parser = argparse.ArgumentParser(description='基因组预测标准化流程V2 - 支持多次循环的K折交叉验证')
+    parser.add_argument('--geno_file', type=str, 
+                      help='基因型数据文件路径')
+    parser.add_argument('--pheno_file', type=str, 
+                      help='表型数据文件路径')
+    parser.add_argument('--target_trait', type=str, 
+                      help='目标性状名称')
+    parser.add_argument('--models', type=str, nargs='+',
+                      help='要运行的模型列表，不指定则运行所有可用模型')
+    parser.add_argument('--trials', type=int, default=100,
+                      help='每个模型的Optuna优化最大试验次数')
+    parser.add_argument('--threads', type=int, default=1,
+                      help='每个模型使用的线程数（建议设为1）')
+    parser.add_argument('--parallel_jobs', type=int, default=1,
+                      help='并行执行的任务数')
+    parser.add_argument('--test_size', type=float, default=0.2,
+                      help='测试集比例')
+    parser.add_argument('--n_splits', type=int, default=5,
+                      help='交叉验证折数')
+    parser.add_argument('--n_repeats', type=int, default=100,
+                      help='重复执行次数')
+    parser.add_argument('--patience', type=int, default=20,
+                      help='提前停止的耐心值')
+    parser.add_argument('--results_dir', type=str, default="optimization_results_v2",
+                      help='结果保存目录')
+    parser.add_argument('--random_seed', type=int, default=42,
+                      help='随机种子')
+    parser.add_argument('--use_stacking', action='store_true',
+                      help='是否使用Stacking集成学习')
+    parser.add_argument('--top_n_models', type=int, default=5,
+                      help='Stacking集成中使用的顶级模型数量')
+    parser.add_argument('--cv_folds', type=int, default=5,
+                      help='生成元特征的交叉验证折数')
+    parser.add_argument('--use_default_params', action='store_true',
+                      help='是否使用模型的默认参数而不进行优化')
+    parser.add_argument('--save_models', action='store_true',
+                      help='是否保存训练好的模型')
+    parser.add_argument('--use_same_test_set', action='store_true', default=True,
+                      help='是否在所有重复中使用相同的测试集')
+    parser.add_argument('--save_representative', action='store_true',
+                      help='是否保存性能最接近平均值的代表性模型')
+    parser.add_argument('--cv_file', type=str, default=None,
+                      help='指定CV文件路径，如果不存在则创建')
+    parser.add_argument('--force_new_cv', action='store_true',
+                      help='强制生成新的CV文件，即使已存在')
+    parser.add_argument('--cv_id_column', type=str, default='ID',
+                      help='表型数据中的ID列名，用于CV文件生成')
+    # TOPSIS参数现在通过get_topsis_configuration()自动配置，不需要手动指定
+    # parser.add_argument('--topsis_criteria', type=str, default='Test Pearson,Test Pearson (std)', help='TOPSIS评价指标')  
+    # parser.add_argument('--topsis_criteria_types', type=str, default='max,min', help='TOPSIS指标类型')
+    
+    # 新增分类相关参数
+    parser.add_argument('--task_type', type=str, default='regression', 
+                      choices=['regression', 'classification'],
+                      help='任务类型：regression（回归）或 classification（分类）')
+    parser.add_argument('--n_classes', type=int, default=None,
+                      help='分类任务的类别数（分类任务必须指定）')
+    parser.add_argument('--standardize_phenotype', action='store_true',
+                      help='是否对表型数据进行Z-score标准化（仅回归任务有效）')
+    
+    # 数据预处理参数组
+    preprocess_group = parser.add_argument_group('数据预处理选项', '基因组数据预处理相关参数')
+    preprocess_group.add_argument('--enable_preprocess', action='store_true',
+                                help='启用数据预处理功能')
+    preprocess_group.add_argument('--preprocess_only', action='store_true',
+                                help='仅执行数据预处理，不进行模型训练')
+    
+    # VCF和PLINK相关参数
+    preprocess_group.add_argument('--vcf_file', type=str, help='VCF格式文件路径')
+    preprocess_group.add_argument('--bfile', type=str, help='输入 PLINK 二进制格式文件 (BED/BIM/FAM) 的前缀 (不含扩展名)')
+    preprocess_group.add_argument('--ped_file', type=str, help='PLINK PED文件路径')
+    preprocess_group.add_argument('--map_file', type=str, help='PLINK MAP文件路径')
+    preprocess_group.add_argument('--plink_path', type=str, default='plink', help='PLINK可执行文件路径')
+    preprocess_group.add_argument('--plink_out', type=str, help='PLINK输出前缀（VCF转换时使用）')
+    
+    # SNP提取参数
+    preprocess_group.add_argument('--extract_file', type=str, help='包含要提取的SNP ID的文件')
+    preprocess_group.add_argument('--snp_dir', type=str, help='包含SNP列表文件的目录')
+    preprocess_group.add_argument('--direct_convert', action='store_true', 
+                                help='直接将整个bfile转换为矩阵，不进行SNP提取')
+    preprocess_group.add_argument('--matrix_file', type=str, 
+                                help='指定已有的基因型矩阵文件路径，跳过矩阵生成步骤')
+    
+    # 表型处理参数
+    preprocess_group.add_argument('--raw_pheno_file', type=str, help='原始表型TXT文件路径')
+    
+    # 输出和控制参数
+    preprocess_group.add_argument('--preprocess_prefix', type=str, help='预处理输出文件前缀')
+    preprocess_group.add_argument('--skip_matrix_conversion', action='store_true', 
+                                help='跳过SNP提取和矩阵转换步骤')
+    preprocess_group.add_argument('--skip_phenotype_match', action='store_true', 
+                                help='跳过表型基因型匹配步骤')
+    preprocess_group.add_argument('--skip_data_clean', action='store_true', 
+                                help='跳过数据清理步骤')
+    preprocess_group.add_argument('--load_matrix_info', action='store_true', 
+                                help='加载并显示矩阵信息')
+    
+    args = parser.parse_args()
+    
+    # 验证分类参数
+    if args.task_type == 'classification' and args.n_classes is None:
+        main_logger.error("分类任务必须指定 --n_classes 参数")
+        return 1
+    
+    # 参数验证
+    if args.preprocess_only:
+        # 仅预处理模式的参数验证
+        if not args.preprocess_prefix:
+            main_logger.error("预处理模式下必须提供 --preprocess_prefix 参数")
+            return 1
+    elif args.enable_preprocess:
+        # 预处理+训练模式的参数验证
+        if not args.preprocess_prefix:
+            main_logger.error("启用数据预处理时必须提供 --preprocess_prefix 参数")
+            return 1
+        if not args.target_trait:
+            main_logger.error("训练模式下必须提供 --target_trait 参数")
+            return 1
+    else:
+        # 正常训练模式的参数验证  
+        if not args.geno_file or not args.pheno_file:
+            main_logger.error("正常模式下必须提供 --geno_file 和 --pheno_file 参数")
+            return 1
+        if not args.target_trait:
+            main_logger.error("训练模式下必须提供 --target_trait 参数")
+            return 1
+    
+    # 打印配置信息
+    main_logger.info("基因组预测系统配置:")
+    for arg, value in vars(args).items():
+        main_logger.info(f"{arg}: {value}")
+    
+    # 数据预处理阶段
+    processed_geno_file = args.geno_file
+    processed_pheno_file = args.pheno_file
+    
+    if args.enable_preprocess or args.preprocess_only:
+        main_logger.info("="*70)
+        main_logger.info("开始数据预处理阶段")
+        main_logger.info("="*70)
+        
+        # 导入数据处理器
+        from genomic_data_pipeline import GenomicDataProcessor
+        
+        # 创建数据处理器
+        processor = GenomicDataProcessor(logger=main_logger, plink_path=args.plink_path)
+        
+        # 准备预处理参数
+        preprocess_kwargs = {
+            'out_prefix': args.preprocess_prefix,
+            'vcf': args.vcf_file,
+            'bfile': args.bfile,
+            'ped_file': args.ped_file,
+            'map_file': args.map_file,
+            'extract': args.extract_file,
+            'snp_dir': args.snp_dir,
+            'direct': args.direct_convert,
+            'matrix_file': args.matrix_file,
+            'pheno': args.raw_pheno_file,
+            'plink_out': args.plink_out,
+            'skip_matrix': args.skip_matrix_conversion,
+            'skip_match': args.skip_phenotype_match,
+            'skip_clean': args.skip_data_clean,
+            'load': args.load_matrix_info,
+            'trait_name': args.target_trait,  # Pass the target trait name
+            'standardize_phenotype': args.standardize_phenotype  # 传递标准化参数
+        }
+        
+        # 执行数据预处理
+        try:
+            result = processor.process_genomic_data(**preprocess_kwargs)
+            if result != 0:
+                main_logger.error("数据预处理失败")
+                return result
+                
+            main_logger.info("数据预处理完成!")
+            
+            # 设置处理后的文件路径（新的统一命名格式）
+            if not args.skip_phenotype_match and args.raw_pheno_file:
+                # 使用一体化处理后的最终文件
+                processed_geno_file = f"{args.preprocess_prefix}_genotype.csv"
+                processed_pheno_file = f"{args.preprocess_prefix}_phenotype.csv"
+            else:
+                # 使用原始处理的文件
+                processed_geno_file = args.preprocess_prefix + ".csv"
+                processed_pheno_file = args.raw_pheno_file
+                
+        except Exception as e:
+            main_logger.error(f"数据预处理过程中发生错误: {str(e)}")
+            main_logger.error(traceback.format_exc())
+            return 1
+    
+    # 如果只是预处理模式，则结束程序
+    if args.preprocess_only:
+        main_logger.info("预处理完成，程序结束")
+        return 0
+    
+    # 验证处理后的文件是否存在
+    if not os.path.exists(processed_geno_file):
+        main_logger.error(f"基因型文件不存在: {processed_geno_file}")
+        return 1
+    if not os.path.exists(processed_pheno_file):
+        main_logger.error(f"表型文件不存在: {processed_pheno_file}")
+        return 1
+    
+    main_logger.info("="*70)
+    main_logger.info("开始模型训练阶段")
+    main_logger.info("="*70)
+    main_logger.info(f"使用基因型文件: {processed_geno_file}")
+    main_logger.info(f"使用表型文件: {processed_pheno_file}")
+    
+    # 如果预处理阶段已经标准化，训练阶段不再重复标准化
+    training_standardize = False  # 预处理阶段已完成标准化
+    if args.enable_preprocess and args.standardize_phenotype:
+        main_logger.info("表型数据已在预处理阶段完成标准化，训练阶段跳过标准化")
+    elif not args.enable_preprocess:
+        # 如果未启用预处理，则使用用户指定的标准化设置
+        training_standardize = args.standardize_phenotype
+    
+    # 创建预测器实例，传递CV相关参数
+    predictor = GenomicPredictorV2(
+        random_seed=args.random_seed,
+        results_dir=args.results_dir,
+        n_trials=args.trials,
+        n_threads=args.threads,
+        max_parallel_jobs=args.parallel_jobs,
+        test_size=args.test_size,
+        n_splits=args.n_splits,
+        n_repeats=args.n_repeats,
+        patience=args.patience,
+        use_default_params=args.use_default_params,
+        save_models=args.save_models,
+        save_representative=args.save_representative,
+        cv_file=args.cv_file,
+        force_new_cv=args.force_new_cv,
+        cv_id_column=args.cv_id_column,
+        task_type=args.task_type,
+        n_classes=args.n_classes,
+        standardize_phenotype=training_standardize  # 根据预处理情况决定
+    )
+    
+    # 运行模型，使用处理后的文件（如果进行了预处理）或原始文件
+    predictor.run_all_models(
+        geno_file=processed_geno_file,
+        pheno_file=processed_pheno_file,
+        target_trait=args.target_trait,
+        models=args.models,
+        use_stacking=args.use_stacking,
+        top_n_models=args.top_n_models,
+        cv_folds=args.cv_folds,
+        use_same_test_set=args.use_same_test_set
+    )
+
+if __name__ == "__main__":
+    main() 
