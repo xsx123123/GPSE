@@ -104,6 +104,23 @@ python -m gpse.tools.analyze_phenotypes
 * `pandas` & `numpy`
 * `rich` & `loguru` (for beautiful CLI output and logging)
 
+## 📝 Recent Updates
+
+* **Modular Refactor of `GenomicPredictorV2`** (`2026-06-03`)
+  * Split the monolithic `GenomicPredictorV2` class in `gpse/core/prediction_v2.py` into **9 focused sub-modules** under `gpse/core/`:
+    * `_data_io.py` – genotype / phenotype loading & standardization
+    * `_model_tools.py` – model creation, default parameters & metric fallbacks
+    * `_fold_training.py` – single CV fold training, logging & averaging
+    * `_ensemble.py` – fold-ensemble prediction & metrics
+    * `_optimization.py` – Optuna hyper-parameter optimization
+    * `_repeat_training.py` – repeat-level training orchestration & parallel execution
+    * `_cv_manager.py` – CV fold preparation & file generation
+    * `_pipeline.py` – top-level `run_all_models` pipeline (including TOPSIS + Stacking)
+    * `_topsis_config.py` – TOPSIS configuration, representative model saving & environment logging
+  * All Chinese comments, docstrings, and log messages have been translated into **English**.
+  * Fixed `logger_init()` parameter name mismatch (`log_file` → `logger_name`).
+  * Fixed `NumpyEncoder` import path.
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the `LICENSE` file for details.
