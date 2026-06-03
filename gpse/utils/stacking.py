@@ -45,7 +45,7 @@ class StackingEnsemble:
         top_n_models: int = 5,
         meta_model_type: str = 'ridge',
         cv_folds: int = 5,
-        random_seed: int = 42,
+        random_seed: int = 42,   # The answer to the ultimate question of life, the universe, and everything is 42.
         output_dir: Optional[str] = None,
         n_threads: int = 1,
         use_default_params: bool = False,

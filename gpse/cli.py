@@ -12,10 +12,33 @@ import sys
 import argparse
 import traceback
 
+# ── Early thread control ──────────────────────────────────────
+# MUST set env vars BEFORE importing numpy/scipy/sklearn, which
+# initialize BLAS/MKL/OpenMP thread pools at import time.
+# Once those pools are created, later changes to OMP_NUM_THREADS
+# etc. have NO effect on already-initialized thread pools.
+_thread_pre_parser = argparse.ArgumentParser(add_help=False)
+_thread_pre_parser.add_argument("--n_jobs", type=int, default=1)
+_thread_pre_args, _ = _thread_pre_parser.parse_known_args()
+_thread_n = str(_thread_pre_args.n_jobs)
+for _env_var in (
+    "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "BLIS_NUM_THREADS",
+):
+    os.environ[_env_var] = _thread_n
+del _thread_pre_parser, _thread_pre_args, _thread_n, _env_var
+# ── End early thread control ──────────────────────────────────
+
 try:
     from rich_argparse import RichHelpFormatter
 except ImportError:  # pragma: no cover
     RichHelpFormatter = argparse.HelpFormatter
+
+try:
+    from rich.console import Console
+    _console = Console()
+except ImportError:  # pragma: no cover
+    _console = None
 
 from gpse.core.prediction_v2 import GenomicPredictorV2, main_logger
 from gpse.utils.genomic_data_pipeline import GenomicDataProcessor
@@ -46,6 +69,37 @@ def _show_logo() -> None:
         print(f"  GPSE v{__version__}")
         print(f"  Genomic Prediction with Stacking Ensemble")
         print(f"{'=' * 50}\n")
+
+
+def _log_stage(title: str) -> None:
+    """Print a pretty stage separator to terminal and log to file."""
+    if _console is not None:
+        _console.rule(f"[bold blue]{title}[/bold blue]")
+    main_logger.info(title)
+
+
+def _print_easter_egg() -> None:
+    """Typewriter animation for the 42 easter egg."""
+    import time
+
+    text = "The answer to the ultimate question of life, the universe, and everything is 42"
+    if _console is None:
+        print(f"\n{text}\n")
+        return
+
+    _console.print("\n", end="")
+    for char in text:
+        _console.print(f"[bold green]{char}[/bold green]", end="")
+        time.sleep(0.04)
+    _console.print("\n")
+
+    # Blinking cursor effect
+    for _ in range(3):
+        _console.print("[bold green]▮[/bold green]", end="")
+        time.sleep(0.5)
+        _console.print("\r \r", end="")
+        time.sleep(0.3)
+    _console.print("\n")
 
 
 class _LogoHelpAction(argparse.Action):
@@ -108,19 +162,32 @@ def main() -> int:
     train_group = parser.add_argument_group("training arguments")
     train_group.add_argument(
         "--models", type=str, nargs="+",
-        help="List of model names to run; runs all available models if omitted",
+        help=(
+            "List of model names to run; runs all available models if omitted. "
+            "Regression: elasticnet_reg, gbdt_reg, svr_reg, mlp_reg, knn_reg, "
+            "rf_reg, xgboost_reg, adaboost_reg, lightgbm_reg, catboost_reg, "
+            "kernelridge_reg, histgradientboost_reg, sgd_reg, lasso_reg. "
+            "Classification: rf_clf, xgboost_clf, lightgbm_clf, catboost_clf, svm_clf, mlp_clf."
+        ),
     )
     train_group.add_argument(
         "--trials", type=int, default=100,
         help="Maximum number of Optuna optimization trials per model (default: 100)",
     )
     train_group.add_argument(
-        "--threads", type=int, default=1,
-        help="Number of threads per model (recommended: 1 to avoid thread contention) (default: 1)",
+        "--n_jobs", type=int, default=1,
+        help=(
+            "Number of parallel workers (threads) used by each individual model internally "
+            "(e.g., n_jobs for sklearn, nthread for XGBoost). Recommended: 1 when running "
+            "multiple models in parallel to avoid oversubscription (default: 1)"
+        ),
     )
     train_group.add_argument(
-        "--parallel_jobs", type=int, default=1,
-        help="Number of parallel training jobs (multi-process) (default: 1)",
+        "--max_workers", type=int, default=1,
+        help=(
+            "Maximum number of parallel training processes (model-level parallelism) "
+            "via ProcessPoolExecutor (default: 1)"
+        ),
     )
     train_group.add_argument(
         "--test_size", type=float, default=0.2,
@@ -144,7 +211,7 @@ def main() -> int:
     )
     train_group.add_argument(
         "--random_seed", type=int, default=42,
-        help="Random seed for reproducibility (default: 42)",
+        help="Random seed for reproducibility (default: 42)",   # The answer to the ultimate question of life, the universe, and everything is 42.
     )
     train_group.add_argument(
         "--use_default_params", action="store_true",
@@ -284,14 +351,20 @@ def main() -> int:
         help="Load and display basic information about an existing matrix (dimensions, sample count, etc.)",
     )
 
+    # Easter egg: the ultimate answer
+    if len(sys.argv) == 2 and sys.argv[1] == "42":
+        _print_easter_egg()
+        return 0
+
     args = parser.parse_args()
 
     # Show help when no arguments are provided
     if len(sys.argv) == 1:
         _show_logo()
-        from rich.console import Console
-        _console = Console()
-        _console.print("\n[bold red][ERROR] No arguments provided. Please specify at least one option.[/bold red]\n")
+        if _console is not None:
+            _console.print("\n[bold red][ERROR] No arguments provided. Please specify at least one option.[/bold red]\n")
+        else:
+            print("\n[ERROR] No arguments provided. Please specify at least one option.\n")
         parser.print_help()
         return 1
 
@@ -325,9 +398,15 @@ def main() -> int:
             handler.setLevel(level)
 
     # ── Parameter validation ──────────────────────────────────────
-    if args.task_type == "classification" and args.n_classes is None:
-        main_logger.error("Classification tasks require the --n_classes argument")
-        return 1
+    if args.task_type == "classification":
+        if args.n_classes is None:
+            main_logger.error("Classification tasks require the --n_classes argument")
+            return 1
+        if args.n_classes < 2:
+            main_logger.error("--n_classes must be >= 2 for classification")
+            return 1
+    elif args.n_classes is not None:
+        main_logger.warning("--n_classes is ignored for regression tasks")
 
     if args.preprocess_only:
         if not args.preprocess_prefix:
@@ -357,9 +436,7 @@ def main() -> int:
     processed_pheno_file = args.pheno_file
 
     if args.enable_preprocess or args.preprocess_only:
-        main_logger.info("=" * 70)
-        main_logger.info("Starting data preprocessing")
-        main_logger.info("=" * 70)
+        _log_stage("Starting data preprocessing")
 
         processor = GenomicDataProcessor(logger=main_logger, plink_path=args.plink_path)
 
@@ -415,9 +492,7 @@ def main() -> int:
         main_logger.error(f"Phenotype file not found: {processed_pheno_file}")
         return 1
 
-    main_logger.info("=" * 70)
-    main_logger.info("Starting model training")
-    main_logger.info("=" * 70)
+    _log_stage("Starting model training")
     main_logger.info(f"Genotype file: {processed_geno_file}")
     main_logger.info(f"Phenotype file: {processed_pheno_file}")
 
@@ -431,8 +506,8 @@ def main() -> int:
         random_seed=args.random_seed,
         results_dir=args.results_dir,
         n_trials=args.trials,
-        n_threads=args.threads,
-        max_parallel_jobs=args.parallel_jobs,
+        n_threads=args.n_jobs,
+        max_parallel_jobs=args.max_workers,
         test_size=args.test_size,
         n_splits=args.n_splits,
         n_repeats=args.n_repeats,

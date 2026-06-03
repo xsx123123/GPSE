@@ -53,7 +53,9 @@ def _train_single_fold(
         ) = prepare_fold_training_data(X_train, y_train, train_idx, val_idx, X_test)
 
         # Train fold model
-        model, training_time = train_fold_model(model, X_fold_train_scaled, y_fold_train)
+        model, training_time = train_fold_model(
+            model, X_fold_train_scaled, y_fold_train, n_threads=self.n_threads
+        )
 
         # Predict and calculate metrics
         if self.task_type == "classification":

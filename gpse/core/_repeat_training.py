@@ -33,6 +33,17 @@ from gpse.utils.genomic_utils import (
 from gpse.utils.log_utils import logger_init
 
 
+def _init_worker_threads(n_threads: int) -> None:
+    """Initializer for ProcessPoolExecutor workers to enforce thread limits.
+
+    Sets all 6 BLAS/OpenMP environment variables BEFORE any numpy/scipy
+    imports happen in the child process (spawn context re-imports modules).
+    """
+    from gpse.config import ModelConstants
+    for _env_var in ModelConstants.thread_env_vars:
+        os.environ[_env_var] = str(n_threads)
+
+
 def train_and_evaluate_model_for_repeat(
     self,
     model_name: str,
@@ -226,7 +237,10 @@ def run_model_multiple_repeats(
         main_logger.info(f"Using {self.max_parallel_jobs} parallel tasks for training")
 
         with ProcessPoolExecutor(
-            max_workers=self.max_parallel_jobs, mp_context=mp.get_context("spawn")
+            max_workers=self.max_parallel_jobs,
+            mp_context=mp.get_context("spawn"),
+            initializer=_init_worker_threads,
+            initargs=(self.n_threads,),
         ) as executor:
             futures = [
                 executor.submit(
@@ -410,6 +424,12 @@ def run_model_multiple_repeats(
 
 def _run_repeat_task(self, model_name, X, y, repeat_idx, test_indices, cv_pheno_data):
     """Wrapper function for parallel processing."""
+    # Re-set all thread-control env vars explicitly in the child process.
+    # The initializer (_init_worker_threads) handles this for spawn-context
+    # processes, but we re-apply here as a belt-and-suspenders safeguard.
+    for _env_var in ModelConstants.thread_env_vars:
+        os.environ[_env_var] = str(self.n_threads)
+
     task_logger = logger_init(
         logger_name=str(self.results_dir / ModelConstants.default_logs_dir / "run.log"),
         log_level="DEBUG",

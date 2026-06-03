@@ -77,7 +77,7 @@ class GenomicPredictorV2:
 
     def __init__(
         self,
-        random_seed: int = 42,
+        random_seed: int = 42,  # The answer to the ultimate question of life, the universe, and everything is 42.
         results_dir: str = "optimization_results",
         n_trials: int = 100,
         n_threads: int = 1,

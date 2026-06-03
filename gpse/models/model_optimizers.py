@@ -7,7 +7,7 @@ from typing import Dict, Tuple, Any, Optional
 import optuna
 import os
 
-from gpse.config import ModelConfig
+from gpse.config import ModelConfig, ModelConstants
 
 class ModelOptimizer:
     """Unified model optimizer for both regression and classification tasks"""
@@ -18,10 +18,9 @@ class ModelOptimizer:
         self.model_configs = {}  # Initialize empty dict first
         self.model_configs = self._init_model_configs()  # Then populate it
         
-        # Set environment variables for multi-threading
-        os.environ['OMP_NUM_THREADS'] = str(n_threads)
-        os.environ['MKL_NUM_THREADS'] = str(n_threads)
-        os.environ['OPENBLAS_NUM_THREADS'] = str(n_threads)
+        # Set environment variables for multi-threading (all 6 BLAS/OpenMP backends)
+        for _env_var in ModelConstants.thread_env_vars:
+            os.environ[_env_var] = str(n_threads)
     
     def _init_model_configs(self) -> Dict[str, ModelConfig]:
         """Initialize all model configurations"""
@@ -732,6 +731,7 @@ class ModelOptimizer:
             return XGBRegressor(**params)
         elif model_name == 'histgradientboost_reg':
             from sklearn.ensemble import HistGradientBoostingRegressor
+            params['n_jobs'] = self.n_threads
             return HistGradientBoostingRegressor(**params)
         elif model_name == 'sgd_reg':
             from sklearn.linear_model import SGDRegressor
@@ -789,6 +789,7 @@ class ModelOptimizer:
             return MLPRegressor(**params)
         elif model_name == 'knn_reg':
             from sklearn.neighbors import KNeighborsRegressor
+            params['n_jobs'] = self.n_threads
             return KNeighborsRegressor(**params)
         elif model_name == 'rf_reg':
             from sklearn.ensemble import RandomForestRegressor

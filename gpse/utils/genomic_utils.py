@@ -468,22 +468,26 @@ def prepare_fold_training_data(X_train: pd.DataFrame, y_train: pd.Series,
     
     return X_fold_train_scaled, X_fold_val_scaled, X_test_scaled, y_fold_train, y_fold_val, scaler
 
-def train_fold_model(model: Any, X_fold_train_scaled: np.ndarray, 
-                    y_fold_train: pd.Series) -> Tuple[Any, float]:
+def train_fold_model(model: Any, X_fold_train_scaled: np.ndarray,
+                    y_fold_train: pd.Series, n_threads: int = 1) -> Tuple[Any, float]:
     """
     Train a model for a single fold.
-    
+
     Args:
         model: Model instance.
         X_fold_train_scaled: Standardized training features.
         y_fold_train: Training target variable.
-        
+        n_threads: Max threads for BLAS/OpenMP (threadpoolctl safety net).
+
     Returns:
         trained_model, training_time
     """
     import time
+    from threadpoolctl import threadpool_limits
+
     start_time = time.time()
-    model.fit(X_fold_train_scaled, y_fold_train)
+    with threadpool_limits(limits=n_threads):
+        model.fit(X_fold_train_scaled, y_fold_train)
     training_time = time.time() - start_time
     return model, training_time
 

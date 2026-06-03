@@ -19,6 +19,7 @@ from loguru import logger as main_logger
 
 from gpse.config import ModelConstants
 from gpse.utils.genomic_utils import generate_optimization_seed
+from threadpoolctl import threadpool_limits
 
 
 def optimize_model_parameters(
@@ -92,7 +93,8 @@ def optimize_model_parameters(
 
             log.debug(f"Training fold {fold_idx + 1}...")
             try:
-                model.fit(X_fold_train_scaled, y_fold_train)
+                with threadpool_limits(limits=self.n_threads):
+                    model.fit(X_fold_train_scaled, y_fold_train)
 
                 if self.task_type == "classification":
                     (

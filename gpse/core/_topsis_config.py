@@ -20,6 +20,7 @@ from loguru import logger as main_logger
 
 from gpse.config import ModelConstants
 from gpse.utils.genomic_utils import create_representative_model_directory
+from threadpoolctl import threadpool_limits
 
 
 def get_topsis_configuration(self) -> Tuple[list, list, str]:
@@ -91,7 +92,8 @@ def _save_representative_model(
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
 
-        model.fit(X_scaled, y)
+        with threadpool_limits(limits=self.n_threads):
+            model.fit(X_scaled, y)
 
         model_path = representative_model_dir / ModelConstants.model_pkl_file
         joblib.dump((model, scaler), model_path)

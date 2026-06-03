@@ -16,6 +16,7 @@ from typing import Dict
 from loguru import logger as main_logger
 
 from gpse.utils.genomic_utils import calculate_metrics
+from threadpoolctl import threadpool_limits
 
 
 def _compute_ensemble_predictions(
@@ -51,7 +52,8 @@ def _compute_ensemble_predictions(
                 y_fold_train = y_train.iloc[train_idx]
                 fold_scaler = StandardScaler()
                 X_fold_train_scaled = fold_scaler.fit_transform(X_fold_train)
-                fold_model.fit(X_fold_train_scaled, y_fold_train)
+                with threadpool_limits(limits=self.n_threads):
+                    fold_model.fit(X_fold_train_scaled, y_fold_train)
                 ensemble_models.append((fold_model, fold_scaler))
 
         # Compute ensemble predictions

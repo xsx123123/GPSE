@@ -21,7 +21,7 @@ import optuna
 import os
 import numpy as np
 
-from gpse.config import ClassificationModelConfig
+from gpse.config import ClassificationModelConfig, ModelConstants
 
 class ClassificationModelOptimizer:
     """Classification Model Optimizer"""
@@ -32,10 +32,9 @@ class ClassificationModelOptimizer:
         self.n_classes = n_classes
         self.model_configs = self._init_classification_model_configs()
         
-        # Set environment variables for multi-threading
-        os.environ['OMP_NUM_THREADS'] = str(n_threads)
-        os.environ['MKL_NUM_THREADS'] = str(n_threads)
-        os.environ['OPENBLAS_NUM_THREADS'] = str(n_threads)
+        # Set environment variables for multi-threading (all 6 BLAS/OpenMP backends)
+        for _env_var in ModelConstants.thread_env_vars:
+            os.environ[_env_var] = str(n_threads)
     
     def _init_classification_model_configs(self) -> Dict[str, ClassificationModelConfig]:
         """Initialize classification model configurations"""
