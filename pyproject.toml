@@ -40,7 +40,6 @@ repository = "https://github.com/xsx123123/GPSE"
 packages = [{include = "gpse"}]
 include = [
     "gpse/config/*.yaml",
-    "gpse/report/templates/*.j2",
 ]
 
 [tool.poetry.dependencies]
