@@ -52,30 +52,30 @@ pip install .
 
 ## 🚀 Usage
 
-GPSE provides command-line interfaces for both data processing and model training. The package automatically installs a `gpse` command-line executable.
+GPSE provides a unified command-line interface via the `gpse` executable (installed automatically with `pip install .` or `poetry install`).
 
-### 1. Data Preprocessing
+### 1. Data Preprocessing Only
 
-The integrated data pipeline handles VCF to matrix conversion, and genotype-phenotype matching.
+Convert raw VCF/PLINK data to numerical matrices and match genotypes with phenotypes.
 
 ```bash
-# Example: Process genomic and phenotypic data
-python -m gpse.core.genomic_data_pipeline \
-    --vcf path/to/genotypes.vcf \
-    --pheno path/to/phenotypes.txt \
-    --out-prefix processed_data \
-    --plink plink
+gpse --preprocess_only \
+    --preprocess_prefix processed_data \
+    --vcf_file path/to/genotypes.vcf \
+    --raw_pheno_file path/to/phenotypes.txt \
+    --target_trait Trait_Name \
+    --plink_path plink
 ```
 
-### 2. Model Training & Prediction
+### 2. Preprocessing + Model Training (One-Stop)
 
-Run the optimization and prediction pipeline. You can choose to run regression or classification tasks.
+Run preprocessing and model training in a single command.
 
 ```bash
-# Example: Run Regression models with Stacking Ensemble
-python -m gpse.core.genomic_prediction_v2 \
-    --geno_file processed_data_genotype.csv \
-    --pheno_file processed_data_phenotype.csv \
+gpse --enable_preprocess \
+    --preprocess_prefix processed_data \
+    --vcf_file path/to/genotypes.vcf \
+    --raw_pheno_file path/to/phenotypes.txt \
     --target_trait Trait_Name \
     --task_type regression \
     --n_splits 5 \
@@ -86,12 +86,54 @@ python -m gpse.core.genomic_prediction_v2 \
     --results_dir output_results/
 ```
 
-### 3. Analyze Phenotypes
+### 3. Model Training Only (With Pre-processed Data)
+
+If you already have genotype and phenotype CSV files:
+
+```bash
+gpse \
+    --geno_file processed_data_genotype.csv \
+    --pheno_file processed_data_phenotype.csv \
+    --target_trait Trait_Name \
+    --task_type regression \
+    --n_splits 5 \
+    --n_repeats 10 \
+    --trials 50 \
+    --use_stacking \
+    --top_n_models 5 \
+    --n_jobs 2 \
+    --max_workers 4 \
+    --results_dir output_results/
+```
+
+### 4. Classification Task
+
+```bash
+gpse \
+    --geno_file genotype.csv \
+    --pheno_file phenotype.csv \
+    --target_trait Disease_Resistance \
+    --task_type classification \
+    --n_classes 3 \
+    --n_splits 5 \
+    --n_repeats 10 \
+    --trials 50 \
+    --results_dir classification_results/
+```
+
+### 5. Analyze Phenotypes
 
 Quickly analyze phenotype data to determine the appropriate task type (Regression vs Classification).
 
 ```bash
 python -m gpse.tools.analyze_phenotypes
+```
+
+### 6. Show Help
+
+```bash
+gpse --help
+gpse --version
 ```
 
 ## 📦 Core Dependencies
@@ -106,6 +148,19 @@ python -m gpse.tools.analyze_phenotypes
 
 ## 📝 Recent Updates
 
+* **Thread Control & Startup Performance** (`2026-06-03`)
+  * Fixed BLAS/MKL thread pools ignoring `--n_jobs` by setting all 6 environment variables (`OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `NUMEXPR_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS`, `BLIS_NUM_THREADS`) **before** numpy/scipy import.
+  * Added `threadpoolctl.threadpool_limits()` as a runtime safety net around all `model.fit()` calls.
+  * Switched `__init__.py` files in `core/`, `models/`, `utils/` to **lazy imports** (`__getattr__`) so `gpse --help` no longer loads the entire ML stack.
+  * Renamed CLI args for clarity: `--threads` → `--n_jobs`, `--parallel_jobs` → `--max_workers`.
+  * Added `--n_jobs` to `histgradientboost_reg` and `knn_reg` (previously missing thread control).
+  * Fixed easter egg (`gpse 42`) duplicate face and unrendered rich markup.
+
+* **Import System Unification** (`2026-06-03`)
+  * Removed all `sys.path` hacks from `cli.py` and `prediction_v2.py`.
+  * Unified all imports to absolute package paths (`from gpse.xxx import ...`).
+  * Populated `__init__.py` files with proper exports for `config/`, `core/`, `models/`, `utils/`, `tools/`.
+
 * **Modular Refactor of `GenomicPredictorV2`** (`2026-06-03`)
   * Split the monolithic `GenomicPredictorV2` class in `gpse/core/prediction_v2.py` into **9 focused sub-modules** under `gpse/core/`:
     * `_data_io.py` – genotype / phenotype loading & standardization
@@ -117,9 +172,8 @@ python -m gpse.tools.analyze_phenotypes
     * `_cv_manager.py` – CV fold preparation & file generation
     * `_pipeline.py` – top-level `run_all_models` pipeline (including TOPSIS + Stacking)
     * `_topsis_config.py` – TOPSIS configuration, representative model saving & environment logging
-  * All Chinese comments, docstrings, and log messages have been translated into **English**.
-  * Fixed `logger_init()` parameter name mismatch (`log_file` → `logger_name`).
-  * Fixed `NumpyEncoder` import path.
+  * All Chinese comments, docstrings, and log messages translated to **English**.
+  * Moved `ModelConfig`, `ClassificationModelConfig`, `NumpyEncoder` into `config/constants.py`.
 
 ## 📄 License
 
