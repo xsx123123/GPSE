@@ -79,7 +79,7 @@ def _log_stage(title: str) -> None:
 
 
 def _print_easter_egg() -> None:
-    """Typewriter animation for the 42 easter egg."""
+    """Animated easter egg for the ultimate answer."""
     import time
 
     text = "The answer to the ultimate question of life, the universe, and everything is 42"
@@ -88,18 +88,52 @@ def _print_easter_egg() -> None:
         return
 
     from rich.text import Text
+
+    # Show face
     _console.print(Text("  [/●_●\\]", style="bold yellow"))
-    for char in text:
-        _console.print(f"[bold green]{char}[/bold green]", end="")
-        time.sleep(0.04)
+    time.sleep(0.3)
+
+    # Blink
+    _console.print(
+        Text.assemble(Text("  [/-_●\\]", style="bold yellow"), "  *blink*"),
+        end="\r",
+    )
+    time.sleep(0.15)
+    _console.print(
+        Text.assemble(Text("  [/●_●\\]", style="bold yellow"), "           "),
+        end="\r",
+    )
+    time.sleep(0.15)
+
+    # Thinking dots
+    _console.print("  [dim]thinking[/dim]", end="")
+    for _ in range(3):
+        time.sleep(0.4)
+        _console.print("[dim].[/dim]", end="")
+    _console.print("  ")
+    time.sleep(0.3)
+
+    # Typewriter with rainbow colors
+    colors = ["red", "bright_red", "yellow", "bright_yellow", "green", "bright_green", "cyan", "bright_cyan", "blue", "bright_blue", "magenta", "bright_magenta"]
+    _console.print("  ", end="")
+    for i, char in enumerate(text):
+        color = colors[i % len(colors)]
+        _console.print(f"[bold {color}]{char}[/bold {color}]", end="")
+        time.sleep(0.035)
     _console.print("\n")
 
-    # Blinking cursor effect
-    for _ in range(3):
-        _console.print("[bold green]▮[/bold green]", end="")
-        time.sleep(0.5)
-        _console.print("\r \r", end="")
-        time.sleep(0.3)
+    # Wink + sparkle
+    time.sleep(0.2)
+    _console.print(
+        Text.assemble(
+            Text("  [/●_-\\]", style="bold yellow"),
+            "  ",
+            ("✨", "bold gold1"),
+            "  ",
+            ("42!", "italic bright_green"),
+        )
+    )
+    time.sleep(0.5)
     _console.print("\n")
 
 
@@ -212,7 +246,7 @@ def main() -> int:
     )
     train_group.add_argument(
         "--random_seed", type=int, default=42,
-        help="Random seed for reproducibility (default: 42)",   # The answer to the ultimate question of life, the universe, and everything is 42.
+        help="Random seed for reproducibility (default: 42)",
     )
     train_group.add_argument(
         "--use_default_params", action="store_true",
