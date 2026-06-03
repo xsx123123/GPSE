@@ -1,11 +1,45 @@
 """Global constant configuration and log message templates."""
 
+import json
+import numpy as np
 from dataclasses import dataclass, field
+from typing import Any, Callable
+
+
+@dataclass
+class ModelConfig:
+    """Configuration for model hyperparameter optimization"""
+    model_class: Any
+    param_func: Callable
+    is_regression: bool
+
+
+@dataclass
+class ClassificationModelConfig:
+    """Configuration for classification model hyperparameter optimization"""
+    model_class: Any
+    param_func: Callable
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """
+    JSON encoder that handles NumPy types
+    """
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NumpyEncoder, self).default(obj)
 
 
 @dataclass(frozen=True)
 class _ModelConstants:
-    """Constants configuration related to model training"""
+    """
+    Constants configuration related to model training
+    """
     # Optuna optimization related
     optuna_n_startup_trials: int = 10
     optuna_n_warmup_steps: int = 5

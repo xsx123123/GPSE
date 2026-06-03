@@ -7,6 +7,7 @@ This module provides beautiful logo display functionality using rich library.
 It can be imported and called from main.py to display the application logo.
 """
 import random
+import textwrap
 from rich import box
 from rich.text import Text
 from rich.panel import Panel
@@ -128,19 +129,19 @@ class LogoDisplay:
         """
 
         all_logos = [
-            ascii_type_6,
-            ascii_type_9,
-            ascii_type_11,
-            ascii_type_14,
-            ascii_type_15,
+            textwrap.dedent(ascii_type_6),
+            textwrap.dedent(ascii_type_9),
+            textwrap.dedent(ascii_type_11),
+            textwrap.dedent(ascii_type_14),
+            textwrap.dedent(ascii_type_15),
         ]
 
         return random.choice(all_logos)
 
     
     def display_welcome_logo(self):
-        url_line = f"\n        {self.url}\n" if self.url else "\n"
-        welcome_text = f"""{self.app_name}:{self.version}\n        {self.description}{url_line}"""
+        url_line = f"\n{self.url}\n" if self.url else "\n"
+        welcome_text = f"""{self.app_name}:{self.version}\n{self.description}{url_line}"""
         logo_text = self.create_ascii_logo()
         full_text_content = logo_text + welcome_text
         

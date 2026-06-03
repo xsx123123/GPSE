@@ -46,8 +46,8 @@ from ensemble_stacking import StackingEnsemble
 from genomic_classification import GenomicClassifier
 from classification_models import ClassificationModelOptimizer
 from genomic_utils import (
-    create_logger, calculate_metrics,
-    NumpyEncoder, prepare_cv_data, call_topsis_evaluator, 
+    calculate_metrics,
+    prepare_cv_data, call_topsis_evaluator, 
     create_comparison_table, filter_model_params,
     generate_optimization_seed, generate_repeat_seed, generate_fold_seed,
     create_model_result_directory, create_repeat_result_directory,
@@ -56,6 +56,18 @@ from genomic_utils import (
     predict_and_calculate_metrics, save_fold_predictions_and_plots,
     calculate_repeat_statistics, find_representative_repeat
 )
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """JSON encoder that handles NumPy types"""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NumpyEncoder, self).default(obj)
 
 # 配置全局日志级别，只添加一个控制台处理器
 logging.basicConfig(

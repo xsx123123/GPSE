@@ -11,9 +11,7 @@
 import os
 import json
 import time
-import logging
 import random
-import subprocess
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
@@ -22,57 +20,6 @@ from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from sklearn.model_selection import KFold, train_test_split
 from sklearn.preprocessing import StandardScaler
-
-
-def create_logger(log_file=None, name=None, level=logging.INFO, propagate=False):
-    """
-    创建一个具有特定名称和日志文件的记录器
-    
-    参数:
-        log_file: 日志文件路径
-        name: 记录器名称
-        level: 日志级别
-        propagate: 是否传递日志到父记录器
-        
-    返回:
-        配置好的记录器
-    """
-    if name is None:
-        name = f"task_{id(time.time())}"
-    
-    # 获取或创建记录器
-    task_logger = logging.getLogger(name)
-    task_logger.setLevel(level)
-    
-    # 避免记录器继承上级处理器
-    task_logger.propagate = propagate
-    
-    # 先清除所有已有的处理器
-    if task_logger.handlers:
-        task_logger.handlers = []
-    
-    # 添加格式化器
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
-    # 添加控制台处理器(仅INFO及以上级别)
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(formatter)
-    task_logger.addHandler(console_handler)
-    
-    # 如果提供了日志文件，添加文件处理器(记录所有级别)
-    if log_file:
-        # 确保日志目录存在
-        log_dir = os.path.dirname(log_file)
-        if log_dir and not os.path.exists(log_dir):
-            os.makedirs(log_dir, exist_ok=True)
-            
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(level)
-        file_handler.setFormatter(formatter)
-        task_logger.addHandler(file_handler)
-    
-    return task_logger
 
 
 def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
@@ -99,19 +46,6 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float
         'rmse': np.sqrt(mean_squared_error(y_true, y_pred)),
         'mae': mean_absolute_error(y_true, y_pred)
     }
-
-
-
-class NumpyEncoder(json.JSONEncoder):
-    """处理NumPy类型的JSON编码器"""
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super(NumpyEncoder, self).default(obj)
 
 
 def prepare_cv_data(phe_data, save_path, cv_times, cvfold):
@@ -158,7 +92,7 @@ def call_topsis_evaluator(
             from topsis import TOPSISEvaluator
         except ImportError:
             # Fallback for different naming if necessary
-            from topsis import TOPSISEvaluator
+            from .topsis import TOPSISEvaluator
         
         # Create TOPSIS evaluator
         evaluator = TOPSISEvaluator(logger=logger)

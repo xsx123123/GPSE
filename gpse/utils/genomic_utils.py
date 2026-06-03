@@ -2,81 +2,29 @@
 # -*- coding: utf-8 -*-
 
 """
-基因组预测工具函数模块
-====================
+Genomic Prediction Utility Functions Module
+===========================================
 
-包含基因组预测流程中使用的工具函数、辅助类和独立功能函数。
+Contains utility functions, helper classes, and independent functional functions 
+used in the genomic prediction pipeline.
 """
 
 import os
 import json
 import time
-import logging
 import random
-import subprocess
-from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
 import pandas as pd
+from pathlib import Path
+from typing import Dict, Any, List, Tuple, Optional
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from sklearn.model_selection import KFold, train_test_split
 from sklearn.preprocessing import StandardScaler
 
 
-def create_logger(log_file=None, name=None, level=logging.INFO, propagate=False):
-    """
-    创建一个具有特定名称和日志文件的记录器
-    
-    参数:
-        log_file: 日志文件路径
-        name: 记录器名称
-        level: 日志级别
-        propagate: 是否传递日志到父记录器
-        
-    返回:
-        配置好的记录器
-    """
-    if name is None:
-        name = f"task_{id(time.time())}"
-    
-    # 获取或创建记录器
-    task_logger = logging.getLogger(name)
-    task_logger.setLevel(level)
-    
-    # 避免记录器继承上级处理器
-    task_logger.propagate = propagate
-    
-    # 先清除所有已有的处理器
-    if task_logger.handlers:
-        task_logger.handlers = []
-    
-    # 添加格式化器
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
-    # 添加控制台处理器(仅INFO及以上级别)
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(formatter)
-    task_logger.addHandler(console_handler)
-    
-    # 如果提供了日志文件，添加文件处理器(记录所有级别)
-    if log_file:
-        # 确保日志目录存在
-        log_dir = os.path.dirname(log_file)
-        if log_dir and not os.path.exists(log_dir):
-            os.makedirs(log_dir, exist_ok=True)
-            
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(level)
-        file_handler.setFormatter(formatter)
-        task_logger.addHandler(file_handler)
-    
-    return task_logger
-
-
 def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
-    """计算所有性能指标"""
+    """Calculate all performance metrics."""
     try:
         pearson_corr = pearsonr(y_true, y_pred)[0]
         if np.isnan(pearson_corr):
@@ -101,31 +49,18 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float
     }
 
 
-
-class NumpyEncoder(json.JSONEncoder):
-    """处理NumPy类型的JSON编码器"""
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super(NumpyEncoder, self).default(obj)
-
-
-def prepare_cv_data(phe_data, save_path, cv_times, cvfold):
+def prepare_cv_data(phe_data: pd.DataFrame, save_path: str, cv_times: int, cvfold: int) -> pd.DataFrame:
     """
-    生成并保存交叉验证分组信息
+    Generate and save cross-validation grouping information.
     
-    参数:
-        phe_data: 表型数据DataFrame
-        save_path: CV文件保存路径
-        cv_times: 重复次数
-        cvfold: 交叉验证折数
+    Args:
+        phe_data: Phenotype data DataFrame.
+        save_path: Path to save the CV file.
+        cv_times: Number of repetitions.
+        cvfold: Number of CV folds.
     
-    返回:
-        添加了CV分组列的表型数据
+    Returns:
+        Phenotype data with added CV grouping columns.
     """
     sample_block = int(phe_data.shape[0] / cvfold)
     phe_index = phe_data.index.to_numpy(copy=True)
@@ -196,25 +131,25 @@ def call_topsis_evaluator(
 
 
 def create_comparison_table(all_model_results: Dict[str, Dict[str, Any]], results_dir: Path, logger=None):
-    """创建模型性能比较表格"""
-    # 准备比较数据
+    """Create a comparison table for model performance."""
+    # Prepare comparison data
     comparison_data = []
     
-    # 检查任务类型
+    # Check task type
     first_result = next(iter(all_model_results.values()))
     is_classification = 'avg_test_accuracy' in first_result
     
     for model_name, results in all_model_results.items():
-        # 清理模型名称，去除_clf和_reg后缀
+        # Clean model names, removing _clf and _reg suffixes
         display_name = model_name.replace('_reg', '').replace('_clf', '')
-        # 为集成模型使用特殊名称
+        # Use special name for ensemble models
         if display_name == 'stacking_ensemble':
             display_name = 'Ensemble'
         
-        # 根据任务类型收集性能指标
+        # Collect performance metrics based on task type
         try:
             if is_classification:
-                # 分类任务指标
+                # Classification task metrics
                 row = {
                     'Model': display_name,
                     'Test Accuracy': results.get('avg_test_accuracy', 0.0),
@@ -231,7 +166,7 @@ def create_comparison_table(all_model_results: Dict[str, Dict[str, Any]], result
                 }
                 sort_column = 'Ensemble Accuracy'
             else:
-                # 回归任务指标
+                # Regression task metrics
                 row = {
                     'Model': display_name,
                     'Test Pearson': results.get('avg_test_pearson', 0.0),
@@ -250,38 +185,38 @@ def create_comparison_table(all_model_results: Dict[str, Dict[str, Any]], result
                 
             comparison_data.append(row)
         except Exception as e:
-            error_msg = f"处理模型 {model_name} 的结果时出错: {str(e)}"
+            error_msg = f"Error processing results for model {model_name}: {str(e)}"
             if logger:
                 logger.error(error_msg)
             else:
                 print(error_msg)
     
-    # 创建数据框
+    # Create DataFrame
     if comparison_data:
         comparison_df = pd.DataFrame(comparison_data)
         
-        # 按主要性能指标排序
+        # Sort by primary performance metric
         comparison_df = comparison_df.sort_values(sort_column, ascending=False)
         
-        # 保存到CSV
+        # Save to CSV
         comparison_path = results_dir / 'model_comparison.csv'
         comparison_df.to_csv(comparison_path, index=False)
         
-        # 记录结果
+        # Log results
         if logger:
-            logger.info(f"\n模型性能比较:")
+            logger.info(f"\nModel Performance Comparison:")
             logger.info("\n" + comparison_df.to_string(index=False))
-            logger.info(f"\n比较表格已保存到 {comparison_path}")
+            logger.info(f"\nComparison table saved to {comparison_path}")
         else:
-            print(f"\n模型性能比较:")
+            print(f"\nModel Performance Comparison:")
             print("\n" + comparison_df.to_string(index=False))
-            print(f"\n比较表格已保存到 {comparison_path}")
+            print(f"\nComparison table saved to {comparison_path}")
     else:
-        warning_msg = "没有足够的结果来创建比较表格"
+        warning_msg = "Not enough results to create comparison table"
         if logger:
             logger.warning(warning_msg)
         else:
-            print(f"警告: {warning_msg}")
+            print(f"Warning: {warning_msg}")
 
 
 def generate_cv_folds_from_file(
@@ -293,84 +228,84 @@ def generate_cv_folds_from_file(
     task_logger=None
 ) -> List[Tuple[np.ndarray, np.ndarray]]:
     """
-    从CV文件生成交叉验证折
+    Generate cross-validation folds from a CV file.
     
-    参数:
-        X: 特征矩阵
-        y: 目标变量
-        cv_pheno_data: 包含CV分组的表型数据
-        repeat_idx: 重复索引
-        n_splits: 交叉验证折数
-        task_logger: 任务专用日志记录器
+    Args:
+        X: Feature matrix.
+        y: Target variable.
+        cv_pheno_data: Phenotype data containing CV groupings.
+        repeat_idx: Index of the current repetition.
+        n_splits: Number of CV folds.
+        task_logger: Logger for specific tasks.
         
-    返回:
-        包含训练和验证索引的列表
+    Returns:
+        List containing training and validation indices.
     """
-    # 使用提供的记录器或默认记录器
+    # Use provided logger or default to None
     log = task_logger if task_logger else None
     
-    # 获取当前重复的CV列名
+    # Get CV column name for the current repetition
     cv_col = f'cv{repeat_idx}'
     
-    # 确保CV列存在
+    # Ensure CV column exists
     if cv_col not in cv_pheno_data.columns:
-        error_msg = f"CV文件中不存在列 {cv_col}，无法生成交叉验证折"
+        error_msg = f"Column {cv_col} not found in CV file, cannot generate cross-validation folds"
         if log:
             log.error(error_msg)
         else:
-            print(f"错误: {error_msg}")
-        raise ValueError(f"CV文件中不存在列 {cv_col}")
+            print(f"Error: {error_msg}")
+        raise ValueError(f"Column {cv_col} missing in CV file")
     
-    # 生成所有折
+    # Generate all folds
     folds = []
     for fold_idx in range(n_splits):
-        # 获取验证集索引
+        # Get validation set indices
         val_mask = cv_pheno_data[cv_col] == fold_idx
         val_indices = cv_pheno_data.index[val_mask].tolist()
         
-        # 获取训练集索引
+        # Get training set indices
         train_mask = cv_pheno_data[cv_col] != fold_idx
         train_indices = cv_pheno_data.index[train_mask].tolist()
         
-        # 将索引转换为X中的位置索引
+        # Convert indices to positional indices in X
         X_index_map = {idx: i for i, idx in enumerate(X.index)}
         train_idx = np.array([X_index_map[idx] for idx in train_indices if idx in X_index_map])
         val_idx = np.array([X_index_map[idx] for idx in val_indices if idx in X_index_map])
         
         folds.append((train_idx, val_idx))
         
-        # 记录折的大小
+        # Log fold size
         if log:
-            log.debug(f"重复 {repeat_idx+1}, 折 {fold_idx+1}/{n_splits}: "
-                     f"训练集大小 {len(train_idx)}, 验证集大小 {len(val_idx)}")
+            log.debug(f"Repetition {repeat_idx+1}, Fold {fold_idx+1}/{n_splits}: "
+                     f"Training set size {len(train_idx)}, Validation set size {len(val_idx)}")
     
     return folds
 
 
 def filter_model_params(model_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
     """
-    过滤掉不是实际模型参数的辅助参数
+    Filter out auxiliary parameters that are not actual model parameters.
     
-    参数:
-        model_name: 模型名称
-        params: 原始参数字典
+    Args:
+        model_name: Model name.
+        params: Original parameter dictionary.
         
-    返回:
-        过滤后的参数字典
+    Returns:
+        Filtered parameter dictionary.
     """
-    # 复制参数字典，避免修改原始参数
+    # Copy parameter dictionary to avoid modifying original
     filtered_params = params.copy()
     
-    # 通用过滤：移除所有以下划线开头的辅助参数
+    # General filtering: remove all auxiliary parameters starting with underscore
     filtered_params = {k: v for k, v in filtered_params.items() if not k.startswith('_')}
     
-    # 模型特定过滤
+    # Model-specific filtering
     if model_name == 'mlp_reg':
-        # 移除MLP特有的辅助参数
+        # Remove MLP-specific auxiliary parameters
         if 'n_layers' in filtered_params:
             del filtered_params['n_layers']
         
-        # 移除所有形如 n_units_lX 的参数
+        # Remove all parameters in the form of n_units_lX
         filtered_params = {k: v for k, v in filtered_params.items() 
                           if not k.startswith('n_units_l')}
     
@@ -387,101 +322,103 @@ def generate_cv_folds(
     task_logger=None
 ) -> List[Tuple[np.ndarray, np.ndarray]]:
     """
-    生成可重复的交叉验证折
+    Generate reproducible cross-validation folds.
     
-    参数:
-        X: 特征矩阵
-        y: 目标变量
-        repeat_idx: 重复索引
-        n_splits: 交叉验证折数
-        random_seed: 基础随机种子
-        n_repeats: 总重复次数(用于日志)
-        task_logger: 任务专用日志记录器
+    Args:
+        X: Feature matrix.
+        y: Target variable.
+        repeat_idx: Index of the current repetition.
+        n_splits: Number of CV folds.
+        random_seed: Base random seed.
+        n_repeats: Total number of repetitions (for logging).
+        task_logger: Logger for specific tasks.
         
-    返回:
-        包含训练和验证索引的列表
+    Returns:
+        List containing training and validation indices.
     """
-    # 使用提供的记录器或默认记录器
+    # Use provided logger or default to None
     log = task_logger if task_logger else None
     
-    # 使用重复索引作为随机种子，确保可复现性
+    # Use repetition index as random seed to ensure reproducibility
     fold_seed = random_seed + repeat_idx
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=fold_seed)
     
-    # 生成所有折
+    # Generate all folds
     folds = list(kf.split(X))
     
-    # 记录折的大小
+    # Log fold size
     if log:
         for i, (train_idx, val_idx) in enumerate(folds):
             if n_repeats:
-                log.debug(f"重复 {repeat_idx+1}/{n_repeats}, 折 {i+1}/{n_splits}: "
-                         f"训练集大小 {len(train_idx)}, 验证集大小 {len(val_idx)}")
+                log.debug(f"Repetition {repeat_idx+1}/{n_repeats}, Fold {i+1}/{n_splits}: "
+                         f"Training set size {len(train_idx)}, Validation set size {len(val_idx)}")
             else:
-                log.debug(f"重复 {repeat_idx+1}, 折 {i+1}/{n_splits}: "
-                         f"训练集大小 {len(train_idx)}, 验证集大小 {len(val_idx)}")
+                log.debug(f"Repetition {repeat_idx+1}, Fold {i+1}/{n_splits}: "
+                         f"Training set size {len(train_idx)}, Validation set size {len(val_idx)}")
     
     return folds
 
 
-# 种子生成函数
+# Seed generation functions
 def generate_optimization_seed(random_seed: int, repeat_idx: int) -> int:
-    """生成Optuna优化使用的随机种子"""
-    return random_seed + repeat_idx * 100  # 使用常量100作为种子乘数
+    """Generate random seed for Optuna optimization."""
+    return random_seed + repeat_idx * 100  # Use 100 as constant multiplier for seed
 
 def generate_repeat_seed(random_seed: int, repeat_idx: int) -> int:
-    """生成重复训练使用的随机种子"""
+    """Generate random seed for repetition training."""
     return random_seed + repeat_idx
 
 def generate_fold_seed(random_seed: int, repeat_idx: int, fold_idx: int) -> int:
-    """生成折训练使用的随机种子"""
+    """Generate random seed for fold training."""
     repeat_seed = generate_repeat_seed(random_seed, repeat_idx)
     return repeat_seed + fold_idx
 
-# 目录创建函数
+
+# Directory creation functions
 def create_model_result_directory(results_dir: Path, model_name: str) -> Path:
-    """创建模型结果主目录"""
+    """Create main directory for model results."""
     model_dir = results_dir / model_name
     model_dir.mkdir(exist_ok=True, parents=True)
     return model_dir
 
 def create_repeat_result_directory(results_dir: Path, model_name: str, repeat_idx: int) -> Path:
-    """创建重复训练结果目录"""
+    """Create directory for repetition training results."""
     repeat_dir = results_dir / model_name / f"repeat_{repeat_idx+1}"
     repeat_dir.mkdir(exist_ok=True, parents=True)
     return repeat_dir
 
 def create_plots_directory(repeat_dir: Path) -> Path:
-    """创建散点图保存目录"""
+    """Create directory for scatter plots."""
     plots_dir = repeat_dir / "plots"
     plots_dir.mkdir(exist_ok=True, parents=True)
     return plots_dir
 
 def create_representative_model_directory(model_dir: Path) -> Path:
-    """创建代表性模型保存目录"""
+    """Create directory for representative model storage."""
     representative_dir = model_dir / "representative_model"
     representative_dir.mkdir(exist_ok=True, parents=True)
     return representative_dir
 
-# 数据处理函数
+
+# Data processing functions
 def prepare_train_test_data(X: pd.DataFrame, y: pd.Series, repeat_idx: int, 
                            random_seed: int, test_size: float, 
                            test_indices: np.ndarray = None) -> Tuple[np.ndarray, pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
     """
-    准备训练测试数据分割
+    Prepare training and test data split.
     
-    参数:
-        X: 特征矩阵
-        y: 目标变量
-        repeat_idx: 重复索引
-        random_seed: 基础随机种子
-        test_size: 测试集比例
-        test_indices: 测试集索引(如果提供)
+    Args:
+        X: Feature matrix.
+        y: Target variable.
+        repeat_idx: Index of current repetition.
+        random_seed: Base random seed.
+        test_size: Proportion for test set.
+        test_indices: Test set indices (if provided).
         
-    返回:
+    Returns:
         train_indices, X_train, y_train, X_test, y_test
     """
-    # 分割训练集和测试集(如果没有提供测试集索引)
+    # Split training and test sets if no test indices are provided
     if test_indices is None:
         repeat_seed = generate_repeat_seed(random_seed, repeat_idx)
         _, test_indices = train_test_split(
@@ -503,27 +440,27 @@ def prepare_fold_training_data(X_train: pd.DataFrame, y_train: pd.Series,
                               train_idx: np.ndarray, val_idx: np.ndarray, 
                               X_test: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray, pd.Series, pd.Series, StandardScaler]:
     """
-    为单个折准备训练数据，包含标准化
+    Prepare training data for a single fold, including standardization.
     
-    参数:
-        X_train: 训练特征矩阵
-        y_train: 训练目标变量
-        train_idx: 折内训练索引
-        val_idx: 折内验证索引
-        X_test: 测试特征矩阵
+    Args:
+        X_train: Training feature matrix.
+        y_train: Training target variable.
+        train_idx: Indices for training within the fold.
+        val_idx: Indices for validation within the fold.
+        X_test: Test feature matrix.
         
-    返回:
+    Returns:
         X_fold_train_scaled, X_fold_val_scaled, X_test_scaled, y_fold_train, y_fold_val, scaler
     """
     from sklearn.preprocessing import StandardScaler
     
-    # 获取折数据
+    # Get fold data
     X_fold_train = X_train.iloc[train_idx]
     y_fold_train = y_train.iloc[train_idx]
     X_fold_val = X_train.iloc[val_idx]
     y_fold_val = y_train.iloc[val_idx]
     
-    # 标准化特征
+    # Standardize features
     scaler = StandardScaler()
     X_fold_train_scaled = scaler.fit_transform(X_fold_train)
     X_fold_val_scaled = scaler.transform(X_fold_val)
@@ -534,14 +471,14 @@ def prepare_fold_training_data(X_train: pd.DataFrame, y_train: pd.Series,
 def train_fold_model(model: Any, X_fold_train_scaled: np.ndarray, 
                     y_fold_train: pd.Series) -> Tuple[Any, float]:
     """
-    训练单个折的模型
+    Train a model for a single fold.
     
-    参数:
-        model: 模型实例
-        X_fold_train_scaled: 标准化后的训练特征
-        y_fold_train: 训练目标变量
+    Args:
+        model: Model instance.
+        X_fold_train_scaled: Standardized training features.
+        y_fold_train: Training target variable.
         
-    返回:
+    Returns:
         trained_model, training_time
     """
     import time
@@ -555,23 +492,23 @@ def predict_and_calculate_metrics(model: Any, X_fold_train_scaled: np.ndarray,
                                  y_fold_val: pd.Series, X_test_scaled: np.ndarray,
                                  y_test: pd.Series) -> Tuple[Dict, Dict, Dict, np.ndarray, np.ndarray, np.ndarray]:
     """
-    执行预测并计算所有性能指标
+    Perform prediction and calculate all performance metrics.
     
-    参数:
-        model: 训练好的模型
-        X_fold_train_scaled, y_fold_train: 训练数据
-        X_fold_val_scaled, y_fold_val: 验证数据  
-        X_test_scaled, y_test: 测试数据
+    Args:
+        model: Trained model.
+        X_fold_train_scaled, y_fold_train: Training data.
+        X_fold_val_scaled, y_fold_val: Validation data.
+        X_test_scaled, y_test: Test data.
         
-    返回:
+    Returns:
         train_metrics, val_metrics, test_metrics, y_fold_train_pred, y_fold_val_pred, y_test_pred
     """
-    # 预测
+    # Prediction
     y_fold_train_pred = model.predict(X_fold_train_scaled)
     y_fold_val_pred = model.predict(X_fold_val_scaled)
     y_test_pred = model.predict(X_test_scaled)
     
-    # 计算性能指标
+    # Calculate metrics
     train_metrics = calculate_metrics(y_fold_train, y_fold_train_pred)
     val_metrics = calculate_metrics(y_fold_val, y_fold_val_pred)
     test_metrics = calculate_metrics(y_test, y_test_pred)
@@ -586,12 +523,12 @@ def save_fold_predictions_and_plots(train_idx: np.ndarray, val_idx: np.ndarray,
                                    model_name: str, repeat_idx: int, fold_idx: int,
                                    repeat_dir: Path, results_dir: Path) -> Dict:
     """
-    保存折预测结果（已移除绘图功能以加速训练）
+    Save fold prediction results (plotting functionality removed to accelerate training).
     
-    返回:
-        空字典（不再生成图片）
+    Returns:
+        Empty dictionary (no images generated).
     """
-    # 保存预测结果
+    # Save prediction results
     train_predictions = {
         'indices': train_idx.tolist(),
         'true_values': y_fold_train.tolist(),
@@ -614,28 +551,28 @@ def save_fold_predictions_and_plots(train_idx: np.ndarray, val_idx: np.ndarray,
     all_predictions['val'].append(val_predictions)
     all_predictions['test'].append(test_predictions)
     
-    # 注释: 已移除绘图功能以加速训练
     return {}
 
-# 统计计算函数
+# Statistical calculation functions
 def calculate_repeat_statistics(all_repeat_results: List[Dict], task_type: str = None) -> Dict[str, Any]:
     """
-    计算所有重复结果的统计信息
+    Calculate statistical information for all repetition results.
     
-    参数:
-        all_repeat_results: 所有重复的结果列表
+    Args:
+        all_repeat_results: List containing results from all repetitions.
+        task_type: Type of task (regression/classification).
         
-    返回:
-        包含平均值、标准差和原始数据的统计字典
+    Returns:
+        Statistical dictionary containing mean, standard deviation, and raw data.
     """
     if not all_repeat_results:
         return None
         
-    # 检查任务类型 - 优先使用传入的参数，其次使用数据推断
+    # Check task type - priority to passed parameter, followed by data inference
     if task_type:
         is_classification = (task_type == 'classification')
     else:
-        # 使用多种方式确保准确性
+        # Multiple ways to ensure accuracy
         first_result = all_repeat_results[0]
         is_classification = (
             'avg_test_accuracy' in first_result or 
@@ -643,13 +580,13 @@ def calculate_repeat_statistics(all_repeat_results: List[Dict], task_type: str =
             ('ensemble_metrics' in first_result and 'accuracy' in first_result.get('ensemble_metrics', {}))
         )
     
-    # 根据任务类型提取相应指标的值
+    # Extract metric values based on task type
     avg_results = {
         'training_time_values': [r['avg_training_time'] for r in all_repeat_results],
     }
     
     if is_classification:
-        # 分类任务指标
+        # Classification task metrics
         avg_results.update({
             'test_accuracy_values': [r.get('avg_test_accuracy', 0.0) for r in all_repeat_results],
             'val_accuracy_values': [r.get('avg_val_accuracy', 0.0) for r in all_repeat_results],
@@ -661,7 +598,7 @@ def calculate_repeat_statistics(all_repeat_results: List[Dict], task_type: str =
             'ensemble_accuracy_values': [r.get('ensemble_metrics', {}).get('accuracy', 0.0) for r in all_repeat_results],
         })
     else:
-        # 回归任务指标
+        # Regression task metrics
         avg_results.update({
             'test_pearson_values': [r.get('avg_test_pearson', 0.0) for r in all_repeat_results],
             'val_pearson_values': [r.get('avg_val_pearson', 0.0) for r in all_repeat_results],
@@ -671,7 +608,7 @@ def calculate_repeat_statistics(all_repeat_results: List[Dict], task_type: str =
             'test_mse_values': [r.get('avg_test_mse', 0.0) for r in all_repeat_results]
         })
     
-    # 计算统计摘要
+    # Calculate statistical summary
     summary = {
         'model_name': all_repeat_results[0]['model_name'],
         'n_repeats': len(all_repeat_results),
@@ -680,7 +617,7 @@ def calculate_repeat_statistics(all_repeat_results: List[Dict], task_type: str =
     }
     
     if is_classification:
-        # 分类任务统计
+        # Classification task statistics
         summary.update({
             'avg_test_accuracy': np.mean(avg_results['test_accuracy_values']),
             'std_test_accuracy': np.std(avg_results['test_accuracy_values']),
@@ -700,7 +637,7 @@ def calculate_repeat_statistics(all_repeat_results: List[Dict], task_type: str =
             'std_test_auc': np.std(avg_results['test_auc_values']),
         })
     else:
-        # 回归任务统计
+        # Regression task statistics
         summary.update({
             'avg_test_pearson': np.mean(avg_results['test_pearson_values']),
             'std_test_pearson': np.std(avg_results['test_pearson_values']),
@@ -720,16 +657,16 @@ def calculate_repeat_statistics(all_repeat_results: List[Dict], task_type: str =
 
 def find_representative_repeat(all_repeat_results: List[Dict], avg_ensemble_metric: float) -> Tuple[int, Dict, float]:
     """
-    找出性能最接近平均值的重复
+    Find the repetition whose performance is closest to the average.
     
-    参数:
-        all_repeat_results: 所有重复的结果列表
-        avg_ensemble_metric: 平均集成性能（分类：准确率，回归：Pearson相关系数）
+    Args:
+        all_repeat_results: List containing results from all repetitions.
+        avg_ensemble_metric: Average ensemble performance (classification: accuracy, regression: Pearson).
         
-    返回:
+    Returns:
         closest_repeat_idx, closest_repeat, difference
     """
-    # 检查任务类型并提取相应的集成指标
+    # Check task type and extract corresponding ensemble metrics
     first_result = all_repeat_results[0]
     is_classification = 'avg_test_accuracy' in first_result
     
@@ -738,10 +675,10 @@ def find_representative_repeat(all_repeat_results: List[Dict], avg_ensemble_metr
     else:
         ensemble_values = [r['ensemble_metrics']['pearson'] for r in all_repeat_results]
     
-    # 计算每个重复的性能与平均性能的差距
+    # Calculate gap between each repetition's performance and the average
     metric_diffs = [abs(val - avg_ensemble_metric) for val in ensemble_values]
     
-    # 找出差距最小的重复索引
+    # Find the repetition index with the smallest gap
     closest_repeat_idx = np.argmin(metric_diffs)
     closest_repeat = all_repeat_results[closest_repeat_idx]
     difference = metric_diffs[closest_repeat_idx]
