@@ -23,8 +23,8 @@ try:
 except ImportError:  # pragma: no cover
     RichHelpFormatter = argparse.HelpFormatter
 
-from genomic_prediction_v2 import GenomicPredictorV2, main_logger
-from genomic_data_pipeline import GenomicDataProcessor
+from prediction_v2 import GenomicPredictorV2, main_logger
+from utils.genomic_data_pipeline import GenomicDataProcessor
 
 try:
     from gpse.utils.configuration import load_software_config

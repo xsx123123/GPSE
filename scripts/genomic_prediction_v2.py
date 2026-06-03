@@ -29,19 +29,6 @@ import traceback
 from pathlib import Path
 from typing import Dict, Tuple, Any, Optional, List, Union
 
-# 从命令行获取线程数，用于设置环境变量
-def _get_threads_from_argv(default: int = 1) -> int:
-    """Parse --threads argument from command line."""
-    try:
-        if '--threads' in sys.argv:
-            idx = sys.argv.index('--threads') + 1
-            return int(sys.argv[idx]) if idx < len(sys.argv) else default
-    except (ValueError, IndexError):
-        pass
-    return default
-
-threads = _get_threads_from_argv()
-
 # 导入依赖库
 import numpy as np
 import pandas as pd
@@ -1471,7 +1458,8 @@ class GenomicPredictorV2:
                         criteria_types=criteria_types,
                         manual_weights=manual_weights,
                         min_transform='neglog',
-                        simple_output=str(topsis_simple)
+                        simple_output=str(topsis_simple),
+                        logger=main_logger
                     )
                     
                     # 读取TOPSIS结果，选择前N个模型进行集成

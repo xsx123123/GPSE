@@ -148,24 +148,22 @@ def call_topsis_evaluator(
     criteria_types=None,
     manual_weights: str = None,
     min_transform: str = 'reciprocal',
-    simple_output: str = None
+    simple_output: str = None,
+    logger=None
 ):
-    """调用TOPSIS评价器进行模型综合评价"""
+    """Call TOPSIS evaluator for model comprehensive evaluation."""
     try:
-        # 导入TOPSIS评价器
-        from topsis_evaluator import TOPSISEvaluator
-        
-        # 获取主日志记录器
+        # Import TOPSIS evaluator from scripts directory
         try:
-            from genomic_prediction_v2 import main_logger
-            logger = main_logger
-        except:
-            logger = None
+            from topsis import TOPSISEvaluator
+        except ImportError:
+            # Fallback for different naming if necessary
+            from topsis import TOPSISEvaluator
         
-        # 创建TOPSIS评价器
+        # Create TOPSIS evaluator
         evaluator = TOPSISEvaluator(logger=logger)
         
-        # 执行TOPSIS评价
+        # Execute TOPSIS evaluation
         evaluator.evaluate(
             input_file=comparison_csv,
             output_file=output_csv,
@@ -177,22 +175,19 @@ def call_topsis_evaluator(
             use_entropy_weights=False
         )
         
+        msg = f"TOPSIS evaluation completed: {output_csv}"
         if logger:
-            logger.info(f"TOPSIS评价完成: {output_csv}")
+            logger.info(msg)
         else:
-            print(f"TOPSIS评价完成: {output_csv}")
+            print(msg)
             
     except Exception as e:
-        # 使用外部logger，如果不存在则使用print
-        try:
-            from genomic_prediction_v2 import main_logger
-            main_logger.error(f"TOPSIS评价失败: {e}")
-            import traceback
-            main_logger.error(f"错误详情: {traceback.format_exc()}")
-        except:
-            print(f"TOPSIS评价失败: {e}")
-            import traceback
-            print(f"错误详情: {traceback.format_exc()}")
+        import traceback
+        err_msg = f"TOPSIS evaluation failed: {e}\n{traceback.format_exc()}"
+        if logger:
+            logger.error(err_msg)
+        else:
+            print(err_msg)
         raise
 
 
@@ -757,60 +752,48 @@ def prepare_cv_folds(
     cv_id_column: str = 'ID',
     n_repeats: int = 100,
     n_splits: int = 5,
-    results_dir: str = "optimization_results"
+    results_dir: str = "optimization_results",
+    logger=None
 ) -> pd.DataFrame:
     """
-    准备交叉验证折分组信息并保存到文件
-    
-    参数:
-        pheno_data: 表型数据DataFrame
-        target_trait: 目标性状名称
-        cv_file: 指定CV文件路径，如果不存在则创建
-        force_new_cv: 强制生成新的CV文件，即使已存在
-        cv_id_column: 表型数据中的ID列名，用于CV文件生成
-        n_repeats: 重复次数
-        n_splits: 交叉验证折数
-        results_dir: 结果保存目录
-        
-    返回:
-        添加了CV分组列的表型数据
+    Prepare cross-validation fold information and save to file.
     """
     results_dir = Path(results_dir)
     
-    # 确定CV文件路径
+    # Determine CV file path
     if cv_file is not None:
         cv_file_path = Path(cv_file)
     else:
-        # 创建CV文件目录
+        # Create CV file directory
         cv_dir = results_dir / "cv_folds"
         cv_dir.mkdir(exist_ok=True, parents=True)
         
-        # 默认CV文件路径
+        # Default CV file path
         cv_file_path = cv_dir / f"{target_trait}_cv_{n_repeats}x{n_splits}.csv"
     
-    # 检查是否已存在CV文件且不需要强制重新生成
+    # Check if CV file exists and should not be regenerated
     if cv_file_path.exists() and not force_new_cv:
-        try:
-            from genomic_prediction_v2 import main_logger
-            main_logger.info(f"加载已有的CV分组文件: {cv_file_path}")
-        except:
-            print(f"加载已有的CV分组文件: {cv_file_path}")
+        msg = f"Loading existing CV grouping file: {cv_file_path}"
+        if logger:
+            logger.info(msg)
+        else:
+            print(msg)
         cv_pheno_data = pd.read_csv(cv_file_path, index_col=0)
     else:
-        try:
-            from genomic_prediction_v2 import main_logger
-            main_logger.info(f"生成新的CV分组并保存到: {cv_file_path}")
-        except:
-            print(f"生成新的CV分组并保存到: {cv_file_path}")
+        msg = f"Generating new CV groupings and saving to: {cv_file_path}"
+        if logger:
+            logger.info(msg)
+        else:
+            print(msg)
         
-        # 确保pheno_data有索引列
+        # Ensure pheno_data has an index column
         pheno_data_copy = pheno_data.copy()
         
-        # 如果ID列在数据中，将其设置为索引
+        # If ID column is in data, set it as index
         if cv_id_column in pheno_data_copy.columns:
             pheno_data_copy.set_index(cv_id_column, inplace=True)
         
-        # 生成CV分组
+        # Generate CV groupings
         cv_pheno_data = prepare_cv_data(
             pheno_data_copy, 
             str(cv_file_path), 

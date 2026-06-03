@@ -22,140 +22,80 @@
 
 import os
 import sys
-import logging
 import json
+import joblib
+import optuna
 import traceback
-from pathlib import Path
-from typing import Dict, Tuple, Any, Optional, List, Union
-
-# 从命令行获取线程数，用于设置环境变量
-def _get_threads_from_argv(default: int = 1) -> int:
-    """Parse --threads argument from command line."""
-    try:
-        if '--threads' in sys.argv:
-            idx = sys.argv.index('--threads') + 1
-            return int(sys.argv[idx]) if idx < len(sys.argv) else default
-    except (ValueError, IndexError):
-        pass
-    return default
-
-threads = _get_threads_from_argv()
-
-# 导入依赖库
 import numpy as np
 import pandas as pd
+from pathlib import Path
+from typing import Dict, Tuple, Any, Optional, List, Union
 from scipy.stats import pearsonr
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-import optuna
 from optuna.pruners import MedianPruner
-import joblib
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from model_optimizers import ModelOptimizer
-from ensemble_stacking import StackingEnsemble
-from genomic_classification import GenomicClassifier
-from classification_models import ClassificationModelOptimizer
-from genomic_utils import (
-    create_logger, calculate_metrics,
-    NumpyEncoder, prepare_cv_data, call_topsis_evaluator, 
-    create_comparison_table, filter_model_params,
-    generate_optimization_seed, generate_repeat_seed, generate_fold_seed,
-    create_model_result_directory, create_repeat_result_directory,
-    create_representative_model_directory,
-    prepare_train_test_data, prepare_fold_training_data, train_fold_model,
-    predict_and_calculate_metrics, save_fold_predictions_and_plots,
-    calculate_repeat_statistics, find_representative_repeat
-)
+# 确保项目根目录在 sys.path 中，以支持直接运行脚本和跨模块导入
+_pkg_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _pkg_dir not in sys.path:
+    sys.path.insert(0, _pkg_dir)
 
-# 配置全局日志级别，只添加一个控制台处理器
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
-)
+# 现在可以安全地导入其他模块
+try:
+    from config import ModelConstants
+except ImportError:
+    # 兼容性处理：如果作为 gpse 包的一部分被导入
+    try:
+        from ..config import ModelConstants
+    except ImportError:
+        # 最后的保底措施，如果路径设置依然有问题
+        raise ImportError("无法加载 config 模块。请确保脚本从项目根目录运行或 PYTHONPATH 已正确设置。")
+
+# 导入依赖库
 
 
-class ModelConstants:
-    """模型训练相关常量配置"""
-    # Optuna优化相关
-    OPTUNA_N_STARTUP_TRIALS = 10
-    OPTUNA_N_WARMUP_STEPS = 5
-    OPTUNA_INTERVAL_STEPS = 1
-    OPTUNA_N_JOBS = 1  # 强制Optuna串行执行
-    
-    # 线程环境变量
-    THREAD_ENV_VARS = [
-        'OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS',
-        'NUMEXPR_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'BLIS_NUM_THREADS'
-    ]
-    
-    # 默认目录名称
-    DEFAULT_RESULTS_DIR = "optimization_results"
-    DEFAULT_LOGS_DIR = "logs"
-    DEFAULT_CV_DIR = "cv_folds"
-    REPRESENTATIVE_MODEL_DIR = "representative_model"
-    
-    # 默认文件名称
-    MAIN_LOG_FILE = "main.log"
-    MODEL_LOG_FILE = "model.log"
-    REPEAT_RESULTS_FILE = "repeat_results.json"
-    SUMMARY_RESULTS_FILE = "summary_results.json"
-    ALL_PREDICTIONS_FILE = "all_predictions.json"
-    MODEL_INFO_FILE = "info.json"
-    MODEL_PKL_FILE = "model.pkl"
-    COMPARISON_CSV_FILE = "model_comparison.csv"
-    
-    # 日志格式模板
-    LOG_SEPARATOR_SHORT = "=" * 50
-    LOG_SEPARATOR_LONG = "=" * 70
-    
-    # 数值精度常量
-    METRICS_PRECISION = 6
-    TIME_PRECISION = 2
-    FLOAT_PRECISION = 4
-    CORRELATION_MIN_THRESHOLD = 1e-10  # 避免常量预测的阈值
 
+# 导入模型优化器和分类模型
+try:
+    from models.model_optimizers import ModelOptimizer
+    from models.classification_models import ClassificationModelOptimizer
+    from utils.genomic_utils import (
+        calculate_metrics, NumpyEncoder, prepare_cv_data,
+        call_topsis_evaluator, create_comparison_table, filter_model_params,
+        generate_optimization_seed, generate_repeat_seed, generate_fold_seed,
+        create_model_result_directory, create_repeat_result_directory,
+        create_representative_model_directory, prepare_train_test_data,
+        prepare_fold_training_data, train_fold_model, predict_and_calculate_metrics,
+        save_fold_predictions_and_plots, calculate_repeat_statistics,
+        find_representative_repeat
+    )
+    from utils.stacking import StackingEnsemble
+    from utils.log_utils import logger_init
+except ImportError:
+    from ..models.model_optimizers import ModelOptimizer
+    from ..models.classification_models import ClassificationModelOptimizer
+    from ..utils.genomic_utils import (
+        calculate_metrics, NumpyEncoder, prepare_cv_data,
+        call_topsis_evaluator, create_comparison_table, filter_model_params,
+        generate_optimization_seed, generate_repeat_seed, generate_fold_seed,
+        create_model_result_directory, create_repeat_result_directory,
+        create_representative_model_directory, prepare_train_test_data,
+        prepare_fold_training_data, train_fold_model, predict_and_calculate_metrics,
+        save_fold_predictions_and_plots, calculate_repeat_statistics,
+        find_representative_repeat
+    )
+    from ..utils.stacking import StackingEnsemble
+    from ..utils.log_utils import logger_init
 
-class LogMessages:
-    """日志消息模板常量"""
-    # 初始化消息
-    LOGGING_INITIALIZED = "日志系统初始化完成"
-    PREDICTOR_INIT = "初始化GenomicPredictorV2，基础配置:"
-    
-    # 数据加载消息
-    DATA_LOADING = "正在加载数据..."
-    DATA_LOADED = "成功加载基因型数据: {}, 表型数据: {}"
-    COMMON_SAMPLES = "基因型样本数: {}, 表型样本数: {}"
-    FINAL_DATA_INFO = "最终数据维度 - 特征数量: {}, 样本数量: {}"
-    TARGET_STATS = "目标变量统计 - 均值: {:.4f}, 标准差: {:.4f}"
-    
-    # 训练消息
-    MODEL_TRAINING_START = "开始训练 模型:{} 重复:{}"
-    REPEAT_TRAINING_START = "开始为模型 {} 执行 {} 次重复训练"
-    FOLD_TRAINING_START = "训练折 {}/{}"
-    PARAMETER_OPTIMIZATION_START = "开始为模型 {} 优化参数 (重复 {}/{})"
-    OPTIMIZATION_START = "开始参数优化，最大试验次数: {}"
-    
-    # 结果消息
-    FOLD_RESULTS = "折 {} 结果:"
-    REPEAT_AVERAGE_PERFORMANCE = "重复 {} 平均性能:"
-    MODEL_SUMMARY_PERFORMANCE = "模型 {} - {} 次重复的平均性能:"
-    ENSEMBLE_TEST_PERFORMANCE = "折集成测试集性能:"
-    
-    # 错误消息模板
-    DATA_FILE_NOT_FOUND = "数据文件加载失败: {}"
-    DATA_FILE_READ_ERROR = "数据文件读取错误: {}"
-    TARGET_TRAIT_NOT_FOUND = "目标性状 '{}' 不存在于表型数据中。可用列: {}"
-    ID_COLUMN_MISSING_GENO = "基因型数据中缺少ID列 '{}'"
-    ID_COLUMN_MISSING_PHENO = "表型数据中缺少ID列 '{}'"
-    NO_COMMON_SAMPLES = "基因型和表型数据没有共同的样本ID"
-    DIMENSION_MISMATCH = "特征矩阵和目标变量样本数不匹配: {} vs {}"
+try:
+    from genomic_classification import GenomicClassifier
+except ImportError:
+    from .genomic_classification import GenomicClassifier
 
-
-# 创建主日志记录器
-main_logger = create_logger(name="main")
+# 创建主日志记录器（默认只输出到控制台，__init__ 中会重新配置为文件输出）
+main_logger = logger_init()
 
 class GenomicPredictorV2:
     """
@@ -238,11 +178,15 @@ class GenomicPredictorV2:
         self.results_dir.mkdir(exist_ok=True, parents=True)
         
         # 创建日志目录
-        self.logs_dir = self.results_dir / ModelConstants.DEFAULT_LOGS_DIR
+        self.logs_dir = self.results_dir / ModelConstants.default_logs_dir
         self.logs_dir.mkdir(exist_ok=True, parents=True)
         
-        # 设置主日志
-        self.setup_logging()
+        # 设置主日志（统一输出到单个文件）
+        global main_logger
+        main_logger = logger_init(
+            log_file=str(self.logs_dir / "run.log"),
+            log_level="INFO",
+        )
         
         # 初始化模型优化器
         if task_type == 'regression':
@@ -323,11 +267,11 @@ class GenomicPredictorV2:
             model.fit(X_scaled, y)
             
             # 保存模型
-            model_path = representative_model_dir / ModelConstants.MODEL_PKL_FILE
+            model_path = representative_model_dir / ModelConstants.model_pkl_file
             joblib.dump((model, scaler), model_path)
             
             # 保存重复索引信息
-            info_path = representative_model_dir / ModelConstants.MODEL_INFO_FILE
+            info_path = representative_model_dir / ModelConstants.model_info_file
             with open(info_path, 'w') as f:
                 json.dump(repeat_info, f, indent=2)
             
@@ -338,47 +282,9 @@ class GenomicPredictorV2:
             main_logger.error(traceback.format_exc())
             return None
     
-    def setup_logging(self) -> None:
-        """配置主日志记录"""
-        # 主日志文件
-        main_log_file = self.logs_dir / ModelConstants.MAIN_LOG_FILE
-        
-        # 创建主日志记录器
-        global main_logger
-        main_logger = create_logger(log_file=str(main_log_file), name="main", level=logging.INFO)
-        
-        main_logger.info(LogMessages.LOGGING_INITIALIZED)
-    
-    def get_task_logger(self, model_name: str, repeat_idx: Optional[int] = None):
-        """
-        为特定任务创建专用日志记录器
-        
-        参数:
-            model_name: 模型名称
-            repeat_idx: 重复索引(如果有)
-            
-        返回:
-            任务专用日志记录器
-        """
-        # 创建模型日志目录
-        model_log_dir = self.logs_dir / model_name
-        model_log_dir.mkdir(exist_ok=True, parents=True)
-        
-        if repeat_idx is not None:
-            # 为特定重复创建日志
-            log_file = model_log_dir / f"repeat_{repeat_idx+1}.log"
-            logger_name = f"{model_name}_repeat_{repeat_idx+1}"
-        else:
-            # 为模型创建通用日志
-            log_file = model_log_dir / ModelConstants.MODEL_LOG_FILE
-            logger_name = f"{model_name}"
-        
-        # 返回配置好的日志记录器
-        return create_logger(log_file=str(log_file), name=logger_name, level=logging.DEBUG)
-    
     def log_environment_settings(self) -> None:
         """记录环境设置"""
-        main_logger.info(LogMessages.PREDICTOR_INIT)
+        main_logger.info("初始化GenomicPredictorV2，基础配置:")
         main_logger.info(f"- 结果目录: {self.results_dir}")
         main_logger.info(f"- 日志目录: {self.logs_dir}")
         main_logger.info(f"- 随机种子: {self.random_seed}")
@@ -389,7 +295,7 @@ class GenomicPredictorV2:
         main_logger.info(f"- 使用默认参数: {self.use_default_params}")
         
         # 记录线程环境变量
-        for env_var in ModelConstants.THREAD_ENV_VARS:
+        for env_var in ModelConstants.thread_env_vars:
             main_logger.info(f"{env_var}={os.environ.get(env_var, 'not set')}")
     
     def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
@@ -409,7 +315,7 @@ class GenomicPredictorV2:
             KeyError: 当目标性状列不存在时
             ValueError: 当没有共同样本时
         """
-        main_logger.info(LogMessages.DATA_LOADING)
+        main_logger.info("正在加载数据...")
         
         # 步骤1: 加载原始数据文件
         try:
@@ -895,7 +801,7 @@ class GenomicPredictorV2:
                         y_fold_pred = model.predict(X_fold_val_scaled)
                         
                         # 安全计算Pearson相关系数
-                        if np.isnan(y_fold_pred).any() or np.std(y_fold_pred) < ModelConstants.CORRELATION_MIN_THRESHOLD:
+                        if np.isnan(y_fold_pred).any() or np.std(y_fold_pred) < ModelConstants.correlation_min_threshold:
                             log.warning(f"警告: 第 {fold_idx+1} 折产生了无效的预测 (NaN 或常量值)")
                             fold_score = 0.0
                         else:
@@ -942,9 +848,9 @@ class GenomicPredictorV2:
         
         # 创建Optuna研究并优化
         pruner = MedianPruner(
-            n_startup_trials=ModelConstants.OPTUNA_N_STARTUP_TRIALS, 
-            n_warmup_steps=ModelConstants.OPTUNA_N_WARMUP_STEPS, 
-            interval_steps=ModelConstants.OPTUNA_INTERVAL_STEPS
+            n_startup_trials=ModelConstants.optuna_n_startup_trials, 
+            n_warmup_steps=ModelConstants.optuna_n_warmup_steps, 
+            interval_steps=ModelConstants.optuna_interval_steps
         )
         study = optuna.create_study(direction='maximize', pruner=pruner, sampler=optuna.samplers.TPESampler(seed=opt_seed))
         
@@ -955,7 +861,7 @@ class GenomicPredictorV2:
             n_trials=self.n_trials,
             callbacks=[early_stopping_callback],
             show_progress_bar=True,
-            n_jobs=ModelConstants.OPTUNA_N_JOBS  # 强制Optuna串行执行
+            n_jobs=ModelConstants.optuna_n_jobs  # 强制Optuna串行执行
         )
         
         # 获取最佳参数
@@ -1004,7 +910,7 @@ class GenomicPredictorV2:
         """
         # 初始化日志和种子
         if task_logger is None:
-            task_logger = self.get_task_logger(model_name, repeat_idx)
+            task_logger = main_logger
         
         repeat_seed = generate_repeat_seed(self.random_seed, repeat_idx)
         np.random.seed(repeat_seed)
@@ -1181,9 +1087,9 @@ class GenomicPredictorV2:
             )
             
             main_logger.info(f"找到性能最接近平均值的重复: 重复 {closest_repeat_idx+1}")
-            main_logger.info(f"该重复的集成{metric_name}: {summary['raw_values'][metric_key][closest_repeat_idx]:.{ModelConstants.METRICS_PRECISION}f}")
-            main_logger.info(f"平均集成{metric_name}: {avg_ensemble_metric:.{ModelConstants.METRICS_PRECISION}f}")
-            main_logger.info(f"差距: {difference:.{ModelConstants.METRICS_PRECISION}f}")
+            main_logger.info(f"该重复的集成{metric_name}: {summary['raw_values'][metric_key][closest_repeat_idx]:.{ModelConstants.metrics_precision}f}")
+            main_logger.info(f"平均集成{metric_name}: {avg_ensemble_metric:.{ModelConstants.metrics_precision}f}")
+            main_logger.info(f"差距: {difference:.{ModelConstants.metrics_precision}f}")
             
             # 保存代表性模型
             if self.task_type == 'classification':
@@ -1224,24 +1130,24 @@ class GenomicPredictorV2:
             model_name = summary['model_name']
             n_repeats = summary['n_repeats']
             
-            main_logger.info(f"\n{ModelConstants.LOG_SEPARATOR_SHORT}")
+            main_logger.info(f"\n{ModelConstants.log_separator_short}")
             main_logger.info(f"模型 {model_name} - {n_repeats} 次重复的平均性能:")
             
             if self.task_type == 'classification':
-                main_logger.info(f"训练集 准确率: {summary['avg_train_accuracy']:.{ModelConstants.METRICS_PRECISION}f} (±{summary['std_train_accuracy']:.{ModelConstants.METRICS_PRECISION}f})")
-                main_logger.info(f"验证集 准确率: {summary['avg_val_accuracy']:.{ModelConstants.METRICS_PRECISION}f} (±{summary['std_val_accuracy']:.{ModelConstants.METRICS_PRECISION}f})")
-                main_logger.info(f"测试集 准确率: {summary['avg_test_accuracy']:.{ModelConstants.METRICS_PRECISION}f} (±{summary['std_test_accuracy']:.{ModelConstants.METRICS_PRECISION}f})")
-                main_logger.info(f"测试集 F1: {summary['avg_test_f1']:.{ModelConstants.METRICS_PRECISION}f} (±{summary['std_test_f1']:.{ModelConstants.METRICS_PRECISION}f})")
-                main_logger.info(f"测试集 AUC: {summary['avg_test_auc']:.{ModelConstants.METRICS_PRECISION}f} (±{summary['std_test_auc']:.{ModelConstants.METRICS_PRECISION}f})")
-                main_logger.info(f"折集成 准确率: {summary['avg_ensemble_accuracy']:.{ModelConstants.METRICS_PRECISION}f} (±{summary['std_ensemble_accuracy']:.{ModelConstants.METRICS_PRECISION}f})")
+                main_logger.info(f"训练集 准确率: {summary['avg_train_accuracy']:.{ModelConstants.metrics_precision}f} (±{summary['std_train_accuracy']:.{ModelConstants.metrics_precision}f})")
+                main_logger.info(f"验证集 准确率: {summary['avg_val_accuracy']:.{ModelConstants.metrics_precision}f} (±{summary['std_val_accuracy']:.{ModelConstants.metrics_precision}f})")
+                main_logger.info(f"测试集 准确率: {summary['avg_test_accuracy']:.{ModelConstants.metrics_precision}f} (±{summary['std_test_accuracy']:.{ModelConstants.metrics_precision}f})")
+                main_logger.info(f"测试集 F1: {summary['avg_test_f1']:.{ModelConstants.metrics_precision}f} (±{summary['std_test_f1']:.{ModelConstants.metrics_precision}f})")
+                main_logger.info(f"测试集 AUC: {summary['avg_test_auc']:.{ModelConstants.metrics_precision}f} (±{summary['std_test_auc']:.{ModelConstants.metrics_precision}f})")
+                main_logger.info(f"折集成 准确率: {summary['avg_ensemble_accuracy']:.{ModelConstants.metrics_precision}f} (±{summary['std_ensemble_accuracy']:.{ModelConstants.metrics_precision}f})")
             else:
-                main_logger.info(f"训练集 Pearson: {summary['avg_train_pearson']:.{ModelConstants.METRICS_PRECISION}f} (±{summary['std_train_pearson']:.{ModelConstants.METRICS_PRECISION}f})")
-                main_logger.info(f"验证集 Pearson: {summary['avg_val_pearson']:.{ModelConstants.METRICS_PRECISION}f} (±{summary['std_val_pearson']:.{ModelConstants.METRICS_PRECISION}f})")
-                main_logger.info(f"测试集 Pearson: {summary['avg_test_pearson']:.{ModelConstants.METRICS_PRECISION}f} (±{summary['std_test_pearson']:.{ModelConstants.METRICS_PRECISION}f})")
-                main_logger.info(f"折集成 Pearson: {summary['avg_ensemble_pearson']:.{ModelConstants.METRICS_PRECISION}f} (±{summary['std_ensemble_pearson']:.{ModelConstants.METRICS_PRECISION}f})")
+                main_logger.info(f"训练集 Pearson: {summary['avg_train_pearson']:.{ModelConstants.metrics_precision}f} (±{summary['std_train_pearson']:.{ModelConstants.metrics_precision}f})")
+                main_logger.info(f"验证集 Pearson: {summary['avg_val_pearson']:.{ModelConstants.metrics_precision}f} (±{summary['std_val_pearson']:.{ModelConstants.metrics_precision}f})")
+                main_logger.info(f"测试集 Pearson: {summary['avg_test_pearson']:.{ModelConstants.metrics_precision}f} (±{summary['std_test_pearson']:.{ModelConstants.metrics_precision}f})")
+                main_logger.info(f"折集成 Pearson: {summary['avg_ensemble_pearson']:.{ModelConstants.metrics_precision}f} (±{summary['std_ensemble_pearson']:.{ModelConstants.metrics_precision}f})")
                 
-            main_logger.info(f"平均训练时间: {summary['avg_training_time']:.{ModelConstants.TIME_PRECISION}f}秒")
-            main_logger.info(f"{ModelConstants.LOG_SEPARATOR_SHORT}")
+            main_logger.info(f"平均训练时间: {summary['avg_training_time']:.{ModelConstants.time_precision}f}秒")
+            main_logger.info(f"{ModelConstants.log_separator_short}")
             
             # 保存总结果
             summary_path = model_dir / 'summary_results.json'
@@ -1261,23 +1167,13 @@ class GenomicPredictorV2:
     
     def _run_repeat_task(self, model_name, X, y, repeat_idx, test_indices, cv_pheno_data):
         """为并行处理提供的包装器函数"""
-        # 在子进程中创建新的日志目录和日志记录器
-        # 注意：子进程需要重新创建日志目录，因为它们是独立的进程
-        logs_dir = Path(self.results_dir) / "logs"
-        logs_dir.mkdir(exist_ok=True, parents=True)
-        
-        # 创建模型日志目录
-        model_log_dir = logs_dir / model_name
-        model_log_dir.mkdir(exist_ok=True, parents=True)
-        
-        # 为这个重复任务创建日志文件
-        log_file = model_log_dir / f"repeat_{repeat_idx+1}.log"
-        task_logger = create_logger(
-            log_file=str(log_file),
-            name=f"{model_name}_repeat_{repeat_idx+1}_pid{os.getpid()}",
-            level=logging.DEBUG,
-            propagate=False
+        # 子进程中需要重新初始化 logger，因为 handler 不会跨进程继承
+        global main_logger
+        main_logger = logger_init(
+            log_file=str(self.results_dir / ModelConstants.default_logs_dir / "run.log"),
+            log_level="DEBUG",
         )
+        task_logger = main_logger
         
         # 记录子进程开始信息
         task_logger.info(f"子进程(PID={os.getpid()})开始执行 {model_name} 模型的重复 {repeat_idx+1}")
@@ -1470,7 +1366,8 @@ class GenomicPredictorV2:
                         criteria_types=criteria_types,
                         manual_weights=manual_weights,
                         min_transform='neglog',
-                        simple_output=str(topsis_simple)
+                        simple_output=str(topsis_simple),
+                        logger=main_logger
                     )
                     
                     # 读取TOPSIS结果，选择前N个模型进行集成

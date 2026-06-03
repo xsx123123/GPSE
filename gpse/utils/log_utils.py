@@ -8,6 +8,7 @@ import datetime
 import sys
 from pathlib import Path
 
+
 try:
     from loguru import logger
     _LOGURU_AVAILABLE = True
@@ -128,13 +129,14 @@ def logger_init(
         )
         logger.add(sys.stderr, format=fmt, level=log_level, colorize=True)
 
-    # File handler — plain text, no colours
+    # File handler — plain text, no colours, enqueue for multi-process safety
     if logger_name:
         file_fmt = (
             "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}"
             + (" | {name}:{line}" if more_info else "")
         )
-        logger.add(logger_name, format=file_fmt, level=log_level, colorize=False)
+        Path(logger_name).parent.mkdir(parents=True, exist_ok=True)
+        logger.add(logger_name, format=file_fmt, level=log_level, colorize=False, enqueue=True)
 
     return logger
 
