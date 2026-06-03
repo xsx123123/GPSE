@@ -12,25 +12,14 @@ import numpy as np
 import pandas as pd
 from typing import Dict, List, Optional
 
-try:
-    from loguru import logger as main_logger
-except ImportError:
-    main_logger = None
+from loguru import logger as main_logger
 
-try:
-    from ..utils.genomic_utils import (
-        prepare_fold_training_data,
-        train_fold_model,
-        predict_and_calculate_metrics,
-        save_fold_predictions_and_plots,
-    )
-except ImportError:
-    from utils.genomic_utils import (
-        prepare_fold_training_data,
-        train_fold_model,
-        predict_and_calculate_metrics,
-        save_fold_predictions_and_plots,
-    )
+from gpse.utils.genomic_utils import (
+    prepare_fold_training_data,
+    train_fold_model,
+    predict_and_calculate_metrics,
+    save_fold_predictions_and_plots,
+)
 
 
 def _train_single_fold(

@@ -12,15 +12,9 @@ import numpy as np
 from pathlib import Path
 from typing import List, Tuple
 
-try:
-    from loguru import logger as main_logger
-except ImportError:
-    main_logger = None
+from loguru import logger as main_logger
 
-try:
-    from ..utils.genomic_utils import prepare_cv_data
-except ImportError:
-    from utils.genomic_utils import prepare_cv_data
+from gpse.utils.genomic_utils import prepare_cv_data
 
 
 def prepare_cv_folds(self, pheno_data: pd.DataFrame, target_trait: str) -> pd.DataFrame:

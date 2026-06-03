@@ -12,19 +12,13 @@ import sys
 import argparse
 import traceback
 
-# Ensure core/ is on sys.path for the legacy flat imports used by core modules
-_pkg_dir = os.path.dirname(os.path.abspath(__file__))
-_core = os.path.join(_pkg_dir, "core")
-if _core not in sys.path:
-    sys.path.insert(0, _core)
-
 try:
     from rich_argparse import RichHelpFormatter
 except ImportError:  # pragma: no cover
     RichHelpFormatter = argparse.HelpFormatter
 
-from prediction_v2 import GenomicPredictorV2, main_logger
-from utils.genomic_data_pipeline import GenomicDataProcessor
+from gpse.core.prediction_v2 import GenomicPredictorV2, main_logger
+from gpse.utils.genomic_data_pipeline import GenomicDataProcessor
 
 try:
     from gpse.utils.configuration import load_software_config

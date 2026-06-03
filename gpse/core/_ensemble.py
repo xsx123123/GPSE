@@ -13,15 +13,9 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from typing import Dict
 
-try:
-    from loguru import logger as main_logger
-except ImportError:
-    main_logger = None
+from loguru import logger as main_logger
 
-try:
-    from ..utils.genomic_utils import calculate_metrics
-except ImportError:
-    from utils.genomic_utils import calculate_metrics
+from gpse.utils.genomic_utils import calculate_metrics
 
 
 def _compute_ensemble_predictions(

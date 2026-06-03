@@ -1,3 +1,15 @@
-from .constants import ModelConstants
+"""gpse.config — Configuration constants and model data classes."""
 
-__all__ = ["ModelConstants"]
+from .constants import (
+    ModelConstants,
+    ModelConfig,
+    ClassificationModelConfig,
+    NumpyEncoder,
+)
+
+__all__ = [
+    "ModelConstants",
+    "ModelConfig",
+    "ClassificationModelConfig",
+    "NumpyEncoder",
+]

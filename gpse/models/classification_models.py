@@ -2,34 +2,29 @@
 # -*- coding: utf-8 -*-
 
 """
-分类模型配置模块
-===============
+Classification Model Configuration Module
+=========================================
 
-包含6个主要分类模型的参数优化配置:
-- RandomForest分类器 (rf_clf)
-- XGBoost分类器 (xgboost_clf) 
-- LightGBM分类器 (lightgbm_clf)
-- CatBoost分类器 (catboost_clf)
-- SVM分类器 (svm_clf)
-- 多层感知机分类器 (mlp_clf)
+Contains parameter optimization configurations for 6 major classification models:
+- RandomForest Classifier (rf_clf)
+- XGBoost Classifier (xgboost_clf) 
+- LightGBM Classifier (lightgbm_clf)
+- CatBoost Classifier (catboost_clf)
+- SVM Classifier (svm_clf)
+- Multi-layer Perceptron Classifier (mlp_clf)
 
-从 model_optimizers_class.py 中提取的纯分类模型配置
+Pure classification model configuration extracted from model_optimizers_class.py
 """
 
 from typing import Dict, Any, Optional
-from dataclasses import dataclass
 import optuna
 import os
 import numpy as np
 
-@dataclass
-class ClassificationModelConfig:
-    """分类模型配置"""
-    model_class: Any
-    param_func: callable
+from gpse.config import ClassificationModelConfig
 
 class ClassificationModelOptimizer:
-    """分类模型优化器"""
+    """Classification Model Optimizer"""
     
     def __init__(self, random_state: Optional[int] = None, n_threads: int = 1, n_classes: int = None):
         self.random_state = random_state
@@ -37,13 +32,13 @@ class ClassificationModelOptimizer:
         self.n_classes = n_classes
         self.model_configs = self._init_classification_model_configs()
         
-        # 设置线程环境变量
+        # Set environment variables for multi-threading
         os.environ['OMP_NUM_THREADS'] = str(n_threads)
         os.environ['MKL_NUM_THREADS'] = str(n_threads)
         os.environ['OPENBLAS_NUM_THREADS'] = str(n_threads)
     
     def _init_classification_model_configs(self) -> Dict[str, ClassificationModelConfig]:
-        """初始化分类模型配置"""
+        """Initialize classification model configurations"""
         configs = {
             'rf_clf': ClassificationModelConfig(
                 model_class='RandomForestClassifier',
@@ -73,18 +68,18 @@ class ClassificationModelOptimizer:
         return configs
     
     def get_model_config(self, model_name: str) -> ClassificationModelConfig:
-        """获取模型配置"""
+        """Get model configuration"""
         if model_name not in self.model_configs:
             raise ValueError(f"Classification model {model_name} not found in configurations")
         return self.model_configs[model_name]
     
     def get_param_func(self, model_name: str) -> callable:
-        """获取参数函数"""
+        """Get parameter function"""
         return self.get_model_config(model_name).param_func
     
-    # 分类模型参数函数
+    # Classification model parameter functions
     def _rf_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
-        """随机森林分类器参数"""
+        """RandomForest classifier parameters"""
         param_dict = {
             'random_state': self.random_state
         }
@@ -110,7 +105,7 @@ class ClassificationModelOptimizer:
         return param_dict
     
     def _xgboost_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
-        """XGBoost分类器参数"""
+        """XGBoost classifier parameters"""
         param_dict = {
             'random_state': self.random_state,
             'verbosity': 0,
@@ -148,7 +143,7 @@ class ClassificationModelOptimizer:
         return param_dict
     
     def _lightgbm_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
-        """LightGBM分类器参数"""
+        """LightGBM classifier parameters"""
         is_binary = (self.n_classes == 2)
         param_dict = {
             'random_state': self.random_state,
@@ -175,16 +170,16 @@ class ClassificationModelOptimizer:
         })
 
         if is_binary:
-            # 二分类自动权重
+            # Automatic weights for binary classification
             param_dict['is_unbalance'] = True
         else:
-            # 多分类的权重可选
+            # Optional weights for multi-class classification
             param_dict['class_weight'] = trial.suggest_categorical('class_weight', [None, 'balanced'])
 
         return param_dict
     
     def _catboost_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
-        """CatBoost分类器参数"""
+        """CatBoost classifier parameters"""
         param_dict = {
             'logging_level': 'Silent',
             'random_seed': self.random_state,
@@ -215,7 +210,7 @@ class ClassificationModelOptimizer:
         return param_dict
     
     def _svc_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
-        """SVM分类器参数"""
+        """SVM classifier parameters"""
         return {
             'loss': trial.suggest_categorical('loss', ['hinge', 'squared_hinge']),
             'dual': trial.suggest_categorical('dual', ['auto']),
@@ -226,7 +221,7 @@ class ClassificationModelOptimizer:
         }
     
     def _mlp_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
-        """多层感知机分类器参数"""
+        """Multi-layer Perceptron classifier parameters"""
         n_layers = trial.suggest_int('n_layers', 1, 3)
         layers = []
         for i in range(n_layers):
@@ -243,27 +238,27 @@ class ClassificationModelOptimizer:
         }
     
     def filter_classification_params(self, model_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """过滤分类模型参数"""
-        # 复制参数字典，避免修改原始参数
+        """Filter classification model parameters"""
+        # Copy parameter dictionary to avoid modifying original
         filtered_params = params.copy()
         
-        # 通用过滤：移除所有以下划线开头的辅助参数
+        # General filtering: remove all auxiliary parameters starting with an underscore
         filtered_params = {k: v for k, v in filtered_params.items() if not k.startswith('_')}
         
-        # 模型特定过滤
+        # Model-specific filtering
         if model_name == 'mlp_clf':
-            # 移除MLP特有的辅助参数
+            # Remove MLP-specific auxiliary parameters
             if 'n_layers' in filtered_params:
                 del filtered_params['n_layers']
             
-            # 移除所有形如 n_units_lX 的参数
+            # Remove all parameters in the form of n_units_lX
             filtered_params = {k: v for k, v in filtered_params.items() 
                               if not k.startswith('n_units_l')}
         
         return filtered_params
     
     def create_classification_model(self, model_name: str, params: Dict[str, Any]) -> Any:
-        """创建分类模型实例"""
+        """Create classification model instance"""
         params = params.copy()
         
         if model_name == 'rf_clf':
@@ -274,7 +269,7 @@ class ClassificationModelOptimizer:
             from xgboost import XGBClassifier
             params['n_jobs'] = self.n_threads
             params['nthread'] = self.n_threads
-            # 添加类别数参数
+            # Add number of classes parameter
             if self.n_classes is not None and self.n_classes > 1:
                 params['num_class'] = self.n_classes
             return XGBClassifier(**params)
@@ -282,12 +277,12 @@ class ClassificationModelOptimizer:
             from lightgbm import LGBMClassifier
             p = params.copy()
             p['n_jobs'] = self.n_threads
-            # 只有多分类才传 num_class
+            # Pass num_class only for multi-class classification
             if self.n_classes is not None and self.n_classes > 2:
                 p['num_class'] = self.n_classes
             else:
                 p.pop('num_class', None)
-                # 确保目标/评估为二分类设定（若外部默认参数未覆盖）
+                # Ensure target/metric is set for binary classification (if not overridden by external default params)
                 p.setdefault('objective', 'binary')
                 p.setdefault('metric', 'binary_logloss')
                 p.setdefault('is_unbalance', True)
@@ -303,10 +298,10 @@ class ClassificationModelOptimizer:
             from sklearn.neural_network import MLPClassifier
             return MLPClassifier(**params)
         else:
-            raise ValueError(f"不支持的分类模型类型: {model_name}")
+            raise ValueError(f"Unsupported classification model type: {model_name}")
     
     def get_classification_default_params(self, model_name: str) -> Dict[str, Any]:
-        """获取分类模型的默认参数"""
+        """Get default parameters for classification models"""
         if model_name == 'rf_clf':
             return {
                 'n_estimators': 100,
@@ -396,5 +391,5 @@ class ClassificationModelOptimizer:
             return {}
     
     def get_available_models(self) -> list:
-        """获取可用的分类模型列表"""
+        """Get list of available classification models"""
         return list(self.model_configs.keys())

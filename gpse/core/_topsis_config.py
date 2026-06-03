@@ -16,17 +16,10 @@ from pathlib import Path
 from sklearn.preprocessing import StandardScaler
 from typing import Tuple
 
-try:
-    from loguru import logger as main_logger
-except ImportError:
-    main_logger = None
+from loguru import logger as main_logger
 
-try:
-    from ..config import ModelConstants
-    from ..utils.genomic_utils import create_representative_model_directory
-except ImportError:
-    from config import ModelConstants
-    from utils.genomic_utils import create_representative_model_directory
+from gpse.config import ModelConstants
+from gpse.utils.genomic_utils import create_representative_model_directory
 
 
 def get_topsis_configuration(self) -> Tuple[list, list, str]:

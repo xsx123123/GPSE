@@ -4,16 +4,10 @@ This module provides parameter ranges for Optuna hyperparameter optimization.
 """
 
 from typing import Dict, Tuple, Any, Optional
-from dataclasses import dataclass
 import optuna
 import os
 
-@dataclass
-class ModelConfig:
-    """Configuration for model hyperparameter optimization"""
-    model_class: Any
-    param_func: callable
-    is_regression: bool
+from gpse.config import ModelConfig
 
 class ModelOptimizer:
     """Unified model optimizer for both regression and classification tasks"""

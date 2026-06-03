@@ -14,10 +14,7 @@ import pandas as pd
 from typing import Dict, Tuple
 from pathlib import Path
 
-try:
-    from loguru import logger as main_logger
-except ImportError:
-    main_logger = None
+from loguru import logger as main_logger
 
 
 def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple[pd.DataFrame, pd.Series, pd.DataFrame]:

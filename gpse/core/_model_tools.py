@@ -9,15 +9,9 @@ Provides unified model creation, parameter retrieval, and default metrics.
 
 from typing import Dict, Any
 
-try:
-    from loguru import logger as main_logger
-except ImportError:
-    main_logger = None
+from loguru import logger as main_logger
 
-try:
-    from ..utils.genomic_utils import filter_model_params
-except ImportError:
-    from utils.genomic_utils import filter_model_params
+from gpse.utils.genomic_utils import filter_model_params
 
 
 def create_model(self, model_name: str, params: Dict[str, Any]) -> Any:

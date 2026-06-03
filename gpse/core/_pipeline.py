@@ -13,17 +13,10 @@ import pandas as pd
 from typing import Dict, Any, Optional, List
 from sklearn.model_selection import train_test_split
 
-try:
-    from loguru import logger as main_logger
-except ImportError:
-    main_logger = None
+from loguru import logger as main_logger
 
-try:
-    from ..utils.genomic_utils import create_comparison_table, call_topsis_evaluator
-    from ..utils.stacking import StackingEnsemble
-except ImportError:
-    from utils.genomic_utils import create_comparison_table, call_topsis_evaluator
-    from utils.stacking import StackingEnsemble
+from gpse.utils.genomic_utils import create_comparison_table, call_topsis_evaluator
+from gpse.utils.stacking import StackingEnsemble
 
 
 def run_all_models(

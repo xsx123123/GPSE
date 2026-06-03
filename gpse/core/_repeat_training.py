@@ -17,37 +17,20 @@ from sklearn.model_selection import train_test_split
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-try:
-    from loguru import logger as main_logger
-except ImportError:
-    main_logger = None
+from loguru import logger as main_logger
 
-try:
-    from ..config import ModelConstants
-    from ..config.constants import NumpyEncoder
-    from ..utils.genomic_utils import (
-        generate_repeat_seed,
-        generate_fold_seed,
-        create_repeat_result_directory,
-        prepare_train_test_data,
-        create_model_result_directory,
-        calculate_repeat_statistics,
-        find_representative_repeat,
-    )
-    from ..utils.log_utils import logger_init
-except ImportError:
-    from config import ModelConstants
-    from config.constants import NumpyEncoder
-    from utils.genomic_utils import (
-        generate_repeat_seed,
-        generate_fold_seed,
-        create_repeat_result_directory,
-        prepare_train_test_data,
-        create_model_result_directory,
-        calculate_repeat_statistics,
-        find_representative_repeat,
-    )
-    from utils.log_utils import logger_init
+from gpse.config import ModelConstants
+from gpse.config.constants import NumpyEncoder
+from gpse.utils.genomic_utils import (
+    generate_repeat_seed,
+    generate_fold_seed,
+    create_repeat_result_directory,
+    prepare_train_test_data,
+    create_model_result_directory,
+    calculate_repeat_statistics,
+    find_representative_repeat,
+)
+from gpse.utils.log_utils import logger_init
 
 
 def train_and_evaluate_model_for_repeat(

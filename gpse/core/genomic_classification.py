@@ -2,17 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-基因组分类预测模块
-================
+Genomic Classification Prediction Module
+========================================
 
-功能特性:
-- 分类任务的性能指标计算 (准确率、精确度、召回率、F1分数、AUC等)
-- 分类标签编码和预处理
-- 分类模型预测结果处理
-- 概率到标签的稳健转换
-- 分类散点图生成 (如果需要)
+Features:
+- Performance metric calculation for classification tasks (Accuracy, Precision, Recall, F1-score, AUC, etc.)
+- Classification label encoding and preprocessing
+- Classification model prediction result processing
+- Robust conversion from probabilities to labels
+- Classification scatter plot generation (if needed)
 
-从 genomic_prediction_v2_class.py 中提取的纯分类功能模块
+Pure classification function module extracted from genomic_prediction_v2_class.py
 """
 
 import numpy as np
@@ -24,24 +24,24 @@ from sklearn.metrics import (
     roc_auc_score, log_loss, classification_report, confusion_matrix
 )
 import joblib
-import logging
 from pathlib import Path
 
-# 获取主日志记录器
-main_logger = logging.getLogger("main")
+from loguru import logger as main_logger
+
+from gpse.models.classification_models import ClassificationModelOptimizer
 
 class GenomicClassifier:
-    """基因组分类预测工具类"""
+    """Genomic Classification Prediction Utility Class"""
     
     def __init__(self, n_classes: int, results_dir: str = None, random_state: int = None, n_threads: int = 1):
         """
-        初始化分类器
+        Initialize the classifier.
         
-        参数:
-            n_classes: 类别数量
-            results_dir: 结果保存目录
-            random_state: 随机状态
-            n_threads: 线程数
+        Args:
+            n_classes: Number of classes
+            results_dir: Directory to save results
+            random_state: Random state for reproducibility
+            n_threads: Number of threads
         """
         self.n_classes = n_classes
         self.results_dir = Path(results_dir) if results_dir else Path(".")
@@ -49,8 +49,7 @@ class GenomicClassifier:
         self.random_state = random_state
         self.n_threads = n_threads
         
-        # 初始化分类模型优化器
-        from classification_models import ClassificationModelOptimizer
+        # Initialize classification model optimizer
         self.classification_optimizer = ClassificationModelOptimizer(
             random_state=random_state, 
             n_threads=n_threads, 
@@ -59,41 +58,41 @@ class GenomicClassifier:
         
     def prepare_classification_labels(self, y: pd.Series, results_dir: Path) -> pd.Series:
         """
-        准备分类标签，进行必要的编码
+        Prepare classification labels, performing necessary encoding.
         
-        参数:
-            y: 原始标签
-            results_dir: 结果保存目录
+        Args:
+            y: Original labels
+            results_dir: Directory to save results
             
-        返回:
-            编码后的标签
+        Returns:
+            Encoded labels
         """
-        # 检查标签是否为数值型
+        # Check if labels are numeric
         unique_labels = y.unique()
-        main_logger.info(f"原始分类标签: {sorted(unique_labels)}")
+        main_logger.info(f"Original classification labels: {sorted(unique_labels)}")
         
-        # 检查标签是否为从0开始的连续整数
+        # Check if labels are continuous integers starting from 0
         sorted_labels = sorted(unique_labels)
         expected_labels = list(range(len(sorted_labels)))
         
-        # 强制进行标签编码以确保从0开始
-        # 这解决了XGBoost等模型要求标签从0开始的问题
-        main_logger.info("对标签进行编码以确保从0开始的连续整数...")
+        # Force label encoding to ensure they start from 0
+        # This solves issues where models like XGBoost require labels to start from 0
+        main_logger.info("Encoding labels to ensure they are continuous integers starting from 0...")
         self.label_encoder = LabelEncoder()
         y_encoded = self.label_encoder.fit_transform(y)
         y_result = pd.Series(y_encoded, index=y.index)
         
-        # 保存标签编码器
+        # Save label encoder
         encoder_path = results_dir / 'label_encoder.pkl'
         joblib.dump(self.label_encoder, encoder_path)
-        main_logger.info(f"标签编码器已保存到: {encoder_path}")
-        main_logger.info(f"编码后的标签: {sorted(y_result.unique())}")
-        main_logger.info(f"标签映射: {dict(zip(sorted_labels, sorted(y_result.unique())))}")
+        main_logger.info(f"Label encoder saved to: {encoder_path}")
+        main_logger.info(f"Encoded labels: {sorted(y_result.unique())}")
+        main_logger.info(f"Label mapping: {dict(zip(sorted_labels, sorted(y_result.unique())))}")
         
-        # 验证类别数
+        # Validate number of classes
         actual_n_classes = len(unique_labels)
         if self.n_classes != actual_n_classes:
-            main_logger.warning(f"指定的类别数({self.n_classes})与实际类别数({actual_n_classes})不符，使用实际类别数")
+            main_logger.warning(f"Specified number of classes ({self.n_classes}) does not match actual ({actual_n_classes}), using actual")
             self.n_classes = actual_n_classes
             
         return y_result
@@ -105,21 +104,21 @@ class GenomicClassifier:
         y_pred_proba: np.ndarray = None
     ) -> Dict[str, float]:
         """
-        计算分类性能指标
+        Calculate classification performance metrics.
         
-        参数:
-            y_true: 真实标签
-            y_pred: 预测标签
-            y_pred_proba: 预测概率（可选）
+        Args:
+            y_true: True labels
+            y_pred: Predicted labels
+            y_pred_proba: Predicted probabilities (optional)
             
-        返回:
-            性能指标字典
+        Returns:
+            Dictionary of performance metrics
         """
-        # 确保输入是正确的格式
+        # Ensure input is in correct format
         y_true = np.asarray(y_true)
         y_pred = np.asarray(y_pred)
 
-        # 如果y_pred是概率矩阵(n_samples, n_classes)，自动转为标签，并补充y_pred_proba
+        # If y_pred is a probability matrix (n_samples, n_classes), automatically convert to labels and fill y_pred_proba
         if y_pred.ndim == 2 and y_pred.shape[0] == y_true.shape[0]:
             if y_pred_proba is None:
                 y_pred_proba = y_pred
@@ -128,15 +127,15 @@ class GenomicClassifier:
         y_true = y_true.ravel()
         y_pred = y_pred.ravel()
         
-        # 如果预测结果是浮点数，转换为整数
+        # Convert floating point predictions to integers
         if y_pred.dtype.kind == 'f':
             y_pred = y_pred.astype(int)
             
-        # 检查数据形状是否匹配
+        # Check if shapes match
         if y_true.shape != y_pred.shape:
             raise ValueError(f"y_true and y_pred shape mismatch: {y_true.shape} vs {y_pred.shape}")
         
-        # 分类指标
+        # Classification metrics
         try:
             metrics = {
                 'accuracy': accuracy_score(y_true, y_pred),
@@ -145,12 +144,12 @@ class GenomicClassifier:
                 'f1': f1_score(y_true, y_pred, average='weighted', zero_division=0)
             }
         except Exception as e:
-            # 如果计算指标失败，返回默认值
-            print(f"计算分类指标失败: {e}")
-            print(f"y_true shape: {y_true.shape}, dtype: {y_true.dtype}")
-            print(f"y_pred shape: {y_pred.shape}, dtype: {y_pred.dtype}")
-            print(f"y_true unique: {np.unique(y_true)}")
-            print(f"y_pred unique: {np.unique(y_pred)}")
+            # If metric calculation fails, return default values
+            main_logger.error(f"Failed to calculate classification metrics: {e}")
+            main_logger.debug(f"y_true shape: {y_true.shape}, dtype: {y_true.dtype}")
+            main_logger.debug(f"y_pred shape: {y_pred.shape}, dtype: {y_pred.dtype}")
+            main_logger.debug(f"y_true unique: {np.unique(y_true)}")
+            main_logger.debug(f"y_pred unique: {np.unique(y_pred)}")
             metrics = {
                 'accuracy': 0.0,
                 'precision': 0.0,
@@ -158,18 +157,21 @@ class GenomicClassifier:
                 'f1': 0.0
             }
         
-        # 如果提供了预测概率，计算AUC和log loss
+        # If predicted probabilities are provided, calculate AUC and log loss
         if y_pred_proba is not None:
             try:
                 n_classes = len(np.unique(y_true))
-                if n_classes == 2:  # 二分类
-                    metrics['auc'] = roc_auc_score(y_true, y_pred_proba[:, 1])
-                else:  # 多分类
+                if n_classes == 2:  # Binary classification
+                    if y_pred_proba.ndim == 2:
+                        metrics['auc'] = roc_auc_score(y_true, y_pred_proba[:, 1])
+                    else:
+                        metrics['auc'] = roc_auc_score(y_true, y_pred_proba)
+                else:  # Multi-class classification
                     metrics['auc'] = roc_auc_score(y_true, y_pred_proba, multi_class='ovr', average='weighted')
                 
                 metrics['log_loss'] = log_loss(y_true, y_pred_proba)
             except Exception as e:
-                main_logger.warning(f"计算AUC或log_loss失败: {e}")
+                main_logger.warning(f"Failed to calculate AUC or log_loss: {e}")
                 metrics['auc'] = 0.0
                 metrics['log_loss'] = float('inf')
         
@@ -182,17 +184,17 @@ class GenomicClassifier:
         n_classes_hint: int = None
     ) -> np.ndarray:
         """
-        将概率稳健地转换为标签
+        Robustly convert probabilities to labels.
         
-        参数:
-            proba: 预测概率
-            n_samples: 期望的样本数
-            n_classes_hint: 类别数提示
+        Args:
+            proba: Predicted probabilities
+            n_samples: Expected number of samples
+            n_classes_hint: Hint for the number of classes
             
-        返回:
-            预测标签数组
+        Returns:
+            Array of predicted labels
         """
-        # 统一为 ndarray
+        # Unify as ndarray
         if isinstance(proba, (list, tuple)):
             try:
                 proba = np.column_stack(proba)
@@ -200,20 +202,20 @@ class GenomicClassifier:
                 proba = np.asarray(proba)
         arr = np.asarray(proba)
         
-        # 直接可用形状
+        # Check shape suitability
         if arr.ndim == 2:
             if arr.shape[0] == n_samples:
                 P = arr
             elif arr.shape[1] == n_samples:
                 P = arr.T
             else:
-                # 试图按样本数重塑
+                # Try to reshape based on sample count
                 total = arr.size
                 if total % n_samples == 0:
                     k = total // n_samples
                     P = arr.reshape(n_samples, k)
                 else:
-                    # 强制按行优先截断/填充
+                    # Force truncation/padding row-wise
                     k = n_classes_hint if n_classes_hint else max(2, arr.shape[-1])
                     flat = arr.ravel()
                     need = n_samples * k
@@ -223,11 +225,11 @@ class GenomicClassifier:
                         pad = np.tile(flat[-1], need - flat.size)
                         P = np.concatenate([flat, pad]).reshape(n_samples, k)
         elif arr.ndim == 1:
-            # 二分类一维概率
+            # Binary classification 1D probability
             if arr.shape[0] == n_samples:
                 P = np.vstack([1 - arr, arr]).T
             else:
-                # 长度异常，拉平重塑
+                # Abnormal length, flatten and reshape
                 k = n_classes_hint if n_classes_hint else 2
                 need = n_samples * k
                 flat = arr.ravel()
@@ -237,7 +239,7 @@ class GenomicClassifier:
                     pad = np.tile(flat[-1], need - flat.size)
                     P = np.concatenate([flat, pad]).reshape(n_samples, k)
         else:
-            # 其他非常规维度，兜底为二分类均匀概率
+            # Other unconventional dimensions, fallback to binary uniform probability
             P = np.full((n_samples, max(2, n_classes_hint or 2)), 1.0)
         
         idx = np.argmax(P, axis=1)
@@ -250,23 +252,23 @@ class GenomicClassifier:
         n_samples: int
     ) -> np.ndarray:
         """
-        确保预测结果长度正确
+        Ensure the prediction result length is correct.
         
-        参数:
-            pred: 原始预测结果
-            proba: 预测概率
-            n_samples: 期望样本数
+        Args:
+            pred: Original predicted results
+            proba: Predicted probabilities
+            n_samples: Expected number of samples
             
-        返回:
-            长度正确的预测结果
+        Returns:
+            Predicted results with correct length
         """
         pred_arr = np.asarray(pred)
         if pred_arr.ndim == 1 and pred_arr.shape[0] == n_samples:
             return pred_arr
         if proba is not None:
-            # 直接从概率稳健生成
+            # Generate robustly from probabilities
             return self.proba_to_labels_robust(proba, n_samples, self.n_classes)
-        # 兜底：截断或填充到正确长度
+        # Fallback: truncate or pad to correct length
         flat = pred_arr.ravel()
         if flat.size >= n_samples:
             return flat[:n_samples]
@@ -280,18 +282,18 @@ class GenomicClassifier:
         X_scaled: np.ndarray
     ) -> tuple:
         """
-        从模型生成分类标签和概率
+        Generate classification labels and probabilities from the model.
         
-        参数:
-            model: 训练好的模型
-            X_scaled: 标准化后的特征
+        Args:
+            model: Trained model
+            X_scaled: Standardized features
             
-        返回:
-            (预测标签, 预测概率) 元组
+        Returns:
+            Tuple of (Predicted Labels, Predicted Probabilities)
         """
         y_pred_proba = None
         
-        # 优先使用predict_proba；失败则回退到predict
+        # Prefer predict_proba; fall back to predict on failure
         if hasattr(model, 'predict_proba'):
             try:
                 y_pred_proba = model.predict_proba(X_scaled)
@@ -307,26 +309,26 @@ class GenomicClassifier:
             if y_pred.dtype.kind == 'f':
                 y_pred = y_pred.astype(int)
         
-        # 确保预测长度正确
+        # Ensure prediction length is correct
         y_pred = self.ensure_prediction_length(y_pred, y_pred_proba, len(X_scaled))
         
         return y_pred, y_pred_proba
     
     def decode_labels_if_needed(self, labels: np.ndarray) -> np.ndarray:
         """
-        如果使用了标签编码器，将标签解码回原始形式
+        If a label encoder was used, decode labels back to their original form.
         
-        参数:
-            labels: 编码后的标签
+        Args:
+            labels: Encoded labels
             
-        返回:
-            解码后的标签
+        Returns:
+            Decoded labels
         """
         if self.label_encoder is not None:
             try:
                 return self.label_encoder.inverse_transform(labels)
             except Exception as e:
-                main_logger.warning(f"标签解码失败: {e}")
+                main_logger.warning(f"Label decoding failed: {e}")
                 return labels
         return labels
     
@@ -336,14 +338,14 @@ class GenomicClassifier:
         model_name: str
     ) -> Dict[str, Any]:
         """
-        创建分类任务的结果摘要
+        Create a results summary for classification tasks.
         
-        参数:
-            all_repeat_results: 所有重复的结果列表
-            model_name: 模型名称
+        Args:
+            all_repeat_results: List of results from all repetitions
+            model_name: Model name
             
-        返回:
-            分类摘要字典
+        Returns:
+            Classification summary dictionary
         """
         if not all_repeat_results:
             return {
@@ -356,7 +358,7 @@ class GenomicClassifier:
                 'avg_training_time': 0.0
             }
         
-        # 分类任务摘要
+        # Summary for classification task
         avg_results = {
             'test_accuracy_values': [r['avg_test_accuracy'] for r in all_repeat_results if 'avg_test_accuracy' in r],
             'test_f1_values': [r['avg_test_f1'] for r in all_repeat_results if 'avg_test_f1' in r],
@@ -388,27 +390,27 @@ class GenomicClassifier:
         logger=None
     ):
         """
-        记录分类结果到日志
+        Log classification results.
         
-        参数:
-            fold_idx: 折索引
-            train_metrics: 训练集指标
-            val_metrics: 验证集指标
-            test_metrics: 测试集指标
-            logger: 日志记录器
+        Args:
+            fold_idx: Fold index
+            train_metrics: Training set metrics
+            val_metrics: Validation set metrics
+            test_metrics: Test set metrics
+            logger: Logger instance
         """
         if logger is None:
             logger = main_logger
             
-        logger.info(f"折 {fold_idx+1} 结果:")
-        logger.info(f"  训练集 Accuracy: {train_metrics['accuracy']:.6f}")
-        logger.info(f"  训练集 F1: {train_metrics['f1']:.6f}")
-        logger.info(f"  验证集 Accuracy: {val_metrics['accuracy']:.6f}")
-        logger.info(f"  验证集 F1: {val_metrics['f1']:.6f}")
-        logger.info(f"  测试集 Accuracy: {test_metrics['accuracy']:.6f}")
-        logger.info(f"  测试集 F1: {test_metrics['f1']:.6f}")
+        logger.info(f"Fold {fold_idx+1} results:")
+        logger.info(f"  Training set Accuracy: {train_metrics['accuracy']:.6f}")
+        logger.info(f"  Training set F1: {train_metrics['f1']:.6f}")
+        logger.info(f"  Validation set Accuracy: {val_metrics['accuracy']:.6f}")
+        logger.info(f"  Validation set F1: {val_metrics['f1']:.6f}")
+        logger.info(f"  Test set Accuracy: {test_metrics['accuracy']:.6f}")
+        logger.info(f"  Test set F1: {test_metrics['f1']:.6f}")
         if 'auc' in test_metrics:
-            logger.info(f"  测试集 AUC: {test_metrics['auc']:.6f}")
+            logger.info(f"  Test set AUC: {test_metrics['auc']:.6f}")
     
     def create_classification_comparison_row(
         self, 
@@ -416,16 +418,16 @@ class GenomicClassifier:
         results: dict
     ) -> dict:
         """
-        创建分类模型比较表格的行数据
+        Create row data for the classification model comparison table.
         
-        参数:
-            model_name: 模型名称
-            results: 结果字典
+        Args:
+            model_name: Model name
+            results: Results dictionary
             
-        返回:
-            比较表格行字典
+        Returns:
+            Comparison table row dictionary
         """
-        # 清理模型名称
+        # Clean model name
         display_name = model_name.replace('_clf', '')
         if display_name == 'stacking_ensemble':
             display_name = 'Ensemble'
@@ -442,7 +444,7 @@ class GenomicClassifier:
             'Training Time (s)': results.get('avg_training_time', 0.0)
         }
         
-        # 如果有AUC指标也包含
+        # Include AUC if available
         if 'avg_test_auc' in results:
             row['Test AUC'] = results.get('avg_test_auc', 0.0)
             
@@ -450,50 +452,50 @@ class GenomicClassifier:
     
     def create_classification_model(self, model_name: str, params: Dict[str, Any]) -> Any:
         """
-        创建分类模型实例
+        Create classification model instance.
         
-        参数:
-            model_name: 模型名称
-            params: 模型参数
+        Args:
+            model_name: Model name
+            params: Model parameters
             
-        返回:
-            模型实例
+        Returns:
+            Model instance
         """
         return self.classification_optimizer.create_classification_model(model_name, params)
 
     def get_classification_default_params(self, model_name: str) -> Dict[str, Any]:
         """
-        获取分类模型的默认参数
+        Get default parameters for classification models.
         
-        参数:
-            model_name: 模型名称
+        Args:
+            model_name: Model name
             
-        返回:
-            默认参数字典
+        Returns:
+            Default parameters dictionary
         """
         return self.classification_optimizer.get_classification_default_params(model_name)
 
     def get_classification_param_func(self, model_name: str) -> callable:
         """
-        获取分类模型的参数函数
+        Get parameter function for classification models.
         
-        参数:
-            model_name: 模型名称
+        Args:
+            model_name: Model name
             
-        返回:
-            参数函数
+        Returns:
+            Parameter function
         """
         return self.classification_optimizer.get_param_func(model_name)
 
     def filter_classification_params(self, model_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        过滤分类模型参数
+        Filter classification model parameters.
         
-        参数:
-            model_name: 模型名称
-            params: 原始参数
+        Args:
+            model_name: Model name
+            params: Original parameters
             
-        返回:
-            过滤后的参数
+        Returns:
+            Filtered parameters
         """
         return self.classification_optimizer.filter_classification_params(model_name, params)

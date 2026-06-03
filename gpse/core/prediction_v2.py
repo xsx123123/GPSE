@@ -20,39 +20,14 @@ Features:
 - TOPSIS multi-criteria decision model ranking
 """
 
-import os
-import sys
 from pathlib import Path
 from typing import Dict, Tuple, Any, Optional, List, Union
 
-# Ensure project root is in sys.path for direct script execution and cross-module imports
-_pkg_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _pkg_dir not in sys.path:
-    sys.path.insert(0, _pkg_dir)
-
-try:
-    from config import ModelConstants
-except ImportError:
-    try:
-        from ..config import ModelConstants
-    except ImportError:
-        raise ImportError(
-            "Unable to load config module. Please run from project root or set PYTHONPATH correctly."
-        )
-
-try:
-    from models.model_optimizers import ModelOptimizer
-    from models.classification_models import ClassificationModelOptimizer
-    from utils.log_utils import logger_init
-except ImportError:
-    from ..models.model_optimizers import ModelOptimizer
-    from ..models.classification_models import ClassificationModelOptimizer
-    from ..utils.log_utils import logger_init
-
-try:
-    from genomic_classification import GenomicClassifier
-except ImportError:
-    from .genomic_classification import GenomicClassifier
+from gpse.config import ModelConstants
+from gpse.models.model_optimizers import ModelOptimizer
+from gpse.models.classification_models import ClassificationModelOptimizer
+from gpse.utils.log_utils import logger_init
+from gpse.core.genomic_classification import GenomicClassifier
 
 main_logger = logger_init()
 

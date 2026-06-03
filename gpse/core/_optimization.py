@@ -15,17 +15,10 @@ from optuna.pruners import MedianPruner
 import optuna
 from typing import Dict, Any
 
-try:
-    from loguru import logger as main_logger
-except ImportError:
-    main_logger = None
+from loguru import logger as main_logger
 
-try:
-    from ..config import ModelConstants
-    from ..utils.genomic_utils import generate_optimization_seed
-except ImportError:
-    from config import ModelConstants
-    from utils.genomic_utils import generate_optimization_seed
+from gpse.config import ModelConstants
+from gpse.utils.genomic_utils import generate_optimization_seed
 
 
 def optimize_model_parameters(
