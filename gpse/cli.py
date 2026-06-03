@@ -78,16 +78,39 @@ def _log_stage(title: str) -> None:
     main_logger.info(title)
 
 
-def _print_easter_egg() -> None:
-    """Animated easter egg for the ultimate answer."""
+def _print_easter_egg(show_question: bool = False) -> None:
+    """Animated easter egg for the ultimate answer.
+
+    Args:
+        show_question: If True, display the ultimate question first,
+                       then reveal the answer with extra dramatic effect.
+    """
     import time
 
+    question = "The ultimate question of life, the universe, and everything"
     text = "The answer to the ultimate question of life, the universe, and everything is 42"
     if _console is None:
-        print(f"\n{text}\n")
+        if show_question:
+            print(f"\nQ: {question}")
+            print(f"A: {text}\n")
+        else:
+            print(f"\n{text}\n")
         return
 
     from rich.text import Text
+
+    if show_question:
+        # Dramatic question reveal
+        _console.print("\n")
+        _console.print(
+            Text("  ❓ ", style="bold white on dark_blue"),
+            end="",
+        )
+        _console.print(
+            Text(f'"{question}"', style="italic bright_white"),
+        )
+        time.sleep(1.2)
+        _console.print("\n")
 
     # Show face
     _console.print(Text("  [/●_●\\]", style="bold yellow"))
@@ -105,9 +128,10 @@ def _print_easter_egg() -> None:
     )
     time.sleep(0.15)
 
-    # Thinking dots
+    # Thinking dots (longer pause when answering the big question)
     _console.print("  [dim]thinking[/dim]", end="")
-    for _ in range(3):
+    thinking_steps = 5 if show_question else 3
+    for _ in range(thinking_steps):
         time.sleep(0.4)
         _console.print("[dim].[/dim]", end="")
     _console.print("  ")
@@ -387,9 +411,18 @@ def main() -> int:
     )
 
     # Easter egg: the ultimate answer
+    _ULTIMATE_QUESTION = "the ultimate question of life, the universe, and everything"
     if len(sys.argv) == 2 and sys.argv[1] == "42":
-        _print_easter_egg()
+        _print_easter_egg(show_question=False)
         return 0
+    # Also trigger on the question itself: gpse "The ultimate question of life, the universe, and everything"
+    if len(sys.argv) >= 2:
+        _joined_args = " ".join(sys.argv[1:]).strip().lower().rstrip("?!. ")
+        if _joined_args == _ULTIMATE_QUESTION:
+            _print_easter_egg(show_question=True)
+            return 0
+        del _joined_args
+    del _ULTIMATE_QUESTION
 
     args = parser.parse_args()
 
