@@ -87,7 +87,8 @@ def _print_easter_egg() -> None:
         print(f"\n{text}\n")
         return
 
-    _console.print("\n", end="")
+    from rich.text import Text
+    _console.print(Text("  [/●_●\\]", style="bold yellow"))
     for char in text:
         _console.print(f"[bold green]{char}[/bold green]", end="")
         time.sleep(0.04)
