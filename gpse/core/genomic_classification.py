@@ -33,27 +33,40 @@ from gpse.models.classification_models import ClassificationModelOptimizer
 class GenomicClassifier:
     """Genomic Classification Prediction Utility Class"""
     
-    def __init__(self, n_classes: int, results_dir: str = None, random_state: int = None, n_threads: int = 1):
+    def __init__(
+        self,
+        n_classes: int,
+        results_dir: str = None,
+        random_seed: int = None,
+        n_threads: int = 1,
+        random_state: int = None,
+        classification_optimizer: Optional[ClassificationModelOptimizer] = None,
+    ):
         """
         Initialize the classifier.
-        
+
         Args:
             n_classes: Number of classes
             results_dir: Directory to save results
-            random_state: Random state for reproducibility
+            random_seed: Random seed for reproducibility
             n_threads: Number of threads
         """
+        if random_seed is not None and random_state is not None and random_seed != random_state:
+            raise ValueError("random_seed and random_state were both provided with different values")
+        if random_seed is None:
+            random_seed = random_state
+
         self.n_classes = n_classes
         self.results_dir = Path(results_dir) if results_dir else Path(".")
         self.label_encoder = None
-        self.random_state = random_state
+        self.random_seed = random_seed
+        self.random_state = random_seed
         self.n_threads = n_threads
-        
-        # Initialize classification model optimizer
-        self.classification_optimizer = ClassificationModelOptimizer(
-            random_state=random_state, 
-            n_threads=n_threads, 
-            n_classes=n_classes
+
+        self.classification_optimizer = classification_optimizer or ClassificationModelOptimizer(
+            random_seed=random_seed,
+            n_threads=n_threads,
+            n_classes=n_classes,
         )
         
     def prepare_classification_labels(self, y: pd.Series, results_dir: Path) -> pd.Series:

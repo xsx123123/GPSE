@@ -30,7 +30,7 @@ from gpse.utils.genomic_utils import (
     calculate_repeat_statistics,
     find_representative_repeat,
 )
-from gpse.utils.log_utils import logger_init
+from gpse.utils.log_utils import logger_init, setup_subprocess_logging, collect_subprocess_logs
 
 
 def _init_worker_threads(n_threads: int) -> None:
@@ -262,6 +262,9 @@ def run_model_multiple_repeats(
                     main_logger.info(f"Completed repeat {i + 1}/{self.n_repeats}")
                 except Exception as e:
                     main_logger.error(f"Repeat execution failed: {str(e)}")
+
+        # Collect subprocess logs into the main log after all parallel tasks finish
+        collect_subprocess_logs(self.logs_dir, main_logger)
     else:
         main_logger.info("Executing training sequentially")
         for repeat_idx in range(self.n_repeats):
@@ -430,8 +433,11 @@ def _run_repeat_task(self, model_name, X, y, repeat_idx, test_indices, cv_pheno_
     for _env_var in ModelConstants.thread_env_vars:
         os.environ[_env_var] = str(self.n_threads)
 
-    task_logger = logger_init(
-        logger_name=str(self.results_dir / ModelConstants.default_logs_dir / "run.log"),
+    # Each subprocess writes to its own log file to avoid multi-process races
+    task_logger = setup_subprocess_logging(
+        model_name=model_name,
+        repeat_idx=repeat_idx,
+        log_dir=self.results_dir / ModelConstants.default_logs_dir,
         log_level="DEBUG",
     )
 

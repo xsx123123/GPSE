@@ -22,10 +22,10 @@ Features:
 
 from pathlib import Path
 from typing import Dict, Tuple, Any, Optional, List, Union
+import datetime
 
 from gpse.config import ModelConstants
-from gpse.models.model_optimizers import ModelOptimizer
-from gpse.models.classification_models import ClassificationModelOptimizer
+from gpse.models.regression_model_optimizer import RegressionModelOptimizer
 from gpse.utils.log_utils import logger_init
 from gpse.core.genomic_classification import GenomicClassifier
 
@@ -173,31 +173,33 @@ class GenomicPredictorV2:
         self.logs_dir = self.results_dir / ModelConstants.default_logs_dir
         self.logs_dir.mkdir(exist_ok=True, parents=True)
 
+        # Generate timestamped log filename
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.main_log_filename = f"gpse_{timestamp}.log"
+
         # Set main logger (unified output to a single file)
         global main_logger
         main_logger = logger_init(
-            logger_name=str(self.logs_dir / "run.log"),
+            logger_name=str(self.logs_dir / self.main_log_filename),
             log_level="INFO",
         )
 
         # Initialize model optimizer
         if task_type == "regression":
-            self.model_optimizer = ModelOptimizer(
-                random_state=random_seed, n_threads=n_threads
+            self.model_optimizer = RegressionModelOptimizer(
+                random_seed=random_seed, n_threads=n_threads
             )
             self.available_models = list(self.model_optimizer.model_configs.keys())
             self.classification_optimizer = None
             self.genomic_classifier = None
         else:
-            self.classification_optimizer = ClassificationModelOptimizer(
-                random_state=random_seed, n_threads=n_threads, n_classes=n_classes
-            )
             self.genomic_classifier = GenomicClassifier(
                 n_classes=n_classes,
                 results_dir=str(self.results_dir),
-                random_state=random_seed,
+                random_seed=random_seed,
                 n_threads=n_threads,
             )
+            self.classification_optimizer = self.genomic_classifier.classification_optimizer
             self.available_models = self.classification_optimizer.get_available_models()
             self.model_optimizer = None
 

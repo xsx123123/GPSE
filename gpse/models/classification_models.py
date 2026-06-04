@@ -26,8 +26,20 @@ from gpse.config import ClassificationModelConfig, ModelConstants
 class ClassificationModelOptimizer:
     """Classification Model Optimizer"""
     
-    def __init__(self, random_state: Optional[int] = None, n_threads: int = 1, n_classes: int = None):
-        self.random_state = random_state
+    def __init__(
+        self,
+        random_seed: Optional[int] = None,
+        n_threads: int = 1,
+        n_classes: int = None,
+        random_state: Optional[int] = None,
+    ):
+        if random_seed is not None and random_state is not None and random_seed != random_state:
+            raise ValueError("random_seed and random_state were both provided with different values")
+        if random_seed is None:
+            random_seed = random_state
+
+        self.random_seed = random_seed
+        self.random_state = random_seed
         self.n_threads = n_threads
         self.n_classes = n_classes
         self.model_configs = self._init_classification_model_configs()
@@ -80,7 +92,7 @@ class ClassificationModelOptimizer:
     def _rf_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
         """RandomForest classifier parameters"""
         param_dict = {
-            'random_state': self.random_state
+            'random_state': self.random_seed
         }
         
         param_dict['max_depth'] = trial.suggest_int('max_depth', 2, 32)
@@ -106,7 +118,7 @@ class ClassificationModelOptimizer:
     def _xgboost_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
         """XGBoost classifier parameters"""
         param_dict = {
-            'random_state': self.random_state,
+            'random_state': self.random_seed,
             'verbosity': 0,
             'objective': 'multi:softprob',
             'eval_metric': 'mlogloss'
@@ -145,7 +157,7 @@ class ClassificationModelOptimizer:
         """LightGBM classifier parameters"""
         is_binary = (self.n_classes == 2)
         param_dict = {
-            'random_state': self.random_state,
+            'random_state': self.random_seed,
             'verbosity': -1,
             'objective': 'binary' if is_binary else 'multiclass',
             'metric': 'binary_logloss' if is_binary else 'multi_logloss',
@@ -181,7 +193,7 @@ class ClassificationModelOptimizer:
         """CatBoost classifier parameters"""
         param_dict = {
             'logging_level': 'Silent',
-            'random_seed': self.random_state,
+            'random_seed': self.random_seed,
             'objective': 'MultiClass',
             'eval_metric': 'MultiClass'
         }
@@ -216,7 +228,7 @@ class ClassificationModelOptimizer:
             'penalty': trial.suggest_categorical('penalty', ['l2']),
             'C': trial.suggest_float('C', 1e-5, 1e2, log=True),
             'tol': trial.suggest_float('tol', 1e-8, 1e2, log=True),
-            'random_state': self.random_state
+            'random_state': self.random_seed
         }
     
     def _mlp_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
@@ -233,7 +245,7 @@ class ClassificationModelOptimizer:
             'alpha': trial.suggest_float('alpha', 1e-5, 1e-1, log=True),
             'learning_rate': trial.suggest_categorical('learning_rate', ['constant', 'adaptive']),
             'max_iter': trial.suggest_int('max_iter', 100, 1000),
-            'random_state': self.random_state
+            'random_state': self.random_seed
         }
     
     def filter_classification_params(self, model_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -310,7 +322,7 @@ class ClassificationModelOptimizer:
                 'bootstrap': True,
                 'criterion': 'gini',
                 'max_features': 'sqrt',
-                'random_state': self.random_state,
+                'random_state': self.random_seed,
                 'n_jobs': self.n_threads
             }
         elif model_name == 'xgboost_clf':
@@ -321,7 +333,7 @@ class ClassificationModelOptimizer:
                 'booster': 'gbtree',
                 'objective': 'multi:softprob',
                 'eval_metric': 'mlogloss',
-                'random_state': self.random_state,
+                'random_state': self.random_seed,
                 'n_jobs': self.n_threads,
                 'verbosity': 0
             }
@@ -335,7 +347,7 @@ class ClassificationModelOptimizer:
                     'objective': 'binary',
                     'metric': 'binary_logloss',
                     'is_unbalance': True,
-                    'random_state': self.random_state,
+                    'random_state': self.random_seed,
                     'n_jobs': self.n_threads,
                     'verbosity': -1
                 }
@@ -347,7 +359,7 @@ class ClassificationModelOptimizer:
                     'min_child_samples': 20,
                     'objective': 'multiclass',
                     'metric': 'multi_logloss',
-                    'random_state': self.random_state,
+                    'random_state': self.random_seed,
                     'n_jobs': self.n_threads,
                     'verbosity': -1,
                     'num_class': self.n_classes
@@ -361,7 +373,7 @@ class ClassificationModelOptimizer:
                 'objective': 'MultiClass',
                 'eval_metric': 'MultiClass',
                 'logging_level': 'Silent',
-                'random_seed': self.random_state,
+                'random_seed': self.random_seed,
                 'thread_count': self.n_threads
             }
         elif model_name == 'svm_clf':
@@ -371,7 +383,7 @@ class ClassificationModelOptimizer:
                 'gamma': 'scale',
                 'degree': 3,
                 'probability': True,
-                'random_state': self.random_state
+                'random_state': self.random_seed
             }
         elif model_name == 'mlp_clf':
             return {
@@ -381,7 +393,7 @@ class ClassificationModelOptimizer:
                 'alpha': 0.0001,
                 'learning_rate': 'constant',
                 'max_iter': 500,
-                'random_state': self.random_state,
+                'random_state': self.random_seed,
                 'early_stopping': True,
                 'validation_fraction': 0.1,
                 'n_iter_no_change': 20

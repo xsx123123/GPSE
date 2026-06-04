@@ -5,14 +5,20 @@ import time.
 """
 
 __all__ = [
+    "RegressionModelOptimizer",
     "ModelOptimizer",
     "ClassificationModelOptimizer",
 ]
 
 
 def __getattr__(name: str):
+    if name == "RegressionModelOptimizer":
+        from .regression_model_optimizer import RegressionModelOptimizer
+
+        return RegressionModelOptimizer
+
     if name == "ModelOptimizer":
-        from .model_optimizers import ModelOptimizer
+        from .regression_model_optimizer import ModelOptimizer
 
         return ModelOptimizer
 

@@ -93,6 +93,115 @@ def _print_run_header(sw: dict, logger_name: str, output_dir: str) -> None:
     _CONSOLE.print("─" * 60, style="dim")
 
 
+def setup_subprocess_logging(model_name: str, repeat_idx: int,
+                               log_dir: Path, log_level: str = "DEBUG"):
+    """
+    Configure per-worker logging for subprocess tasks.
+
+    Each subprocess writes to its own file under ``log_dir/workers/`` to avoid
+    multi-process file-write races on the main log.  Console output is also
+    enabled so the user still sees real-time progress.
+
+    Parameters
+    ----------
+    model_name : str
+        Model name (used in the log filename).
+    repeat_idx : int
+        Repeat index (used in the log filename).
+    log_dir : Path
+        Base logs directory (e.g. ``results/logs``).
+    log_level : str
+        Logging level for the worker file.
+
+    Returns
+    -------
+    loguru.Logger
+        The configured global loguru logger (same object, new handlers).
+    """
+    workers_dir = Path(log_dir) / "workers"
+    workers_dir.mkdir(parents=True, exist_ok=True)
+
+    log_file = workers_dir / f"{model_name}_repeat_{repeat_idx + 1:03d}.log"
+
+    # In spawn-context child processes the global logger is fresh (only the
+    # default stderr handler #0 exists).  Remove it and set up our own sinks.
+    logger.remove()
+
+    # Console — plain format (Rich may not be fully initialised in children)
+    fmt = (
+        "<green>{time:HH:mm:ss}</green> | "
+        "<level>{level: <8}</level> | "
+        "<cyan>[{extra[worker]}]</cyan> | "
+        "<level>{message}</level>"
+    )
+    try:
+        from rich.console import Console
+        _rich = True
+    except ImportError:
+        _rich = False
+
+    if _rich:
+        # Re-use the Rich sink for pretty console output
+        logger.add(_make_rich_sink(more_info=False), level=log_level,
+                   format="{message}")
+    else:
+        logger.add(sys.stderr, format=fmt, level=log_level, colorize=True)
+
+    # Per-worker file — DEBUG level, enqueue for safety
+    file_fmt = (
+        "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
+        "[{extra[worker]}] | {message}"
+    )
+    logger.add(str(log_file), format=file_fmt, level=log_level,
+               colorize=False, enqueue=True)
+
+    # Bind a default ``worker`` extra field so messages don't KeyError
+    logger.configure(extra={"worker": f"{model_name}_R{repeat_idx + 1}"})
+
+    return logger
+
+
+def collect_subprocess_logs(log_dir: Path, main_logger) -> None:
+    """
+    Read all per-worker log files and append a digest to the main log.
+
+    Called by the main process after all subprocess tasks have finished so
+    that the main log contains a complete record of every repeat.
+
+    Parameters
+    ----------
+    log_dir : Path
+        Base logs directory containing the ``workers/`` subfolder.
+    main_logger
+        The main-process loguru logger.
+    """
+    workers_dir = Path(log_dir) / "workers"
+    if not workers_dir.exists():
+        return
+
+    worker_logs = sorted(workers_dir.glob("*.log"))
+    if not worker_logs:
+        return
+
+    main_logger.info(f"Collecting {len(worker_logs)} subprocess log(s) from {workers_dir}")
+
+    for log_file in worker_logs:
+        try:
+            content = log_file.read_text(encoding="utf-8").strip()
+            if not content:
+                continue
+            main_logger.info(f"{'─' * 40}")
+            main_logger.info(f"▶ Subprocess log: {log_file.name}")
+            main_logger.info(f"{'─' * 40}")
+            for line in content.splitlines():
+                main_logger.info(f"  {line}")
+        except Exception as e:
+            main_logger.warning(f"Failed to read subprocess log {log_file.name}: {e}")
+
+    main_logger.info(f"{'─' * 40}")
+    main_logger.info(f"Subprocess log collection complete ({len(worker_logs)} files)")
+
+
 # ── Public API ─────────────────────────────────────────────────────────────
 
 def logger_init(

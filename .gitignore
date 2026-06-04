@@ -91,4 +91,6 @@ melon_test_results/
 # ---- Temporary / output dirs ----
 test_output/
 test_pkg_output/
-result/
+# result/
+
+# ---- Other ----
