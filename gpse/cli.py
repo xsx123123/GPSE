@@ -79,85 +79,42 @@ def _log_stage(title: str) -> None:
 
 
 def _print_easter_egg(show_question: bool = False) -> None:
-    """Animated easter egg for the ultimate answer.
+    """Display a compact easter egg for the ultimate answer.
 
     Args:
         show_question: If True, display the ultimate question first,
-                       then reveal the answer with extra dramatic effect.
+                       then reveal the answer.
     """
-    import time
-
     question = "The ultimate question of life, the universe, and everything"
     text = "The answer to the ultimate question of life, the universe, and everything is 42"
     if _console is None:
         if show_question:
-            print(f"\nQ: {question}")
-            print(f"A: {text}\n")
+            print(f"\nGPSE 42\n{'-' * 7}\nQ: {question}\nA: 42\n{text}\n")
         else:
-            print(f"\n{text}\n")
+            print(f"\nGPSE 42\n{'-' * 7}\n{text}\n")
         return
 
+    from rich.align import Align
+    from rich.panel import Panel
     from rich.text import Text
 
+    body = Text()
     if show_question:
-        # Dramatic question reveal
-        _console.print("\n")
-        _console.print(
-            Text("  ❓ ", style="bold white on dark_blue"),
-            end="",
-        )
-        _console.print(
-            Text(f'"{question}"', style="italic bright_white"),
-        )
-        time.sleep(1.2)
-        _console.print("\n")
+        body.append("Q: ", style="bold cyan")
+        body.append(f"{question}\n\n", style="white")
+    body.append("42\n", style="bold bright_cyan")
+    body.append(text, style="white")
 
-    # Show face
-    _console.print(Text("  [/●_●\\]", style="bold yellow"))
-    time.sleep(0.3)
-
-    # Blink
-    _console.print(
-        Text.assemble(Text("  [/-_●\\]", style="bold yellow"), "  *blink*"),
-        end="\r",
+    panel = Panel(
+        Align.center(body),
+        title="[bold cyan]GPSE 42[/bold cyan]",
+        subtitle="[dim]Don't Panic[/dim]",
+        border_style="cyan",
+        padding=(1, 4),
     )
-    time.sleep(0.15)
-    _console.print(
-        Text.assemble(Text("  [/●_●\\]", style="bold yellow"), "           "),
-        end="\r",
-    )
-    time.sleep(0.15)
 
-    # Thinking dots (longer pause when answering the big question)
-    _console.print("  [dim]thinking[/dim]", end="")
-    thinking_steps = 5 if show_question else 3
-    for _ in range(thinking_steps):
-        time.sleep(0.4)
-        _console.print("[dim].[/dim]", end="")
-    _console.print("  ")
-    time.sleep(0.3)
-
-    # Typewriter with rainbow colors
-    colors = ["red", "bright_red", "yellow", "bright_yellow", "green", "bright_green", "cyan", "bright_cyan", "blue", "bright_blue", "magenta", "bright_magenta"]
-    _console.print("  ", end="")
-    for i, char in enumerate(text):
-        color = colors[i % len(colors)]
-        _console.print(f"[bold {color}]{char}[/bold {color}]", end="")
-        time.sleep(0.035)
-    _console.print("\n")
-
-    # Wink + sparkle
-    time.sleep(0.2)
-    _console.print(
-        Text.assemble(
-            Text("  [/●_-\\]", style="bold yellow"),
-            "  ",
-            ("✨", "bold gold1"),
-            "  ",
-            ("42!", "italic bright_green"),
-        )
-    )
-    time.sleep(0.5)
+    _console.print()
+    _console.print(panel)
     _console.print("\n")
 
 
