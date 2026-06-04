@@ -91,6 +91,15 @@ def _print_easter_egg(show_question: bool = False) -> None:
     question = "The ultimate question of life, the universe, and everything"
     text = "The answer to the ultimate question of life, the universe, and everything is 42"
     type_delay = 0.014
+    answer_segments = [
+        ("The answer", "bold cyan"),
+        (" to the ", "white"),
+        ("ultimate question", "bold magenta"),
+        (" of ", "white"),
+        ("life, the universe, and everything", "bold green"),
+        (" is ", "white"),
+        ("42", "bold yellow"),
+    ]
 
     if _console is None:
         if show_question:
@@ -109,13 +118,23 @@ def _print_easter_egg(show_question: bool = False) -> None:
     from rich.panel import Panel
     from rich.text import Text
 
+    def append_styled_answer(body: Text, answer_text: str) -> None:
+        offset = 0
+        for segment, style in answer_segments:
+            if offset >= len(answer_text):
+                break
+            visible = answer_text[offset : offset + len(segment)]
+            if visible:
+                body.append(visible, style=style)
+            offset += len(segment)
+
     def render_panel(answer_text: str) -> Panel:
         body = Text()
         if show_question:
             body.append("Q: ", style="bold cyan")
             body.append(f"{question}\n\n", style="white")
         body.append("42\n", style="bold bright_cyan")
-        body.append(answer_text, style="white")
+        append_styled_answer(body, answer_text)
         return Panel(
             Align.center(body),
             title="[bold cyan]GPSE 42[/bold cyan]",
