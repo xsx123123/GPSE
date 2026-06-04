@@ -85,36 +85,52 @@ def _print_easter_egg(show_question: bool = False) -> None:
         show_question: If True, display the ultimate question first,
                        then reveal the answer.
     """
+    import sys
+    import time
+
     question = "The ultimate question of life, the universe, and everything"
     text = "The answer to the ultimate question of life, the universe, and everything is 42"
+    type_delay = 0.014
+
     if _console is None:
         if show_question:
-            print(f"\nGPSE 42\n{'-' * 7}\nQ: {question}\nA: 42\n{text}\n")
+            print(f"\nGPSE 42\n{'-' * 7}\nQ: {question}\nA: 42")
         else:
-            print(f"\nGPSE 42\n{'-' * 7}\n{text}\n")
+            print(f"\nGPSE 42\n{'-' * 7}")
+        for char in text:
+            sys.stdout.write(char)
+            sys.stdout.flush()
+            time.sleep(type_delay)
+        print("\n")
         return
 
     from rich.align import Align
+    from rich.live import Live
     from rich.panel import Panel
     from rich.text import Text
 
-    body = Text()
-    if show_question:
-        body.append("Q: ", style="bold cyan")
-        body.append(f"{question}\n\n", style="white")
-    body.append("42\n", style="bold bright_cyan")
-    body.append(text, style="white")
-
-    panel = Panel(
-        Align.center(body),
-        title="[bold cyan]GPSE 42[/bold cyan]",
-        subtitle="[dim]Don't Panic[/dim]",
-        border_style="cyan",
-        padding=(1, 4),
-    )
+    def render_panel(answer_text: str) -> Panel:
+        body = Text()
+        if show_question:
+            body.append("Q: ", style="bold cyan")
+            body.append(f"{question}\n\n", style="white")
+        body.append("42\n", style="bold bright_cyan")
+        body.append(answer_text, style="white")
+        return Panel(
+            Align.center(body),
+            title="[bold cyan]GPSE 42[/bold cyan]",
+            subtitle="[dim]Don't Panic[/dim]",
+            border_style="cyan",
+            padding=(1, 4),
+        )
 
     _console.print()
-    _console.print(panel)
+    answer = ""
+    with Live(render_panel(answer), console=_console, refresh_per_second=30) as live:
+        for char in text:
+            answer += char
+            live.update(render_panel(answer))
+            time.sleep(type_delay)
     _console.print("\n")
 
 
