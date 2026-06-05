@@ -16,7 +16,7 @@ from sklearn.model_selection import train_test_split
 from loguru import logger as main_logger
 
 from gpse.utils.genomic_utils import create_comparison_table, call_topsis_evaluator
-from gpse.utils.stacking import StackingEnsemble
+from gpse.train.stacking import StackingEnsemble
 
 
 def run_all_models(

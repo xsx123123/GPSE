@@ -12,7 +12,7 @@ Features:
 - Robust conversion from probabilities to labels
 - Classification scatter plot generation (if needed)
 
-Pure classification function module extracted from genomic_prediction_v2_class.py
+Classification-specific runtime helpers extracted from the legacy monolithic predictor.
 """
 
 import numpy as np

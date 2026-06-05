@@ -34,12 +34,12 @@ main_logger = logger_init()
 # ---------------------------------------------------------------------------
 # Import method implementations from sub-modules
 # ---------------------------------------------------------------------------
-from gpse.core._data_io import (
+from gpse.train._data_io import (
     load_data,
     _standardize_phenotype,
     _inverse_standardize_phenotype,
 )
-from gpse.core._model_tools import (
+from gpse.train._model_tools import (
     create_model,
     get_default_params,
     get_param_func,
@@ -47,20 +47,20 @@ from gpse.core._model_tools import (
     _get_default_ensemble_metrics,
     _get_default_fold_metrics,
 )
-from gpse.core._fold_training import (
+from gpse.train._fold_training import (
     _train_single_fold,
     _log_fold_results,
     _calculate_fold_average_metrics,
 )
-from gpse.core._ensemble import _compute_ensemble_predictions
-from gpse.core._optimization import optimize_model_parameters
-from gpse.core._repeat_training import (
+from gpse.train._ensemble import _compute_ensemble_predictions
+from gpse.train._optimization import optimize_model_parameters
+from gpse.train._repeat_training import (
     train_and_evaluate_model_for_repeat,
     run_model_multiple_repeats,
     _run_repeat_task,
 )
-from gpse.core._cv_manager import prepare_cv_folds, generate_cv_folds_from_file
-from gpse.core._pipeline import run_all_models
+from gpse.train._cv_manager import prepare_cv_folds, generate_cv_folds_from_file
+from gpse.train._pipeline import run_all_models
 from gpse.config._topsis_config import (
     get_topsis_configuration,
     _save_representative_model,

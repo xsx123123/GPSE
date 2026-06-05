@@ -13,9 +13,6 @@ __all__ = [
     "calculate_metrics",
     "create_comparison_table",
     "call_topsis_evaluator",
-    "StackingEnsemble",
-    "TOPSISEvaluator",
-    "GenomicDataProcessor",
 ]
 
 
@@ -43,20 +40,5 @@ def __getattr__(name: str):
             "create_comparison_table": create_comparison_table,
             "call_topsis_evaluator": call_topsis_evaluator,
         }[name]
-
-    if name == "StackingEnsemble":
-        from .stacking import StackingEnsemble
-
-        return StackingEnsemble
-
-    if name == "TOPSISEvaluator":
-        from .topsis import TOPSISEvaluator
-
-        return TOPSISEvaluator
-
-    if name == "GenomicDataProcessor":
-        from .genomic_data_pipeline import GenomicDataProcessor
-
-        return GenomicDataProcessor
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

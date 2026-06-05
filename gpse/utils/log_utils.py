@@ -52,7 +52,7 @@ def _make_rich_sink(more_info: bool = False):
         record = message.record
         level = record["level"].name
         time = record["time"].strftime("%H:%M:%S")
-        msg = str(message).strip()  # 去掉首尾空白和换行，消除空行
+        msg = str(message).strip()  # Remove surrounding whitespace and newlines
 
         style, icon = _LEVEL_STYLES.get(level, ("white", "•"))
 
@@ -228,7 +228,7 @@ def logger_init(
         logger.add(
             _make_rich_sink(more_info=more_info),
             level=log_level,
-            format="{message}",   # ← 让 Rich sink 完全接管格式
+            format="{message}",   # Let the Rich sink handle all formatting
         )
     else:
         fmt = (

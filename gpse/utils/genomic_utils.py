@@ -88,8 +88,7 @@ def call_topsis_evaluator(
 ):
     """Call TOPSIS evaluator for model comprehensive evaluation."""
     try:
-        # Correctly import TOPSIS evaluator from the same package
-        from .topsis import TOPSISEvaluator
+        from gpse.train.topsis import TOPSISEvaluator
         
         # Use provided logger or try to get one from log_utils
         if logger is None:

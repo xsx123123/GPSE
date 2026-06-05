@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-基于熵权法的TOPSIS模型综合评价
+TOPSIS model evaluation with optional entropy weighting.
 
-可作为工具模块调用或独立命令行工具使用
+Can be used as a utility module or as a standalone command-line tool.
 """
 
 import pandas as pd
@@ -13,27 +13,27 @@ import os
 
 
 class TOPSISEvaluator:
-    """TOPSIS综合评价器"""
+    """TOPSIS evaluator."""
     
     def __init__(self, logger=None):
         """
-        初始化TOPSIS评价器
-        
-        参数:
-            logger: 日志记录器，如果不提供则使用print输出
+        Initialize the TOPSIS evaluator.
+
+        Parameters:
+            logger: Logger instance. Uses print output when not provided.
         """
         self.logger = logger
     
     def _log(self, message):
-        """统一的日志输出方法"""
+        """Write a log message through the configured logger or print."""
         if self.logger:
             self.logger.info(message)
         else:
             print(message)
     
     def entropy_weight_method(self, data):
-        """熵权法计算权重"""
-        # 归一化
+        """Calculate weights with the entropy weighting method."""
+        # Normalize
         P = data / data.sum(axis=0)
         P = P.replace(0, 1e-12)
         n = data.shape[0]
@@ -44,7 +44,7 @@ class TOPSISEvaluator:
         return w
     
     def topsis(self, data, weights, criteria_types, min_transform='reciprocal'):
-        """TOPSIS综合评价方法"""
+        """Run TOPSIS evaluation."""
         data_proc = data.copy()
         for i, ctype in enumerate(criteria_types):
             if ctype == 'min':
@@ -52,26 +52,26 @@ class TOPSISEvaluator:
                 if min_transform == 'reciprocal':
                     data_proc.iloc[:, i] = 1.0 / (col + 1e-12)
                 elif min_transform == 'neglog':
-                    # 稳定性越小越好，用 -log(x) 抑制极小值差异的放大
+                    # Smaller stability metrics are better; -log(x) dampens tiny-value amplification
                     data_proc.iloc[:, i] = -np.log(col + 1e-12)
                 elif min_transform == 'minmax_inv':
-                    # 线性反向到 [0,1]，作为一个更温和的替代
+                    # Linearly invert to [0, 1] as a milder alternative
                     mx, mn = col.max(), col.min()
                     data_proc.iloc[:, i] = (mx - col) / (mx - mn + 1e-12)
                 else:
                     raise ValueError(f'Unsupported min_transform: {min_transform}')
-        # 归一化
+        # Normalize
         norm = np.sqrt((data_proc ** 2).sum(axis=0))
         data_norm = data_proc / norm
-        # 加权
+        # Apply weights
         data_weighted = data_norm * weights
-        # 理想/负理想解
+        # Ideal and negative-ideal solutions
         ideal = data_weighted.max(axis=0)
         nadir = data_weighted.min(axis=0)
-        # 距离
+        # Distances
         D_pos = np.sqrt(((data_weighted - ideal) ** 2).sum(axis=1))
         D_neg = np.sqrt(((data_weighted - nadir) ** 2).sum(axis=1))
-        # 得分
+        # Scores
         scores = D_neg / (D_pos + D_neg)
         return scores, data_proc, data_norm
     
@@ -79,72 +79,72 @@ class TOPSISEvaluator:
                  simple_output=None, manual_weights='0.8,0.2', min_transform='reciprocal',
                  use_entropy_weights=False):
         """
-        执行TOPSIS评价
-        
-        参数:
-            input_file: 输入CSV文件路径
-            output_file: 输出CSV文件路径
-            criteria: 评价指标名列表
-            criteria_types: 指标类型列表（max/min）
-            simple_output: 精简版输出文件路径
-            manual_weights: 手动权重字符串
-            min_transform: min型指标正向化方式
-            use_entropy_weights: 是否使用熵权法自动赋权
-            
-        返回:
-            处理后的DataFrame
+        Run TOPSIS evaluation.
+
+        Parameters:
+            input_file: Input CSV file path.
+            output_file: Output CSV file path.
+            criteria: Evaluation criterion names.
+            criteria_types: Criterion types (max/min).
+            simple_output: Optional simplified output file path.
+            manual_weights: Manual weight string.
+            min_transform: Positive transformation method for min-type criteria.
+            use_entropy_weights: Whether to use entropy weighting instead of manual weights.
+
+        Returns:
+            Processed DataFrame.
         """
-        # 设置默认值
+        # Set defaults
         if criteria is None:
             criteria = ['Test Pearson', 'Test Pearson (std)']
         if criteria_types is None:
             criteria_types = ['max', 'min']
         
-        # 读取数据
+        # Read data
         df = pd.read_csv(input_file)
-        
-        # 验证参数
+
+        # Validate parameters
         if len(criteria) != len(criteria_types):
-            raise ValueError("指标数量和类型数量必须一致")
-        
-        # 只保留有效行
+            raise ValueError("The number of criteria and criterion types must match")
+
+        # Keep valid rows only
         data = df[criteria].copy()
         data = data.loc[~((data == 0) | (data.isna())).all(axis=1)]
         df = df.loc[data.index].reset_index(drop=True)
         data = data.reset_index(drop=True)
         
-        # 权重设置
+        # Weight configuration
         if use_entropy_weights:
-            # 使用熵权法自动赋权
+            # Use entropy weighting
             weights = self.entropy_weight_method(data)
-            self._log(f"使用熵权法自动赋权: {dict(zip(criteria, weights.round(4)))}")
+            self._log(f"Using entropy weights: {dict(zip(criteria, weights.round(4)))}")
         else:
-            # 使用手动设置权重（默认8:2）
+            # Use manual weights; the default ratio is 8:2
             weights = [float(w.strip()) for w in manual_weights.split(',')]
             if len(weights) != len(criteria):
-                raise ValueError("权重数量与指标数量必须一致")
-            # 归一化权重
+                raise ValueError("The number of weights must match the number of criteria")
+            # Normalize weights
             weights = np.array(weights) / sum(weights)
-            self._log(f"使用手动设置权重: {dict(zip(criteria, weights.round(4)))}")
-        
-        # TOPSIS综合评价，并返回正向化和归一化结果
+            self._log(f"Using manual weights: {dict(zip(criteria, weights.round(4)))}")
+
+        # Run TOPSIS and return transformed and normalized data
         scores, data_proc, data_norm = self.topsis(data, weights, criteria_types, min_transform)
         df['TOPSIS_Score'] = scores
-        
-        # 只保留有效分数
+
+        # Keep finite scores only
         df = df[np.isfinite(df['TOPSIS_Score'])].reset_index(drop=True)
-        
-        # 按分数排序
+
+        # Sort by score
         df = df.sort_values('TOPSIS_Score', ascending=False).reset_index(drop=True)
         df['TOPSIS_Rank'] = np.arange(1, len(df) + 1)
-        
-        # 添加中间转化结果
+
+        # Add intermediate transformation results
         for i, c in enumerate(criteria):
             df[f'{c}_positive'] = data_proc.iloc[:, i]
             df[f'{c}_norm'] = data_norm.iloc[:, i]
             df[f'{c}_weight'] = weights[i]
-        
-        # 只输出需要的列（完整版）
+
+        # Output required columns for the full result
         output_cols = ['Model'] + criteria
         output_cols += [f'{c}_positive' for c in criteria]
         output_cols += [f'{c}_norm' for c in criteria]
@@ -153,51 +153,51 @@ class TOPSISEvaluator:
         
         df_out = df[output_cols]
         df_out.to_csv(output_file, index=False)
-        self._log(f"已保存带TOPSIS综合评价的结果到: {output_file}")
+        self._log(f"Saved TOPSIS evaluation results to: {output_file}")
         self._log(str(df[['Model', 'TOPSIS_Score', 'TOPSIS_Rank']].sort_values('TOPSIS_Rank')))
-        
-        # 生成精简版结果
+
+        # Generate simplified output
         if simple_output:
             simple_cols = ['Model'] + criteria + ['TOPSIS_Score', 'TOPSIS_Rank']
             df_simple = df[simple_cols]
             df_simple.to_csv(simple_output, index=False)
-            self._log(f"已保存精简版TOPSIS结果到: {simple_output}")
+            self._log(f"Saved simplified TOPSIS results to: {simple_output}")
         
         return df
 
 
 def entropy_weight_method(data):
-    """熵权法计算权重（向后兼容函数）"""
+    """Calculate weights with entropy weighting; backward-compatible function."""
     evaluator = TOPSISEvaluator()
     return evaluator.entropy_weight_method(data)
 
 
 def topsis(data, weights, criteria_types, min_transform='reciprocal'):
-    """TOPSIS综合评价（向后兼容函数）"""
+    """Run TOPSIS evaluation; backward-compatible function."""
     evaluator = TOPSISEvaluator()
     return evaluator.topsis(data, weights, criteria_types, min_transform)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="基于熵权法的TOPSIS模型综合评价")
-    parser.add_argument('--input', type=str, required=True, help='输入csv文件（如model_comparison.csv）')
-    parser.add_argument('--output', type=str, required=True, help='输出csv文件')
-    parser.add_argument('--criteria', type=str, default='Test Pearson,Test Pearson (std)', help='用逗号分隔的评价指标名')
-    parser.add_argument('--criteria_types', type=str, default='max,min', help='用逗号分隔的指标类型（max/min）')
-    parser.add_argument('--simple_output', type=str, default=None, help='精简版输出文件名（只保留原始指标和TOPSIS结果）')
-    parser.add_argument('--manual_weights', type=str, default='0.8,0.2', help='手动设置权重，用逗号分隔（默认0.8,0.2表示精度:稳定性=8:2）')
+    parser = argparse.ArgumentParser(description="TOPSIS model evaluation with entropy weighting")
+    parser.add_argument('--input', type=str, required=True, help='Input CSV file, such as model_comparison.csv')
+    parser.add_argument('--output', type=str, required=True, help='Output CSV file')
+    parser.add_argument('--criteria', type=str, default='Test Pearson,Test Pearson (std)', help='Comma-separated evaluation criterion names')
+    parser.add_argument('--criteria_types', type=str, default='max,min', help='Comma-separated criterion types (max/min)')
+    parser.add_argument('--simple_output', type=str, default=None, help='Simplified output file name, keeping only raw criteria and TOPSIS results')
+    parser.add_argument('--manual_weights', type=str, default='0.8,0.2', help='Manual comma-separated weights; default 0.8,0.2 means accuracy:stability = 8:2')
     parser.add_argument('--min_transform', type=str, default='reciprocal',
                         choices=['reciprocal', 'neglog', 'minmax_inv'],
-                        help='min型指标的正向化方式（默认 reciprocal，可选 neglog、minmax_inv）')
+                        help='Positive transformation method for min-type criteria; default reciprocal, options neglog and minmax_inv')
     parser.add_argument('--use_entropy_weights', action='store_true',
-                        help='使用熵权法自动赋权，否则使用手动权重')
+                        help='Use entropy weighting instead of manual weights')
     args = parser.parse_args()
 
-    # 解析参数
+    # Parse parameters
     criteria = [c.strip() for c in args.criteria.split(',')]
     criteria_types = [c.strip() for c in args.criteria_types.split(',')]
 
-    # 创建TOPSIS评价器并执行评价
+    # Create TOPSIS evaluator and run evaluation
     evaluator = TOPSISEvaluator()
     evaluator.evaluate(
         input_file=args.input,

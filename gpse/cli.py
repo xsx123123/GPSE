@@ -4,7 +4,7 @@
 GPSE Command-Line Interface
 
 This module is intentionally thin: it only defines argument parsers and routes
-the execution flow. All business logic lives in ``gpse.core``.
+the execution flow. Training business logic lives in ``gpse.train``.
 """
 
 import os
@@ -40,8 +40,8 @@ try:
 except ImportError:  # pragma: no cover
     _console = None
 
-from gpse.core.prediction_v2 import GenomicPredictorV2, main_logger
-from gpse.utils.genomic_data_pipeline import GenomicDataProcessor
+from gpse.train.predictor import GenomicPredictorV2, main_logger
+from gpse.convert.processor import GenomicDataProcessor
 
 try:
     from gpse.utils.configuration import load_software_config
@@ -177,10 +177,11 @@ _common_parent.add_argument(
 )
 
 
-def main() -> int:
-    """Main entry point for the GPSE CLI."""
+def _train_main(argv: list[str] | None = None, *, prog: str = "gpse train") -> int:
+    """Run the GPSE training CLI."""
+    raw_args = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(
-        prog="gpse",
+        prog=prog,
         description="GPSE — Genomic Prediction with Stacking Ensemble for horticultural crops",
         formatter_class=RichHelpFormatter,
         add_help=False,
@@ -404,29 +405,23 @@ def main() -> int:
 
     # Easter egg: the ultimate answer
     _ULTIMATE_QUESTION = "the ultimate question of life, the universe, and everything"
-    if len(sys.argv) == 2 and sys.argv[1] == "42":
+    if len(raw_args) == 1 and raw_args[0] == "42":
         _print_easter_egg(show_question=False)
         return 0
     # Also trigger on the question itself: gpse "The ultimate question of life, the universe, and everything"
-    if len(sys.argv) >= 2:
-        _joined_args = " ".join(sys.argv[1:]).strip().lower().rstrip("?!. ")
+    if raw_args:
+        _joined_args = " ".join(raw_args).strip().lower().rstrip("?!. ")
         if _joined_args == _ULTIMATE_QUESTION:
             _print_easter_egg(show_question=True)
             return 0
         del _joined_args
     del _ULTIMATE_QUESTION
 
-    args = parser.parse_args()
+    args = parser.parse_args(raw_args)
 
     # Show help when no arguments are provided
-    if len(sys.argv) == 1:
-        _show_logo()
-        if _console is not None:
-            _console.print("\n[bold red][ERROR] No arguments provided. Please specify at least one option.[/bold red]\n")
-        else:
-            print("\n[ERROR] No arguments provided. Please specify at least one option.\n")
-        parser.print_help()
-        return 1
+    if not raw_args:
+        parser.error("train requires arguments. Use 'gpse train -h' for help.")
 
     # ── Version display ───────────────────────────────────────────
     if args.version:
@@ -453,9 +448,10 @@ def main() -> int:
     if args.log_level:
         import logging
         level = getattr(logging, args.log_level.upper(), logging.INFO)
-        main_logger.setLevel(level)
-        for handler in main_logger.handlers:
-            handler.setLevel(level)
+        if hasattr(main_logger, "setLevel"):
+            main_logger.setLevel(level)
+            for handler in getattr(main_logger, "handlers", []):
+                handler.setLevel(level)
 
     # ── Parameter validation ──────────────────────────────────────
     if args.task_type == "classification":
@@ -594,6 +590,106 @@ def main() -> int:
         use_same_test_set=args.use_same_test_set,
     )
     return 0
+
+
+def _build_root_parser() -> argparse.ArgumentParser:
+    """Build the top-level GPSE command router parser."""
+    parser = argparse.ArgumentParser(
+        prog="gpse",
+        description="GPSE — Genomic Prediction with Stacking Ensemble for horticultural crops",
+        formatter_class=RichHelpFormatter,
+        add_help=False,
+        parents=[_common_parent],
+    )
+    parser.add_argument(
+        "-h", "--help",
+        action=_LogoHelpAction,
+        nargs=0,
+        default=False,
+        help="Show this help message and exit",
+    )
+    subparsers = parser.add_subparsers(
+        dest="command",
+        metavar="{train,convert,predict}",
+        title="workflow commands",
+        description="Run one of the GPSE workflows",
+    )
+    subparsers.add_parser(
+        "train",
+        add_help=False,
+        help="Train genomic prediction models from genotype and phenotype matrices",
+        description="Train genomic prediction models.",
+    )
+    subparsers.add_parser(
+        "convert",
+        add_help=False,
+        help="Convert raw genotype/phenotype inputs and run optional QC",
+        description="Convert raw genotype/phenotype inputs and run optional QC.",
+    )
+    subparsers.add_parser(
+        "predict",
+        add_help=False,
+        help="Predict phenotypes using trained GPSE models",
+        description="Predict phenotypes using trained GPSE models.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Main entry point for the GPSE CLI."""
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    root_parser = _build_root_parser()
+
+    if not raw_args:
+        _show_logo()
+        if _console is not None:
+            _console.print("\n[bold red][ERROR] No command provided. Use train, convert, or predict.[/bold red]\n")
+        else:
+            print("\n[ERROR] No command provided. Use train, convert, or predict.\n")
+        root_parser.print_help()
+        return 1
+
+    if raw_args[0] in {"-h", "--help"}:
+        root_parser.parse_args(raw_args)
+        return 0
+
+    if raw_args[0] in {"-v", "--version"}:
+        return _train_main(["--version"], prog="gpse")
+
+    command = raw_args[0]
+    command_args = raw_args[1:]
+
+    if command == "train":
+        return _train_main(command_args, prog="gpse train")
+
+    if command == "convert":
+        from gpse.convert.cli import main as convert_main
+
+        if command_args and command_args[0] in {"-v", "--version"}:
+            return _train_main(["--version"], prog="gpse convert")
+        return convert_main(
+            command_args,
+            formatter_class=RichHelpFormatter,
+            prog="gpse convert",
+            help_action=_LogoHelpAction,
+            parents=[_common_parent],
+        )
+
+    if command == "predict":
+        from gpse.predict.cli import main as predict_main
+
+        if command_args and command_args[0] in {"-v", "--version"}:
+            return _train_main(["--version"], prog="gpse predict")
+        return predict_main(
+            command_args,
+            formatter_class=RichHelpFormatter,
+            prog="gpse predict",
+            help_action=_LogoHelpAction,
+            parents=[_common_parent],
+        )
+
+    root_parser.error(f"Unknown command: {command}. Use train, convert, or predict.")
+    return 2
 
 
 if __name__ == "__main__":
