@@ -13,9 +13,10 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
+import logging
 import yaml
 
-from gpse.utils.log_utils import logger
+logger = logging.getLogger("gpse.config")
 
 PROJECT_CONFIG_FILES = ("gpse.yaml", "gpse.local.yaml")
 

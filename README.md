@@ -258,6 +258,125 @@ gpse convert --help
 gpse train --help
 ```
 
+## 📁 Source Layout
+
+The package is organized around the three workflow commands: `convert`, `train`,
+and `predict`. Runtime-specific code lives in those command packages; shared
+support code lives in `config`, `models`, `tasks`, `tools`, and `utils`.
+
+### `gpse/`
+
+| File | Scope |
+| --- | --- |
+| `__init__.py` | Package metadata, currently exposes `__version__`. |
+| `cli.py` | Thin top-level command router for `gpse {convert,train,predict}`. It defines shared CLI flags, routes subcommands, and delegates workflow logic to the relevant package. |
+
+### `gpse/config/`
+
+Configuration constants and packaged YAML defaults.
+
+| File | Scope |
+| --- | --- |
+| `__init__.py` | Public exports for config dataclasses and constants. |
+| `constants.py` | Dataclasses and immutable model/training constants, including filenames, directory names, precision settings, and thread environment variable names. |
+| `_topsis_config.py` | Loads TOPSIS task configuration, validates criteria/weights, logs runtime settings, and saves representative models. It is consumed by the training predictor. |
+| `default.yaml` | Default application/logging configuration. |
+| `software.yaml` | Package metadata and external tool definitions used by conversion/QC dependency checks. |
+| `topsis.yaml` | Task-specific TOPSIS criteria, directions, and weights for regression/classification model ranking. |
+
+### `gpse/convert/`
+
+Implementation for `gpse convert`: genotype/phenotype conversion, QC, LD pruning,
+and external tool execution.
+
+| File | Scope |
+| --- | --- |
+| `__init__.py` | Public convert package export for `GenomicDataProcessor`. |
+| `cli.py` | CLI parser and dispatcher for conversion modes such as full conversion, QC, recoding, and dependency checks. |
+| `external.py` | External-tool discovery, configured path resolution, version checks, and command execution helpers. |
+| `processor.py` | Main conversion processor: VCF/PLINK conversion, SNP extraction, numeric matrix generation, phenotype cleanup, sample matching, and phenotype standardization. |
+| `qc.py` | PLINK/Beagle QC utilities: format conversion, genotype filtering, imputation, LD pruning, and PED/MAP numeric recoding. |
+
+### `gpse/train/`
+
+Implementation for `gpse train`: model training, repeated CV, optimization,
+model ranking, and stacking ensemble training.
+
+| File | Scope |
+| --- | --- |
+| `__init__.py` | Lazy exports for `GenomicPredictorV2`, `StackingEnsemble`, and `TOPSISEvaluator`. |
+| `cli.py` | CLI parser and dispatcher for `gpse train`, including training arguments, preprocessing options, validation, and training workflow launch. |
+| `predictor.py` | Main training orchestrator class. It initializes task-specific optimizers, logging, directories, and binds the training submodule functions as methods. |
+| `_data_io.py` | Training data loading, genotype/phenotype alignment, phenotype standardization, and inverse standardization. |
+| `_model_tools.py` | Unified model creation, default-parameter lookup, parameter filtering, and default metric fallbacks for regression/classification. |
+| `_fold_training.py` | Single-fold model training, prediction, metric calculation, fold logging, and fold-level metric averaging. |
+| `_ensemble.py` | Fold-ensemble prediction logic and ensemble metric calculation. |
+| `_optimization.py` | Optuna-based hyperparameter optimization over CV folds. |
+| `_repeat_training.py` | Repeat-level orchestration, parallel repeat execution, summary statistics, representative repeat selection, and repeat result saving. |
+| `_cv_manager.py` | CV fold file creation/loading and fold generation from predefined CV assignments. |
+| `_pipeline.py` | Top-level `run_all_models` workflow. Runs selected models, creates comparison tables, performs TOPSIS selection, and optionally trains stacking ensembles. |
+| `stacking.py` | Optional stacking ensemble stage. Loads trained base models, creates meta-features, trains the meta-model, evaluates, and saves ensemble artifacts. |
+| `topsis.py` | TOPSIS evaluator and optional CLI. Ranks trained models from comparison CSV outputs using configured criteria and weights. |
+
+### `gpse/predict/`
+
+Implementation placeholder for `gpse predict`.
+
+| File | Scope |
+| --- | --- |
+| `__init__.py` | Prediction package marker. |
+| `__main__.py` | Enables `python -m gpse.predict`. |
+| `cli.py` | CLI stub for future prediction workflows. Parses model/genotype/output arguments and currently reports that prediction is not implemented yet. |
+
+### `gpse/models/`
+
+Model registries and optimizer/search-space definitions. These modules define
+how models are constructed and how Optuna proposes parameters; they do not run
+the full training pipeline by themselves.
+
+| File | Scope |
+| --- | --- |
+| `__init__.py` | Lazy exports for regression and classification optimizers. |
+| `regression_model_optimizer.py` | Regression model registry, Optuna search spaces, parameter filtering, model factories, and default parameters. |
+| `classification_model_optimizer.py` | Classification model registry, Optuna search spaces, parameter filtering, model factories, and default parameters. |
+| `model_optimizers.py` | Backward-compatible regression optimizer import shim. New code should use `regression_model_optimizer.py`. |
+| `classification_models.py` | Backward-compatible classification optimizer import shim. New code should use `classification_model_optimizer.py`. |
+
+### `gpse/tasks/`
+
+Task-specific runtime helpers that are shared by training components.
+
+| File | Scope |
+| --- | --- |
+| `__init__.py` | Lazy export for `GenomicClassifier`. |
+| `classification.py` | Classification-specific runtime support: label encoding/decoding, probability-to-label conversion, classification metrics, result summaries, and delegation to `ClassificationModelOptimizer`. |
+
+### `gpse/tools/`
+
+Standalone helper scripts that are useful outside the main workflow commands.
+
+| File | Scope |
+| --- | --- |
+| `__init__.py` | Tools package marker. |
+| `analyze_phenotypes.py` | Standalone phenotype analysis helper for inspecting trait distributions and deciding whether traits are better treated as regression or classification targets. |
+
+### `gpse/utils/`
+
+Shared utilities used across workflow packages. This package should contain
+generic support code only; train/convert/predict-specific business logic should
+live in the corresponding workflow package.
+
+| File | Scope |
+| --- | --- |
+| `__init__.py` | Lazy exports for logging and shared genomic utility functions. |
+| `configuration.py` | YAML configuration loading and merge helpers for packaged defaults plus optional project/user overrides. |
+| `dependency_checker.py` | Generic external dependency detection and version-check helpers used by conversion tooling. |
+| `genomic_utils.py` | Shared training helpers: metric calculations, CV file helpers, result-table generation, seed generation, directory creation, fold utilities, and TOPSIS wrapper dispatch. |
+| `log_utils.py` | Loguru/Rich logger initialization, subprocess logging setup, and subprocess log collection. |
+| `logo.py` | Rich-based logo and welcome panel rendering. |
+| `print_utils.py` | Reusable Rich table/panel/column printing helpers. |
+| `version.py` | Version, dependency, system, and external-tool reporting helpers. |
+
 ## 📦 Core Dependencies
 
 * `scikit-learn`
@@ -273,18 +392,19 @@ gpse train --help
 * **Thread Control & Startup Performance** (`2026-06-03`)
   * Fixed BLAS/MKL thread pools ignoring `--n_jobs` by setting all 6 environment variables (`OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `NUMEXPR_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS`, `BLIS_NUM_THREADS`) **before** numpy/scipy import.
   * Added `threadpoolctl.threadpool_limits()` as a runtime safety net around all `model.fit()` calls.
-  * Switched `__init__.py` files in `core/`, `models/`, `utils/` to **lazy imports** (`__getattr__`) so `gpse --help` no longer loads the entire ML stack.
+  * Switched `__init__.py` files in `train/`, `models/`, `tasks/`, and `utils/` to **lazy imports** (`__getattr__`) so `gpse --help` no longer loads the entire ML stack.
   * Renamed CLI args for clarity: `--threads` → `--n_jobs`, `--parallel_jobs` → `--max_workers`.
   * Added `--n_jobs` to `histgradientboost_reg` and `knn_reg` (previously missing thread control).
   * Fixed easter egg (`gpse 42`) duplicate face and unrendered rich markup.
 
 * **Import System Unification** (`2026-06-03`)
-  * Removed all `sys.path` hacks from `cli.py` and `prediction_v2.py`.
+  * Removed all `sys.path` hacks from `cli.py` and the training predictor.
   * Unified all imports to absolute package paths (`from gpse.xxx import ...`).
-  * Populated `__init__.py` files with proper exports for `config/`, `core/`, `models/`, `utils/`, `tools/`.
+  * Populated `__init__.py` files with proper exports for `config/`, `convert/`, `train/`, `models/`, `tasks/`, `utils/`, and `tools/`.
 
 * **Modular Refactor of `GenomicPredictorV2`** (`2026-06-03`)
-  * Split the monolithic `GenomicPredictorV2` class in `gpse/core/prediction_v2.py` into **9 focused sub-modules** under `gpse/core/`:
+  * Split the monolithic `GenomicPredictorV2` class into focused training modules under `gpse/train/`:
+    * `predictor.py` – main `GenomicPredictorV2` training orchestrator
     * `_data_io.py` – genotype / phenotype loading & standardization
     * `_model_tools.py` – model creation, default parameters & metric fallbacks
     * `_fold_training.py` – single CV fold training, logging & averaging
@@ -293,7 +413,9 @@ gpse train --help
     * `_repeat_training.py` – repeat-level training orchestration & parallel execution
     * `_cv_manager.py` – CV fold preparation & file generation
     * `_pipeline.py` – top-level `run_all_models` pipeline (including TOPSIS + Stacking)
-    * `_topsis_config.py` – TOPSIS configuration, representative model saving & environment logging
+    * `stacking.py` – optional stacking ensemble training
+    * `topsis.py` – TOPSIS model ranking
+  * Moved TOPSIS runtime configuration to `gpse/config/_topsis_config.py` and YAML defaults to `gpse/config/topsis.yaml`.
   * All Chinese comments, docstrings, and log messages translated to **English**.
   * Moved `ModelConfig`, `ClassificationModelConfig`, `NumpyEncoder` into `config/constants.py`.
 
