@@ -10,6 +10,8 @@ __all__ = [
     "logger_generator",
     "setup_subprocess_logging",
     "collect_subprocess_logs",
+    "get_available_cpu_cores",
+    "validate_parallelism",
     "calculate_metrics",
     "create_comparison_table",
     "call_topsis_evaluator",
@@ -26,6 +28,14 @@ def __getattr__(name: str):
             "logger_generator": logger_generator,
             "setup_subprocess_logging": setup_subprocess_logging,
             "collect_subprocess_logs": collect_subprocess_logs,
+        }[name]
+
+    if name in ("get_available_cpu_cores", "validate_parallelism"):
+        from .paralle import get_available_cpu_cores, validate_parallelism
+
+        return {
+            "get_available_cpu_cores": get_available_cpu_cores,
+            "validate_parallelism": validate_parallelism,
         }[name]
 
     if name in ("calculate_metrics", "create_comparison_table", "call_topsis_evaluator"):

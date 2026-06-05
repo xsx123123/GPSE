@@ -16,6 +16,8 @@ import traceback
 
 from gpse.convert.processor import GenomicDataProcessor
 from gpse.train.predictor import GenomicPredictorV2, main_logger
+from gpse.utils.cli_display import ULTIMATE_QUESTION, print_easter_egg
+from gpse.utils.paralle import validate_parallelism
 
 try:
     from rich_argparse import RichHelpFormatter
@@ -42,75 +44,6 @@ def _log_stage(title: str) -> None:
     if _console is not None:
         _console.rule(f"[bold blue]{title}[/bold blue]")
     main_logger.info(title)
-
-
-def _print_easter_egg(show_question: bool = False) -> None:
-    """Display a compact easter egg for the ultimate answer."""
-    import time
-
-    question = "The ultimate question of life, the universe, and everything"
-    text = "The answer to the ultimate question of life, the universe, and everything is 42"
-    type_delay = 0.014
-    answer_segments = [
-        ("The answer", "bold cyan"),
-        (" to the ", "white"),
-        ("ultimate question", "bold magenta"),
-        (" of ", "white"),
-        ("life, the universe, and everything", "bold green"),
-        (" is ", "white"),
-        ("42", "bold yellow"),
-    ]
-
-    if _console is None:
-        if show_question:
-            print(f"\nGPSE 42\n{'-' * 7}\nQ: {question}\nA: 42")
-        else:
-            print(f"\nGPSE 42\n{'-' * 7}")
-        for char in text:
-            sys.stdout.write(char)
-            sys.stdout.flush()
-            time.sleep(type_delay)
-        print("\n")
-        return
-
-    from rich.align import Align
-    from rich.live import Live
-    from rich.panel import Panel
-    from rich.text import Text
-
-    def append_styled_answer(body: Text, answer_text: str) -> None:
-        offset = 0
-        for segment, style in answer_segments:
-            if offset >= len(answer_text):
-                break
-            visible = answer_text[offset : offset + len(segment)]
-            if visible:
-                body.append(visible, style=style)
-            offset += len(segment)
-
-    def render_panel(answer_text: str) -> Panel:
-        body = Text()
-        if show_question:
-            body.append("Q: ", style="bold cyan")
-            body.append(f"{question}\n\n", style="white")
-        body.append("42\n", style="bold bright_cyan")
-        append_styled_answer(body, answer_text)
-        return Panel(
-            Align.center(body),
-            title="[bold cyan]GPSE 42[/bold cyan]",
-            subtitle="[dim]Don't Panic[/dim]",
-            border_style="cyan",
-            padding=(1, 4),
-        )
-
-    _console.print()
-    answer = ""
-    with Live(render_panel(answer), console=_console, refresh_per_second=30) as live:
-        for char in text:
-            answer += char
-            live.update(render_panel(answer))
-            time.sleep(type_delay)
-    _console.print("\n")
 
 
 def _build_parser(
@@ -405,14 +338,13 @@ def main(
     """Run the GPSE training CLI."""
     raw_args = list(sys.argv[1:] if argv is None else argv)
 
-    ultimate_question = "the ultimate question of life, the universe, and everything"
     if len(raw_args) == 1 and raw_args[0] == "42":
-        _print_easter_egg(show_question=False)
+        print_easter_egg(show_question=False)
         return 0
     if raw_args:
         joined_args = " ".join(raw_args).strip().lower().rstrip("?!. ")
-        if joined_args == ultimate_question:
-            _print_easter_egg(show_question=True)
+        if joined_args == ULTIMATE_QUESTION:
+            print_easter_egg(show_question=True)
             return 0
 
     parser = _build_parser(
@@ -431,6 +363,15 @@ def main(
         return 0
 
     _configure_logging(args.log_level)
+
+    try:
+        args.n_jobs, args.max_workers = validate_parallelism(
+            args.n_jobs,
+            args.max_workers,
+            logger=main_logger,
+        )
+    except ValueError:
+        return 1
 
     if args.task_type == "classification":
         if args.n_classes is None:
