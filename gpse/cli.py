@@ -136,6 +136,7 @@ def main(argv: list[str] | None = None) -> int:
     # Convert workflow: import lazily so gpse --help and gpse --version stay
     # lightweight and do not load workflow dependencies unnecessarily.
     if command == "convert":
+        # Display the logo before convert/predict help.
         _show_logo_for_command(command_args)
 
         from gpse.convert.cli import main as convert_main
@@ -156,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Train workflow.
     if command == "train":
+        # Display the logo before convert/predict help.
         _show_logo_for_command(command_args)
 
         from gpse.train.cli import main as train_main
@@ -170,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Predict workflow.
     if command == "predict":
+        # Display the logo before convert/predict help.
         _show_logo_for_command(command_args)
 
         from gpse.predict.cli import main as predict_main
