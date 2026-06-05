@@ -97,9 +97,9 @@ def main(argv: list[str] | None = None) -> int:
     if not raw_args:
         show_gpse_logo()
         if _console is not None:
-            _console.print("\n[bold red][ERROR] No command provided. Use train, convert, or predict.[/bold red]\n")
+            _console.print("\n[bold red][ERROR] No command provided. Use convert, train, or predict.[/bold red]\n")
         else:
-            print("\n[ERROR] No command provided. Use train, convert, or predict.\n")
+            print("\n[ERROR] No command provided. Use convert, train, or predict.\n")
         root_parser.print_help()
         return 1
 

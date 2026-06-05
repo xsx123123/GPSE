@@ -59,12 +59,12 @@ def show_gpse_logo() -> None:
         print(f"{'=' * 50}\n")
 
 
-def _build_root_parser(
-    formatter_class: type[argparse.HelpFormatter] = argparse.HelpFormatter,
-    parents: list[argparse.ArgumentParser] | None = None,
-    help_action: type[argparse.Action] | None = None,
-) -> argparse.ArgumentParser:
-    """Build the top-level GPSE command router parser."""
+def _build_root_parser(formatter_class: type[argparse.HelpFormatter] = argparse.HelpFormatter,
+                       parents: list[argparse.ArgumentParser] | None = None,
+                       help_action: type[argparse.Action] | None = None) -> argparse.ArgumentParser:
+    """
+    Build the top-level GPSE command router parser.
+    """
     if help_action is None:
         from gpse.config.constants import _LogoHelpAction
 
@@ -87,28 +87,159 @@ def _build_root_parser(
     )
     subparsers = parser.add_subparsers(
         dest="command",
-        metavar="{train,convert,predict}",
+        metavar="{convert,train,predict}",
         title="workflow commands",
         description="Run one of the GPSE workflows",
     )
-    subparsers.add_parser(
-        "train",
-        add_help=False,
-        help="Train genomic prediction models from genotype and phenotype matrices",
-        description="Train genomic prediction models.",
-    )
+
+    # Add the convert subcommand
     subparsers.add_parser(
         "convert",
         add_help=False,
         help="Convert raw genotype/phenotype inputs and run optional QC",
         description="Convert raw genotype/phenotype inputs and run optional QC.",
     )
+
+    # Add the train subcommand
+    subparsers.add_parser(
+        "train",
+        add_help=False,
+        help="Train genomic prediction models from genotype and phenotype matrices",
+        description="Train genomic prediction models.",
+    )
+
+    # Add the predict subcommand
     subparsers.add_parser(
         "predict",
         add_help=False,
         help="Predict phenotypes using trained GPSE models",
         description="Predict phenotypes using trained GPSE models.",
     )
+    return parser
+
+
+def _build_convert_parser(formatter_class=argparse.HelpFormatter,
+                          prog: str = "python -m gpse.convert.cli",
+                          help_action=None,
+                          parents: list[argparse.ArgumentParser] | None = None) -> argparse.ArgumentParser:
+    """
+    Build the parser used by both direct and top-level convert entry points.
+    """
+    parents = parents or []
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Run GPSE genotype conversion, QC, recoding, and dependency checks.",
+        formatter_class=formatter_class,
+        add_help=help_action is None,
+        parents=parents,
+    )
+
+    if help_action is not None:
+        parser.add_argument(
+            "-h", "--help",
+            action=help_action,
+            nargs=0,
+            default=False,
+            help="Show this help message and exit",
+        )
+
+    # General
+    general = parser.add_argument_group("general")
+    if not parents:
+        general.add_argument(
+            "--log-level",
+            default="INFO",
+            choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+            help="Logging level.",
+        )
+    general.add_argument(
+        "--config",
+        help="User YAML config path. Overrides package defaults and project config files.",
+    )
+    general.add_argument(
+        "--no-project-config",
+        action="store_true",
+        help="Do not auto-load gpse.yaml or gpse.local.yaml from the current directory.",
+    )
+
+    # Test modes
+    mode = parser.add_argument_group("test modes")
+    mode.add_argument(
+        "--check-deps",
+        action="store_true",
+        help="Check external dependencies and exit.",
+    )
+    mode.add_argument(
+        "--run-qc",
+        action="store_true",
+        help="Run QC, optional Beagle imputation, and LD pruning.",
+    )
+    mode.add_argument(
+        "--recode-prefix",
+        help="Convert PED/MAP compound genotypes at this prefix to numeric additive coding and exit.",
+    )
+
+    # Input/output
+    io_group = parser.add_argument_group("conversion input/output")
+    io_group.add_argument("--out-prefix", help="Output file prefix.")
+    io_group.add_argument("--bfile", help="Input PLINK BED/BIM/FAM prefix.")
+    io_group.add_argument("--vcf", help="Input VCF file path.")
+    io_group.add_argument("--ped-file", help="Input PED file path.")
+    io_group.add_argument("--map-file", help="Input MAP file path.")
+    io_group.add_argument("--matrix-file", help="Existing genotype matrix CSV.")
+    io_group.add_argument("--extract", help="SNP ID list file for PLINK --extract.")
+    io_group.add_argument("--snp-dir", help="Directory containing SNP list .txt files.")
+    io_group.add_argument("--direct", action="store_true", help="Convert whole bfile to matrix.")
+    io_group.add_argument("--plink-out", help="PLINK output prefix used during VCF conversion.")
+    io_group.add_argument("--load", action="store_true", help="Load and print matrix info.")
+    io_group.add_argument("--skip-clean", action="store_true", help="Reserved compatibility flag.")
+    io_group.add_argument("--skip-match", action="store_true", help="Skip phenotype/genotype matching.")
+    io_group.add_argument("--skip-matrix", action="store_true", help="Skip matrix generation.")
+
+    # Phenotype
+    pheno = parser.add_argument_group("phenotype")
+    pheno.add_argument("--pheno", help="Phenotype file path.")
+    pheno.add_argument("--trait-name", help="Rename phenotype trait column.")
+    pheno.add_argument(
+        "--standardize-phenotype",
+        action="store_true",
+        help="Apply z-score standardization to the phenotype column.",
+    )
+
+    # External tools
+    tools = parser.add_argument_group("external tools")
+    tools.add_argument(
+        "--plink-path",
+        "--plink",
+        dest="plink_path",
+        help="PLINK executable path. Defaults to software.yaml config.",
+    )
+    tools.add_argument(
+        "--java-path",
+        help="Java executable path. Defaults to software.yaml config.",
+    )
+    tools.add_argument(
+        "--beagle-jar-path",
+        help="Beagle jar path. Defaults to convert.beagle_jar_path in user YAML.",
+    )
+    tools.add_argument(
+        "--require-beagle",
+        action="store_true",
+        help="Fail dependency checks if Beagle jar is not configured.",
+    )
+
+    # Quality control
+    qc = parser.add_argument_group("quality control")
+    qc.add_argument(
+        "--input-prefix",
+        help="Input genotype prefix for --run-qc, without extension.",
+    )
+    qc.add_argument("--snpmaxmiss", type=float, default=0.1, help="PLINK --geno threshold.")
+    qc.add_argument("--samplemaxmiss", type=float, default=0.1, help="PLINK --mind threshold.")
+    qc.add_argument("--maf", type=float, default=0.05, help="PLINK --maf threshold.")
+    qc.add_argument("--r2-cutoff", type=float, default=0.2, help="LD pruning r2 cutoff.")
+    qc.add_argument("--impute", action="store_true", help="Use Beagle imputation before pruning.")
+
     return parser
 
 
