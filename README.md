@@ -54,6 +54,10 @@ pip install .
 
 GPSE uses a subcommand architecture: `gpse {convert,train,predict}`.
 
+### Command-Line Preview
+
+![GPSE command-line help](docs/command.png)
+
 ### 1. Data Conversion & QC (`gpse convert`)
 
 `gpse convert` handles all genotype/phenotype preprocessing: format conversion, QC filtering, LD pruning, and sample matching. The output is training-ready numerical matrices.
