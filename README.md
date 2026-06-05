@@ -12,6 +12,10 @@
 
 <p align="center"><strong>Genomic Prediction with Stacking Ensemble for horticultural crops.</strong></p>
 
+<p align="center">
+  English | <a href="docs/readme_cn.md">简体中文</a>
+</p>
+
 GPSE is a comprehensive, machine-learning-based pipeline for genomic selection and prediction. It provides end-to-end functionalities from raw genomic data (VCF/PLINK) preprocessing to hyperparameter optimization, model evaluation, TOPSIS ranking, and Stacking Ensemble prediction.
 
 ## 🌟 Key Features
@@ -37,7 +41,7 @@ This project uses Poetry for dependency management:
 
 ```bash
 # Clone the repository
-git clone https://github.com/<project>/gpse.git
+git clone https://github.com/xsx123123/GPSE.git
 cd gpse
 
 # Install dependencies using Poetry
@@ -261,6 +265,198 @@ gpse --version
 gpse convert --help
 gpse train --help
 ```
+
+## 📥 Input and Output Formats
+
+GPSE currently defines concrete I/O for `gpse convert` and `gpse train`.
+`gpse predict` is present as a command stub, but prediction is not implemented yet.
+
+### `gpse convert` Inputs
+
+`gpse convert` prepares genotype and phenotype files for model training.
+
+| Input type | Argument | Format requirement |
+| --- | --- | --- |
+| VCF | `--vcf samples.vcf` | Standard VCF file. GPSE uses PLINK to convert it to binary PLINK files. |
+| PLINK binary | `--bfile prefix` | Requires `prefix.bed`, `prefix.bim`, and `prefix.fam`. |
+| PLINK text | `--ped-file file.ped --map-file file.map` | Standard PLINK PED/MAP files. |
+| Existing matrix | `--matrix-file genotype.csv` | CSV genotype matrix with sample IDs in the first column. |
+| SNP list | `--extract snp_list.txt` | One SNP ID per line, passed to PLINK `--extract`. |
+| SNP list directory | `--snp-dir snp_lists/` | Directory containing `.txt` SNP-list files. |
+
+Phenotype input is passed with `--pheno`. The file should have a header row,
+sample IDs in the first column, and the target trait in the second column. GPSE
+tries tab-separated input first and falls back to comma-separated input. Only
+the first two columns are retained by the converter. Missing phenotype values
+(`NaN` and string `NA`) are removed. Use `--trait-name` to rename the target
+trait column.
+
+### `gpse convert` Outputs
+
+When only a genotype matrix is generated, GPSE writes:
+
+```text
+{out_prefix}.csv
+```
+
+The genotype matrix format is:
+
+```csv
+ID,SNP1,SNP2,SNP3
+sample1,0,1,2
+sample2,1,3,0
+```
+
+Genotype encoding:
+
+| Compound genotype | Encoded value |
+| --- | --- |
+| `00` | `0` |
+| `01` or `10` | `1` |
+| `11` | `2` |
+| Missing or unknown | `3` |
+
+When phenotype/genotype matching is enabled, GPSE writes the recommended
+training inputs:
+
+```text
+{out_prefix}_genotype.csv
+{out_prefix}_phenotype.csv
+```
+
+The matched phenotype file has this structure:
+
+```csv
+ID,TraitName
+sample1,12.3
+sample2,9.8
+```
+
+If `--standardize-phenotype` is enabled, GPSE also writes:
+
+```text
+{out_prefix}_phenotype_scaler.json
+```
+
+QC mode (`--run-qc`) writes PLINK-format prefixes:
+
+```text
+{out_prefix}_raw.bed/.bim/.fam
+{out_prefix}_qc.bed/.bim/.fam
+{out_prefix}_qc_filled.bed/.bim/.fam
+{out_prefix}_qc_filled.prune.in
+{out_prefix}_pruned.bed/.bim/.fam
+{out_prefix}_qc.log
+```
+
+Recode mode (`--recode-prefix prefix`) writes:
+
+```text
+prefix.geno
+```
+
+### `gpse train` Inputs
+
+`gpse train` consumes CSV files, usually the matched outputs from `gpse convert`.
+
+| Argument | Requirement |
+| --- | --- |
+| `--geno_file` | CSV genotype matrix with an `ID` column. If `ID` is absent, GPSE tries `--cv_id_column`. |
+| `--pheno_file` | CSV phenotype table with the same ID column as the genotype file. |
+| `--target_trait` | Target trait column name in the phenotype table. |
+| `--task_type` | `regression` or `classification`; defaults to `regression`. |
+| `--n_classes` | Required for `classification`, must be at least 2. |
+
+Recommended training input:
+
+```bash
+gpse train \
+    --geno_file data/train_genotype.csv \
+    --pheno_file data/train_phenotype.csv \
+    --target_trait Fruit_Weight
+```
+
+During training, GPSE keeps only samples shared by genotype and phenotype IDs,
+sorts them into a consistent order, and uses all non-ID genotype columns as
+features. Feature names are normalized internally to `feature_0`, `feature_1`,
+and so on.
+
+Classification labels can be strings or non-continuous numeric labels. GPSE
+encodes them to continuous integer classes and saves the encoder to:
+
+```text
+{results_dir}/label_encoder.pkl
+```
+
+If `--cv_file` is omitted, GPSE creates:
+
+```text
+{results_dir}/cv_folds/{target_trait}_cv_{n_repeats}x{n_splits}.csv
+```
+
+The CV file contains sample IDs as the index and one fold-assignment column per
+repeat:
+
+```csv
+ID,TraitName,cv0,cv1
+sample1,12.3,0,3
+sample2,9.8,1,4
+```
+
+Fold values range from `0` to `n_splits - 1`.
+
+### `gpse train` Outputs
+
+The default result directory is `optimization_results_v2/`.
+
+Main outputs:
+
+```text
+{results_dir}/model_comparison.csv
+{results_dir}/cv_folds/{target_trait}_cv_{n_repeats}x{n_splits}.csv
+{results_dir}/{model_name}/summary_results.json
+{results_dir}/{model_name}/repeat_{i}/repeat_results.json
+{results_dir}/{model_name}/repeat_{i}/all_predictions.json
+```
+
+When `--save_models` is enabled:
+
+```text
+{results_dir}/{model_name}/repeat_{i}/fold_{j}_model.pkl
+```
+
+Representative model output:
+
+```text
+{results_dir}/{model_name}/representative_model/model.pkl
+{results_dir}/{model_name}/representative_model/info.json
+```
+
+Regression phenotype standardization output:
+
+```text
+{results_dir}/phenotype_scaler.json
+```
+
+Stacking output:
+
+```text
+{results_dir}/ensemble_stacking/stacking_ensemble_model.pkl
+{results_dir}/ensemble_stacking/stacking_results.pkl
+```
+
+TOPSIS model-ranking output:
+
+```text
+{results_dir}/model_comparison_topsis.csv
+{results_dir}/model_comparison_topsis_simple.csv
+```
+
+### `gpse predict`
+
+`gpse predict` currently accepts `--model`, `--geno-file`, and `--out`, but the
+prediction workflow is not implemented yet. Prediction input and output formats
+are therefore not finalized.
 
 ## 📁 Source Layout
 
