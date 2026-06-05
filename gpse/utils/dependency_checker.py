@@ -41,15 +41,15 @@ def _extract_version(text: str) -> str | None:
     """Try to extract a version string from tool output."""
     # Common patterns: v1.2.3, 1.2.3, PLINK v1.90b6.21, etc.
     patterns = [
-        r"v?(\d+\.\d+[^\s]*)",            # v1.90b6.21  or  1.90b6.21
-        r"version\s*:?\s*v?(\d+\.\d+[^\s]*)",  # version: 1.2.3
+        r"version\s*:?\s*[\"']?v?(\d+\.\d+[^\s\"']*)",  # version "1.2.3"
+        r"v?(\d+\.\d+[^\s\"']*)",         # v1.90b6.21  or  1.90b6.21
         r"(\d+\.\d+\.\d+)",                # 1.2.3
         r"(\d+\.\d+)",                     # 1.90
     ]
     for pat in patterns:
         m = re.search(pat, text, re.IGNORECASE)
         if m:
-            return m.group(1)
+            return m.group(1).strip(" \"',;")
     return None
 
 

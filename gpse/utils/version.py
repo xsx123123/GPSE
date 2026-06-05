@@ -83,34 +83,21 @@ def show_versions(project_name=None, deps=None, extras=None, software_conf=None)
     """
     if deps is None:
         deps = _get_project_deps()
-    tables = []
-
     # 1. Python Dependencies Table
     deps_info = _get_deps_info(deps)
-    tables.append(print_info_table(
+    deps_table = print_info_table(
         title=f"[bold blue]{project_name}[/bold blue] Deps",
         data=deps_info,
         column_names=["Package", "Version"],
         header_style="bold magenta",
         return_table=True
-    ))
+    )
 
-    # 2. External Tools Table
-    ext_tools_info = _get_external_tools_info(software_conf)
-    if ext_tools_info:
-        tables.append(print_info_table(
-            title="[bold yellow]External Tools[/bold yellow]",
-            data=ext_tools_info,
-            column_names=["Tool", "Status"],
-            header_style="bold yellow",
-            border_style="yellow",
-            return_table=True
-        ))
-
-    # 3. Software Metadata Table
+    # 2. Software Metadata Table
     right_tables = []
+    metadata_tables = right_tables
     if extras:
-        right_tables.append(print_info_table(
+        metadata_tables.append(print_info_table(
             title="[bold green]Software Info[/bold green]",
             data=extras,
             column_names=["Attribute", "Value"],
@@ -119,32 +106,36 @@ def show_versions(project_name=None, deps=None, extras=None, software_conf=None)
             return_table=True
         ))
 
-    # 4. System Environment Table
-    right_tables.append(print_info_table(
-        title="[bold cyan]System Environment[/bold cyan]",
-        data=_get_sys_info(),
+    # 3. Runtime Environment Table
+    runtime_info = _get_sys_info()
+    ext_tools_info = _get_external_tools_info(software_conf)
+    for name, status in ext_tools_info.items():
+        runtime_info[f"Tool: {name}"] = status
+
+    metadata_tables.append(print_info_table(
+        title="[bold cyan]Runtime Environment[/bold cyan]",
+        data=runtime_info,
         column_names=["Component", "Details"],
         header_style="bold white",
         border_style="cyan",
         return_table=True
     ))
 
-    # Uniform width for the right-hand stacked tables
-    if len(right_tables) > 1:
-        widths = [console.measure(t).maximum for t in right_tables]
+    # Uniform width for the right-hand metadata tables.
+    if len(metadata_tables) > 1:
+        widths = [console.measure(t).maximum for t in metadata_tables]
         max_width = max(widths)
-        for t in right_tables:
+        for t in metadata_tables:
             t.width = max_width
 
-    # Stack Software Info + System Environment vertically as the right column
+    # Stack Software Info and Runtime Environment vertically.
     right_column = RichTable(show_header=False, box=None, padding=0, expand=False)
     for rt in right_tables:
         right_column.add_row(rt)
 
-    # Print Deps (+ External Tools) on the left, stacked info on the right
+    # Print Python dependencies on the left and runtime metadata on the right.
     left_column = RichTable(show_header=False, box=None, padding=0, expand=False)
-    for t in tables:
-        left_column.add_row(t)
+    left_column.add_row(deps_table)
 
     print_in_columns([left_column, right_column])
 
