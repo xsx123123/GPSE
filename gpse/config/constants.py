@@ -1,9 +1,21 @@
 """Global constant configuration and log message templates."""
 
+import argparse
 import json
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Any, Callable
+
+from gpse.utils.cli_display import show_gpse_logo
+
+
+class _LogoHelpAction(argparse.Action):
+    """Custom help action that prints the logo before the help text."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        show_gpse_logo()
+        parser.print_help()
+        parser.exit()
 
 
 @dataclass
