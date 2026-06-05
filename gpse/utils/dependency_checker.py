@@ -90,6 +90,7 @@ def check_external_tool(
     cmd: str = None,
     version_flag: str = "--version",
     min_version: str | None = None,
+    required: bool = True,
     **_: Any,
 ) -> dict[str, Any]:
     """
@@ -126,6 +127,7 @@ def check_external_tool(
         "path": None,
         "version": None,
         "min_version": min_version,
+        "required": required,
         "version_ok": True,
         "raw_output": "",
     }
@@ -160,7 +162,10 @@ def _log_single_result(result: dict[str, Any], logger) -> None:
     name = result["name"]
     ver = result.get("version") or "unknown"
     if not result["available"]:
-        logger.error(f"External tool missing — {name}: not found in PATH")
+        if result.get("required", True):
+            logger.error(f"External tool missing — {name}: not found in PATH")
+        else:
+            logger.warning(f"Optional external tool missing — {name}: not found in PATH")
     elif not result.get("version_ok", True):
         logger.warning(
             f"External tool version too low — {name} {ver} "
@@ -219,8 +224,11 @@ def format_tool_status(tool: dict[str, Any], use_rich: bool = False) -> str:
     ver = tool.get("version") or "unknown"
 
     if not tool["available"]:
-        msg = f"✗ {name} — not found"
-        return f"[red]{msg}[/red]" if use_rich else msg
+        if tool.get("required", True):
+            msg = f"✗ {name} — not found"
+            return f"[red]{msg}[/red]" if use_rich else msg
+        msg = f"- {name} — optional, not found"
+        return f"[yellow]{msg}[/yellow]" if use_rich else msg
 
     if tool.get("min_version") and not tool.get("version_ok", True):
         msg = f"⚠ {name} {ver} < required {tool['min_version']}"
@@ -237,6 +245,8 @@ def assert_required_tools(results: list[dict[str, Any]]) -> None:
     """
     failures = []
     for r in results:
+        if not r.get("required", True):
+            continue
         if not r.get("available"):
             failures.append(f"{r['name']}: not found")
         elif not r.get("version_ok", True):

@@ -1124,5 +1124,82 @@ def suggest_from_yaml(trial, search_space: dict, current_params: dict) -> dict:
 
 ---
 
+## 十二、基因型编码问题（待修复）
+
+> 发现日期: 2026-06-04
+> 涉及文件: `convert/processor.py`, `convert/qc.py`, `scripts/qc.py`
+
+### 背景：编码链路
+
+```
+VCF
+ ↓  plink --vcf --make-bed
+BED/BIM/FAM
+ ↓  plink --recode compound-genotypes 01 --output-missing-genotype 3
+PED/MAP   (每个基因型 = 2个字符)
+ ↓  Python GENO_DICT 映射
+CSV 矩阵  (每个值 = 单个数字)
+```
+
+PLINK `--recode compound-genotypes 01` 含义：
+- `0` = A2 等位基因（通常 = REF / major）
+- `1` = A1 等位基因（通常 = ALT / minor）
+- `3` = 缺失等位基因（由 `--output-missing-genotype 3` 指定）
+
+主编码 `00→0, 01→1, 10→1, 11→2` 是正确的，README 描述无需修改。
+
+### 🔴 BUG-1: `convert/qc.py` 的 `recode_to_numeric()` header 缺少 ID 列
+
+```python
+# convert/qc.py (L105)
+geno_file.write(','.join(snpid_list) + '\n')       # ❌ 没有 ID 列
+
+# convert/processor.py (L222)
+header = "ID," + ",".join(snpid_list)               # ✅ 有 ID 列
+```
+
+**影响**：下游 `pd.read_csv(file, index_col=0)` 会把第一个 SNP 的值当作 sample index，导致数据错位。
+
+**修复**：在 `recode_to_numeric()` 的 header 写入时加上 `ID,` 前缀。
+
+### 🟡 BUG-2: `convert/qc.py` 和 `convert/processor.py` 缺失值编码不一致
+
+| 文件 | 缺失 fallback | 结果 |
+|------|-------------|------|
+| `convert/qc.py` → `recode_to_numeric()` | `code_map.get(g, 'NaN')` | 缺失 → `NaN` |
+| `convert/processor.py` → `convert_to_matrix()` | `GENO_DICT.get(genotype, '3')` | 缺失 → `3` |
+| `scripts/qc.py` → `recode_to_numeric()` | `code_map.get(g, 'NaN')` | 缺失 → `NaN` |
+
+**影响**：如果用户混用 QC 路径和主转换路径，同一个缺失位点会被编码为不同值。
+
+**修复**：统一为 `3`（与 PLINK `--output-missing-genotype 3` 一致）。
+
+### 🟡 BUG-3: 部分缺失基因型 `03`/`30` 未处理
+
+PED 文件中可能出现 `33`（全缺失）、`03`（一个等位基因缺失）、`30`（另一个等位基因缺失）：
+
+```python
+GENO_DICT = {'00': '0', '01': '1', '10': '1', '11': '2'}
+diploid = GENO_DICT.get(genotype, '3')
+```
+
+- `33` → `'3'` ✅ 正确
+- `03` → `'3'` ⚠️ 静默丢弃已知等位基因信息
+- `30` → `'3'` ⚠️ 同上
+
+**影响**：通常 QC 阶段的 `--geno` 过滤会移除这些 SNP，但如果跳过 QC 直接转换可能遇到。风险较低。
+
+**修复**：在 `GENO_DICT` 中显式添加 `{'03': '3', '30': '3', '33': '3'}`，或在注释中说明 fallback 行为。
+
+### 修复优先级
+
+| 优先级 | 问题 | 预计工作量 |
+|--------|------|-----------|
+| **P0** | BUG-1: `recode_to_numeric()` 缺 ID 列 | 1 min |
+| **P1** | BUG-2: 缺失值编码统一为 `3` | 5 min |
+| **P2** | BUG-3: 显式声明 `03`/`30`/`33` | 5 min |
+
+---
+
 *文档生成时间: 2026-06-03*
 *基于代码版本: main@30aaafb*

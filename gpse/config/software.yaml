@@ -13,3 +13,8 @@ external_tools:
     min_version: "1.9"
     required: true
     description: "PLINK 1.9 for genomic data format conversion and SNP extraction"
+  - name: java
+    cmd: java
+    version_flag: -version
+    required: false
+    description: "Java runtime for optional Beagle imputation"

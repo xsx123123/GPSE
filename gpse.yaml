@@ -1,0 +1,15 @@
+# Project-level GPSE configuration example.
+# Copy to gpse.yaml for shared project defaults, or gpse.local.yaml for
+# machine-specific paths.
+
+external_tools:
+  - name: plink
+    cmd: plink
+
+  - name: java
+    cmd: java
+    required: false
+
+convert:
+  # Optional Beagle jar used only when imputation is enabled.
+  beagle_jar_path: /home/zj/software/Beagle_4.1_27Jan18.7e1/beagle.27Jan18.7e1.jar

@@ -52,49 +52,141 @@ pip install .
 
 ## 🚀 Usage
 
-GPSE provides a unified command-line interface via the `gpse` executable (installed automatically with `pip install .` or `poetry install`).
+GPSE uses a subcommand architecture: `gpse {convert,train,predict}`.
 
-### 1. Data Preprocessing Only
+### 1. Data Conversion & QC (`gpse convert`)
 
-Convert raw VCF/PLINK data to numerical matrices and match genotypes with phenotypes.
+`gpse convert` handles all genotype/phenotype preprocessing: format conversion, QC filtering, LD pruning, and sample matching. The output is training-ready numerical matrices.
 
-```bash
-gpse --preprocess_only \
-    --preprocess_prefix processed_data \
-    --vcf_file path/to/genotypes.vcf \
-    --raw_pheno_file path/to/phenotypes.txt \
-    --target_trait Trait_Name \
-    --plink_path plink
+#### Pipeline Overview
+
+```
+Input                        Processing                     Output
+─────                        ──────────                     ──────
+samples.vcf            →  VCF → PLINK BED              →  {prefix}_genotype.csv
+phenotype.txt/.csv     →  PED/MAP → numeric (0/1/2)    →  {prefix}_phenotype.csv
+                            SNP filtering                   {prefix}_phenotype_scaler.json
+                            Sample ID matching                 (only with --standardize-phenotype)
+                            Column name cleaning
+                            Phenotype Z-score (optional)
 ```
 
-### 2. Preprocessing + Model Training (One-Stop)
+Genotype encoding: `00→0` (homozygous ref), `01/10→1` (heterozygous), `11→2` (homozygous alt), missing→`3`.
 
-Run preprocessing and model training in a single command.
+#### 1.1 VCF + Phenotype → Training Data
 
 ```bash
-gpse --enable_preprocess \
-    --preprocess_prefix processed_data \
-    --vcf_file path/to/genotypes.vcf \
-    --raw_pheno_file path/to/phenotypes.txt \
-    --target_trait Trait_Name \
-    --task_type regression \
-    --n_splits 5 \
-    --n_repeats 10 \
-    --trials 50 \
-    --use_stacking \
-    --top_n_models 5 \
-    --results_dir output_results/
+gpse convert \
+    --vcf samples.vcf \
+    --pheno phenotype.txt \
+    --direct \
+    --out-prefix data/train
 ```
 
-### 3. Model Training Only (With Pre-processed Data)
+Output files:
+- `data/train_genotype.csv` — numeric matrix (rows=samples, columns=SNPs, values=0/1/2)
+- `data/train_phenotype.csv` — cleaned, sample-matched phenotype (ID + trait value)
 
-If you already have genotype and phenotype CSV files:
+#### 1.2 With Phenotype Standardization
 
 ```bash
-gpse \
-    --geno_file processed_data_genotype.csv \
-    --pheno_file processed_data_phenotype.csv \
-    --target_trait Trait_Name \
+gpse convert \
+    --vcf samples.vcf \
+    --pheno phenotype.txt \
+    --direct \
+    --standardize-phenotype \
+    --out-prefix data/train
+```
+
+Additional output: `data/train_phenotype_scaler.json` (mean/std for inverse transform during prediction).
+
+#### 1.3 Extract Specific SNPs
+
+```bash
+# From PLINK binary input
+gpse convert \
+    --bfile plink_data \
+    --extract snp_list.txt \
+    --pheno phenotype.txt \
+    --out-prefix data/train
+
+# Batch extraction from a directory of SNP list files
+gpse convert \
+    --bfile plink_data \
+    --snp-dir snp_lists/ \
+    --out-prefix data/train
+```
+
+#### 1.4 Use Existing Matrix (Skip Matrix Generation)
+
+```bash
+gpse convert \
+    --matrix-file existing_genotype.csv \
+    --pheno phenotype.txt \
+    --out-prefix data/matched
+```
+
+#### 1.5 QC Filtering + LD Pruning
+
+Runs genotype-level QC (missing rate, MAF), optional Beagle imputation, and LD pruning as a standalone step.
+
+```bash
+gpse convert \
+    --run-qc \
+    --input-prefix plink_data \
+    --out-prefix data/qc_data \
+    --snpmaxmiss 0.1 \
+    --samplemaxmiss 0.1 \
+    --maf 0.05 \
+    --r2-cutoff 0.2
+```
+
+With Beagle imputation:
+
+```bash
+gpse convert \
+    --run-qc \
+    --input-prefix plink_data \
+    --out-prefix data/qc_data \
+    --impute \
+    --beagle-jar-path /path/to/beagle.jar
+```
+
+Output: `data/qc_data_pruned.bed/bim/fam` (LD-pruned PLINK binary, ready for matrix conversion).
+
+#### 1.6 Recode PED/MAP to Numeric
+
+```bash
+gpse convert --recode-prefix plink_data
+# Output: plink_data.geno
+```
+
+#### 1.7 Check External Dependencies
+
+```bash
+gpse convert --check-deps
+```
+
+#### 1.8 Rename Phenotype Trait
+
+```bash
+gpse convert \
+    --vcf samples.vcf \
+    --pheno phenotype.txt \
+    --trait-name Fruit_Weight \
+    --direct \
+    --out-prefix data/train
+```
+
+### 2. Model Training (`gpse train`)
+
+#### 2.1 Train with Pre-processed Data
+
+```bash
+gpse train \
+    --geno_file data/train_genotype.csv \
+    --pheno_file data/train_phenotype.csv \
+    --target_trait Fruit_Weight \
     --task_type regression \
     --n_splits 5 \
     --n_repeats 10 \
@@ -106,10 +198,38 @@ gpse \
     --results_dir output_results/
 ```
 
-### 4. Classification Task
+#### 2.2 One-Stop: Preprocessing + Training
 
 ```bash
-gpse \
+gpse train \
+    --enable_preprocess \
+    --preprocess_prefix data/train \
+    --vcf_file samples.vcf \
+    --raw_pheno_file phenotype.txt \
+    --target_trait Fruit_Weight \
+    --task_type regression \
+    --n_splits 5 \
+    --n_repeats 10 \
+    --trials 50 \
+    --use_stacking \
+    --results_dir output_results/
+```
+
+#### 2.3 Preprocessing Only (No Training)
+
+```bash
+gpse train \
+    --preprocess_only \
+    --preprocess_prefix data/train \
+    --vcf_file samples.vcf \
+    --raw_pheno_file phenotype.txt \
+    --target_trait Fruit_Weight
+```
+
+#### 2.4 Classification Task
+
+```bash
+gpse train \
     --geno_file genotype.csv \
     --pheno_file phenotype.csv \
     --target_trait Disease_Resistance \
@@ -121,7 +241,7 @@ gpse \
     --results_dir classification_results/
 ```
 
-### 5. Analyze Phenotypes
+### 3. Analyze Phenotypes
 
 Quickly analyze phenotype data to determine the appropriate task type (Regression vs Classification).
 
@@ -129,11 +249,13 @@ Quickly analyze phenotype data to determine the appropriate task type (Regressio
 python -m gpse.tools.analyze_phenotypes
 ```
 
-### 6. Show Help
+### 4. Show Help
 
 ```bash
 gpse --help
 gpse --version
+gpse convert --help
+gpse train --help
 ```
 
 ## 📦 Core Dependencies
