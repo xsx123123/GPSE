@@ -28,7 +28,7 @@ from pathlib import Path
 
 from loguru import logger as main_logger
 
-from gpse.models.classification_models import ClassificationModelOptimizer
+from gpse.models.classification_model_optimizer import ClassificationModelOptimizer
 
 class GenomicClassifier:
     """Genomic Classification Prediction Utility Class"""

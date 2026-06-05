@@ -27,7 +27,7 @@ import datetime
 from gpse.config import ModelConstants
 from gpse.models.regression_model_optimizer import RegressionModelOptimizer
 from gpse.utils.log_utils import logger_init
-from gpse.core.genomic_classification import GenomicClassifier
+from gpse.tasks.classification import GenomicClassifier
 
 main_logger = logger_init()
 
@@ -61,7 +61,7 @@ from gpse.core._repeat_training import (
 )
 from gpse.core._cv_manager import prepare_cv_folds, generate_cv_folds_from_file
 from gpse.core._pipeline import run_all_models
-from gpse.core._topsis_config import (
+from gpse.config._topsis_config import (
     get_topsis_configuration,
     _save_representative_model,
     log_environment_settings,

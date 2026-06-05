@@ -23,7 +23,7 @@ def __getattr__(name: str):
         return ModelOptimizer
 
     if name == "ClassificationModelOptimizer":
-        from .classification_models import ClassificationModelOptimizer
+        from .classification_model_optimizer import ClassificationModelOptimizer
 
         return ClassificationModelOptimizer
 

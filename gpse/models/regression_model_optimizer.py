@@ -3,7 +3,7 @@ Regression model hyperparameter optimization.
 
 This module provides parameter ranges for Optuna hyperparameter optimization
 and factories for regression models. Classification models live in
-``gpse.models.classification_models``.
+``gpse.models.classification_model_optimizer``.
 """
 
 import os

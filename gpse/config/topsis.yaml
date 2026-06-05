@@ -1,0 +1,18 @@
+tasks:
+  classification:
+    criteria:
+      - name: "Test Accuracy"
+        type: max
+        weight: 0.8
+      - name: "Test Accuracy (std)"
+        type: min
+        weight: 0.2
+
+  regression:
+    criteria:
+      - name: "Test Pearson"
+        type: max
+        weight: 0.8
+      - name: "Test Pearson (std)"
+        type: min
+        weight: 0.2
