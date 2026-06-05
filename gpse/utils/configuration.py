@@ -15,15 +15,7 @@ from typing import Any
 
 import yaml
 
-# Use stdlib logging here instead of importing loguru at the module level.
-# Loguru's default handler emits DEBUG lines to stderr immediately,
-# which means DEBUG messages appear *before* logger_init() has a chance
-# to configure the real handlers.  Stdlib logging defaults to WARNING,
-# so debug/info are silent until an application explicitly lowers the
-# level or installs an intercept handler.
-import logging
-
-logger = logging.getLogger("gpse.config")
+from gpse.utils.log_utils import logger
 
 PROJECT_CONFIG_FILES = ("gpse.yaml", "gpse.local.yaml")
 
