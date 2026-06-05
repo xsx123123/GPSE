@@ -16,7 +16,6 @@ Features:
 import os
 import sys
 import time
-import logging
 import numpy as np
 import pandas as pd
 import joblib
@@ -29,12 +28,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.base import clone
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+from gpse.utils.log_utils import logger
 
 class StackingEnsemble:
     """Stacking ensemble model."""
@@ -78,9 +72,6 @@ class StackingEnsemble:
         # Create output directory
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # Set up logging
-        self.setup_logging()
-
         # Initialize model and result containers
         self.base_models = {}
         self.selected_models = []
@@ -92,13 +83,6 @@ class StackingEnsemble:
 
         logger.info(f"Initialized stacking ensemble, selecting top {top_n_models} models")
 
-    def setup_logging(self):
-        """Configure logging."""
-        log_file = os.path.join(self.output_dir, 'stacking_ensemble.log')
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-        logger.addHandler(file_handler)
-    
     def load_and_select_models(self, model_names: Optional[List[str]] = None) -> List[str]:
         """Load and select the best-performing models."""
         logger.info("Loading and selecting models...")
