@@ -128,7 +128,13 @@ def _build_convert_parser(formatter_class=argparse.HelpFormatter,
     parents = parents or []
     parser = argparse.ArgumentParser(
         prog=prog,
-        description="Run GPSE genotype conversion, QC, recoding, and dependency checks.",
+        description=(
+            "Convert VCF + phenotype files into training-ready numeric matrices.\n"
+            "Core usage:  gpse convert --vcf FILE --pheno FILE --out-prefix PREFIX [--direct]\n"
+            "\n"
+            "Standalone utilities (--check-deps, --run-qc, --recode-prefix) do not\n"
+            "require the core arguments."
+        ),
         formatter_class=formatter_class,
         add_help=help_action is None,
         parents=parents,
@@ -162,48 +168,55 @@ def _build_convert_parser(formatter_class=argparse.HelpFormatter,
         help="Do not auto-load gpse.yaml or gpse.local.yaml from the current directory.",
     )
 
-    # Test modes
-    mode = parser.add_argument_group("test modes")
-    mode.add_argument(
-        "--check-deps",
-        action="store_true",
-        help="Check external dependencies and exit.",
+    # Required arguments (for conversion pipeline)
+    required = parser.add_argument_group(
+        "required arguments (conversion pipeline)",
+        description="Required for the default VCF + phenotype conversion. "
+                    "Not needed for --check-deps, --run-qc, or --recode-prefix.",
     )
-    mode.add_argument(
-        "--run-qc",
-        action="store_true",
-        help="Run QC, optional Beagle imputation, and LD pruning.",
-    )
-    mode.add_argument(
-        "--recode-prefix",
-        help="Convert PED/MAP compound genotypes at this prefix to numeric additive coding and exit.",
-    )
+    required.add_argument("--vcf", help="Input VCF file path. [REQUIRED]")
+    required.add_argument("--pheno", help="Phenotype file path. [REQUIRED]")
+    required.add_argument("--out-prefix", help="Output file prefix. [REQUIRED]")
 
-    # Input/output
-    io_group = parser.add_argument_group("conversion input/output")
-    io_group.add_argument("--out-prefix", help="Output file prefix.")
-    io_group.add_argument("--bfile", help="Input PLINK BED/BIM/FAM prefix.")
-    io_group.add_argument("--vcf", help="Input VCF file path.")
-    io_group.add_argument("--ped-file", help="Input PED file path.")
-    io_group.add_argument("--map-file", help="Input MAP file path.")
-    io_group.add_argument("--matrix-file", help="Existing genotype matrix CSV.")
-    io_group.add_argument("--extract", help="SNP ID list file for PLINK --extract.")
-    io_group.add_argument("--snp-dir", help="Directory containing SNP list .txt files.")
-    io_group.add_argument("--direct", action="store_true", help="Convert whole bfile to matrix.")
-    io_group.add_argument("--plink-out", help="PLINK output prefix used during VCF conversion.")
-    io_group.add_argument("--load", action="store_true", help="Load and print matrix info.")
-    io_group.add_argument("--skip-clean", action="store_true", help="Reserved compatibility flag.")
-    io_group.add_argument("--skip-match", action="store_true", help="Skip phenotype/genotype matching.")
-    io_group.add_argument("--skip-matrix", action="store_true", help="Skip matrix generation.")
+    # Conversion options
+    conv = parser.add_argument_group("conversion options")
+    conv.add_argument("--bfile", help="Input PLINK BED/BIM/FAM prefix.")
+    conv.add_argument("--ped-file", help="Input PED file path.")
+    conv.add_argument("--map-file", help="Input MAP file path.")
+    conv.add_argument("--matrix-file", help="Existing genotype matrix CSV.")
+    conv.add_argument("--extract", help="SNP ID list file for PLINK --extract.")
+    conv.add_argument("--snp-dir", help="Directory containing SNP list .txt files.")
+    conv.add_argument("--direct", action="store_true", help="Convert whole bfile to matrix.")
+    conv.add_argument("--plink-out", help="PLINK output prefix used during VCF conversion.")
+    conv.add_argument("--load", action="store_true", help="Load and print matrix info.")
+    conv.add_argument("--skip-clean", action="store_true", help="Reserved compatibility flag.")
+    conv.add_argument("--skip-match", action="store_true", help="Skip phenotype/genotype matching.")
+    conv.add_argument("--skip-matrix", action="store_true", help="Skip matrix generation.")
 
-    # Phenotype
-    pheno = parser.add_argument_group("phenotype")
-    pheno.add_argument("--pheno", help="Phenotype file path.")
+    # Phenotype options
+    pheno = parser.add_argument_group("phenotype options")
     pheno.add_argument("--trait-name", help="Rename phenotype trait column.")
     pheno.add_argument(
         "--standardize-phenotype",
         action="store_true",
         help="Apply z-score standardization to the phenotype column.",
+    )
+
+    # Utilities (standalone features, do not require --vcf/--pheno/--out-prefix)
+    utils = parser.add_argument_group("utilities")
+    utils.add_argument(
+        "--check-deps",
+        action="store_true",
+        help="Check external dependencies and exit.",
+    )
+    utils.add_argument(
+        "--run-qc",
+        action="store_true",
+        help="Run QC, optional Beagle imputation, and LD pruning.",
+    )
+    utils.add_argument(
+        "--recode-prefix",
+        help="Convert PED/MAP compound genotypes at this prefix to numeric additive coding and exit.",
     )
 
     # External tools

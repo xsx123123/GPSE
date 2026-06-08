@@ -35,15 +35,7 @@ def _get_beagle_jar_path(args: argparse.Namespace) -> str | None:
 
 
 def validate_convert_mode(parser: argparse.ArgumentParser, args: argparse.Namespace) -> str:
-    """Validate mutually exclusive convert modes and return the selected mode."""
-    selected = [
-        bool(args.check_deps),
-        bool(args.run_qc),
-        bool(args.recode_prefix),
-    ]
-    if sum(selected) > 1:
-        parser.error("Use only one of --check-deps, --run-qc, or --recode-prefix.")
-
+    """Determine which convert feature to run and validate required args."""
     if args.check_deps:
         return "deps"
     if args.run_qc:
@@ -55,8 +47,16 @@ def validate_convert_mode(parser: argparse.ArgumentParser, args: argparse.Namesp
     if args.recode_prefix:
         return "recode"
 
+    # Default pipeline — require core arguments.
+    missing = []
+    if not args.vcf:
+        missing.append("--vcf")
+    if not args.pheno:
+        missing.append("--pheno")
     if not args.out_prefix:
-        parser.error("conversion mode requires --out-prefix.")
+        missing.append("--out-prefix")
+    if missing:
+        parser.error(f"conversion pipeline requires: {', '.join(missing)}")
     return "pipeline"
 
 
