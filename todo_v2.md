@@ -1,8 +1,9 @@
 # GPSE 重构计划 v2
 
-> 合并自 `todo_cc.md` + `docs/gpse核心逻辑梳理.md` + Claude 分析
-> 生成日期: 2026-06-03
-> 基于 commit: `30aaafb` (main 分支最新)
+> 合并自 `todo_cc.md` + `docs/gpse核心逻辑梳理.md` + Claude 分析  
+> 生成日期: 2026-06-08  
+> 基于代码版本: main@30aaafb 之后  
+> 更新说明: 根据当前代码库实际完成度刷新状态
 
 ---
 
@@ -22,17 +23,42 @@
 
 **结论：前置模块化已干净，现在是执行 YAML 外置化的最佳时机。**
 
-### 1.2 当前目录结构
+### 1.2 当前目录结构（已更新）
 
 ```
 gpse/
-├── cli.py                          # CLI 入口 → GenomicPredictorV2
+├── __init__.py
+├── cli.py                          # CLI 根路由 → convert / train / predict
 ├── config/
+│   ├── __init__.py
 │   ├── constants.py                # ModelConfig, ClassificationModelConfig, ModelConstants
+│   ├── _topsis_config.py           # TOPSIS 配置 + 代表性模型保存
 │   ├── default.yaml                # 软件元信息
 │   └── software.yaml               # 外部工具依赖
-├── core/
-│   ├── prediction_v2.py            # GenomicPredictorV2 主编排类（方法绑定模式）
+├── convert/                        # ✅ 数据转换 / QC 子命令 (gpse convert)
+│   ├── __init__.py
+│   ├── cli.py
+│   ├── workflow.py
+│   ├── processor.py                # GenomicDataProcessor
+│   ├── qc.py                       # PLINK QC / recode / LD pruning
+│   └── external.py                 # 外部工具调用封装
+├── models/
+│   ├── __init__.py
+│   ├── model_optimizers.py         # Backward-compatible shim → RegressionModelOptimizer
+│   ├── regression_model_optimizer.py  # RegressionModelOptimizer — 14 reg 模型
+│   └── classification_models.py    # ClassificationModelOptimizer — 6 clf 模型
+├── predict/                        # ⚠️ predict 子命令壳 (仅 stub)
+│   ├── __init__.py
+│   ├── __main__.py
+│   └── cli.py
+├── tasks/
+│   ├── __init__.py
+│   └── classification.py           # GenomicClassifier
+├── train/                          # ✅ 训练子命令 (gpse train)
+│   ├── __init__.py
+│   ├── cli.py
+│   ├── workflow.py
+│   ├── predictor.py                # GenomicPredictorV2
 │   ├── _pipeline.py                # run_all_models() 顶层循环
 │   ├── _repeat_training.py         # 多重复训练，ProcessPoolExecutor 并行
 │   ├── _fold_training.py           # 单 fold 训练: 缩放 → fit → predict → metrics
@@ -41,25 +67,27 @@ gpse/
 │   ├── _data_io.py                 # 数据加载/标准化/反标准化
 │   ├── _model_tools.py             # 模型创建/默认参数路由（reg vs clf）
 │   ├── _cv_manager.py              # CV fold 文件生成与加载
-│   ├── _topsis_config.py           # TOPSIS 配置 + 代表性模型保存
-│   └── genomic_classification.py   # GenomicClassifier（标签编码，分类指标）
-├── models/
-│   ├── model_optimizers.py         # Backward-compatible shim → RegressionModelOptimizer
-│   ├── regression_model_optimizer.py  # RegressionModelOptimizer — 14 reg 模型 (681行)
-│   └── classification_models.py    # ClassificationModelOptimizer — 6 clf 模型 (394行)
-├── utils/
 │   ├── stacking.py                 # StackingEnsemble — 元学习器集成 ★
-│   ├── topsis.py                   # TOPSISEvaluator — 多准则排名 ★
-│   ├── genomic_utils.py            # 通用工具
-│   ├── genomic_data_pipeline.py    # VCF/PLINK 预处理
-│   └── log_utils.py / logo.py / version.py / configuration.py / print_utils.py
-└── tools/
-    └── analyze_phenotypes.py
+│   └── topsis.py                   # TOPSISEvaluator — 多准则排名 ★
+├── tools/
+│   ├── __init__.py
+│   └── analyze_phenotypes.py
+└── utils/
+    ├── __init__.py
+    ├── cli_display.py
+    ├── configuration.py
+    ├── dependency_checker.py
+    ├── genomic_utils.py            # 通用工具
+    ├── log_utils.py
+    ├── logo.py
+    ├── paralle.py
+    ├── print_utils.py
+    └── version.py
 ```
 
 ### 1.3 模型清单（实际代码统计）
 
-**`RegressionModelOptimizer`** (`regression_model_optimizer.py`, 681行):
+**`RegressionModelOptimizer`** (`regression_model_optimizer.py`):
 
 | 类型 | 注册到 configs | param 函数 | create_model 分支 | 默认参数 |
 |------|:-:|:-:|:-:|:-:|
@@ -71,7 +99,7 @@ gpse/
 | **分类** | — | — | — | — |
 | ~~15 个 clf 函数~~ | **已清理** | **已清理** | **已清理** | **已清理** |
 
-**`ClassificationModelOptimizer`** (`classification_models.py`, 394行):
+**`ClassificationModelOptimizer`** (`classification_models.py`):
 
 | 类型 | 注册到 configs | param 函数 | create_model 分支 | 默认参数 |
 |------|:-:|:-:|:-:|:-:|
@@ -145,41 +173,21 @@ gpse/
 | CatBoost | `thread_count` |
 | SGD | 无（不支持并行） |
 
-### 🟡 P6: CLI 职责需要拆分为 `data_convert` / `train` / `predict`
+### 🟢 P6: CLI 职责已拆分为 `convert` / `train` / `predict`
 
-**状态**：当前先不处理，等训练流程彻底稳定后再设计和实现。
+**状态**：CLI 架构拆分已完成，`gpse/cli.py` 作为根路由，将命令分发到三个子模块。
 
-当前 `gpse/cli.py` 是单入口平铺参数，实际混合了三类职责：
+| 子命令 | 状态 | 说明 |
+|--------|------|------|
+| `gpse convert` | ✅ **已实现** | `gpse/convert/cli.py` + `workflow.py` + `processor.py` |
+| `gpse train` | ✅ **已实现** | `gpse/train/cli.py` + `workflow.py`，训练全流程可用 |
+| `gpse predict` | ⚠️ **仅 stub** | `gpse/predict/cli.py` 存在，但执行时直接报错 `predict is not implemented yet` |
 
-1. **数据转换/预处理**
-   - VCF / PLINK / PED / MAP → genotype matrix
-   - 表型文件转换、样本 ID 匹配、列名清理、简单质控
-   - 现有主要逻辑在 `gpse/utils/genomic_data_pipeline.py`
-   - 后续需要合并 `scripts/qc.py` 中的 QC / LD pruning / imputation / numeric recode 逻辑
+#### P6.0: `data_convert` 已新建 `gpse/convert/` 模块
 
-2. **模型训练**
-   - 使用 genotype + phenotype 训练多模型
-   - Optuna 调参 / 默认参数训练
-   - TOPSIS 排名
-   - Stacking 集成
-   - 现有主要逻辑在 `GenomicPredictorV2.run_all_models()`
+**状态**：`gpse/convert/` 模块已创建，包含 `cli.py`、`workflow.py`、`processor.py`、`qc.py`、`external.py`。
 
-3. **模型预测**
-   - 使用已经构建好的模型，对新的 VCF / genotype matrix 进行表型预测
-   - 当前 CLI **没有 predict-only 模式**
-   - 当前只保存 `(model, scaler)`，缺少足够的 feature metadata
-
-建议未来 CLI 结构：
-
-```bash
-gpse data_convert ...
-gpse train ...
-gpse predict ...
-```
-
-#### P6.0: `data_convert` 需要合并 `genomic_data_pipeline.py` 与 `scripts/qc.py`
-
-当前存在两套相关逻辑：
+当前存在两套相关逻辑，需逐步合并：
 
 - `gpse/utils/genomic_data_pipeline.py`
   - VCF → PLINK
@@ -189,7 +197,7 @@ gpse predict ...
   - 列名特殊字符清理
   - 表型标准化
 
-- `scripts/qc.py`
+- `scripts/qc.py` / `gpse/convert/qc.py`
   - 输入格式识别与转换：VCF / PED/MAP / BED/BIM/FAM → PLINK BED
   - PLINK 样本过滤：`--keep` / `--remove`
   - PLINK SNP 过滤：`--extract` / `--exclude`
@@ -201,33 +209,17 @@ gpse predict ...
   - LD pruning：`--indep-pairwise`
   - compound genotype → numeric additive coding (`0/1/2`)
 
-后续应统一为：
-
-```bash
-gpse data_convert ...
-```
-
-`data_convert` 至少需要支持两种模式：
+后续应统一为 `gpse convert`，并支持两种模式：
 
 1. **train 模式**
    - 输入：VCF/PLINK/PED/MAP + phenotype
-   - 输出：
-     - 训练用 genotype matrix
-     - 训练用 phenotype CSV
-     - QC report
-     - feature schema 初稿
-   - 用于后续 `gpse train`
+   - 输出：训练用 genotype matrix、训练用 phenotype CSV、QC report、feature schema 初稿
 
 2. **predict 模式**
    - 输入：新 VCF/PLINK/PED/MAP 或已有 genotype matrix + 已训练模型的 `feature_schema.json`
-   - 输出：
-     - 已按模型 schema 对齐的 genotype matrix
-     - feature 对齐报告
-     - 缺失 feature / 额外 feature / allele mismatch 报告
-   - 用于后续 `gpse predict`
+   - 输出：已按模型 schema 对齐的 genotype matrix、feature 对齐报告
 
 predict 模式下必须注意：
-
 - 不能重新自由选择 SNP 集合
 - 不能重新做会改变 feature 空间的 LD pruning
 - 应按模型中的 `feature_schema.json` 提取、排序和校验 feature
@@ -238,15 +230,15 @@ predict 模式下必须注意：
 
 #### P6.1: 已保存模型缺少 feature schema
 
-当前模型保存点：
+**状态**：❌ **未实现**
 
+当前模型保存点：
 - fold 模型：`repeat_N/fold_M_model.pkl`，内容为 `(model, scaler)`
 - representative 模型：`representative_model/model.pkl`，内容为 `(model, scaler)`
 
 问题：模型文件没有记录训练时特征的完整描述。后续使用新数据预测时，即使模型能正常加载，也无法确认新数据是否和训练数据处在同一个 feature 空间。
 
 至少需要保存：
-
 - 原始 SNP ID 列表
 - 清理后的 SNP/feature 名称
 - feature 顺序
@@ -260,7 +252,6 @@ predict 模式下必须注意：
 - 训练任务类型、模型名、GPSE 版本、训练时间、参数
 
 建议新增文件：
-
 ```text
 representative_model/
 ├── model.pkl
@@ -270,8 +261,9 @@ representative_model/
 
 #### P6.2: predict 阶段必须做 feature 对齐
 
-“相同 feature”不能只理解为列数相同。对 VCF 数据来说，必须同时满足：
+**状态**：❌ **未实现**
 
+“相同 feature”不能只理解为列数相同。对 VCF 数据来说，必须同时满足：
 - SNP ID 一致
 - SNP 顺序一致
 - REF / ALT 或等位基因编码方向一致
@@ -280,7 +272,6 @@ representative_model/
 - 列名清理规则一致
 
 predict 流程应当：
-
 1. 将新 VCF 转换为 genotype matrix
 2. 读取训练时保存的 `feature_schema.json`
 3. 按训练 schema 对新 matrix 进行列对齐
@@ -291,6 +282,8 @@ predict 流程应当：
 8. 输出 `sample_id, prediction`
 
 #### P6.3: 真实数据中的缺失 feature 需要明确策略
+
+**状态**：❌ **未实现**
 
 新数据中可能缺少训练模型需要的 SNP。当前没有处理策略。
 
@@ -306,6 +299,8 @@ predict 流程应当：
 建议默认使用 `strict`，只有用户明确指定时才允许 imputation。
 
 #### P6.4: predict-only 子命令建议参数
+
+**状态**：❌ **未实现**
 
 未来可以考虑：
 
@@ -331,6 +326,8 @@ gpse predict \
 
 #### P6.5: ModelPackage / PredictorPackage 统一对象
 
+**状态**：❌ **未实现**
+
 后续可以抽象一个统一的 `ModelPackage` / `PredictorPackage` 对象，把“模型本体”和“输入输出契约”封装在一起。
 
 核心目标不是把所有模型变成同一种模型，而是让所有模型都遵守同一个预测接口：
@@ -341,7 +338,6 @@ pred = package.predict(genotype_matrix)
 ```
 
 内部模型可以是：
-
 - GPSE 自己训练出的 sklearn / XGBoost / LightGBM / CatBoost 模型
 - 外部用户训练好的 sklearn 模型
 - PyTorch / TensorFlow 深度学习模型
@@ -349,7 +345,6 @@ pred = package.predict(genotype_matrix)
 - 外部命令行模型（通过 wrapper 适配）
 
 建议模型包结构：
-
 ```text
 model_package/
 ├── model.pkl / model.pt / model.onnx / model.json
@@ -360,7 +355,6 @@ model_package/
 ```
 
 建议对象职责：
-
 ```python
 class ModelPackage:
     def load(path): ...
@@ -372,7 +366,6 @@ class ModelPackage:
 ```
 
 再抽象 backend 层：
-
 ```python
 class BaseModelBackend:
     def load(model_path): ...
@@ -381,7 +374,6 @@ class BaseModelBackend:
 ```
 
 不同模型对应不同 backend：
-
 ```text
 SklearnBackend
 XGBoostBackend
@@ -415,7 +407,6 @@ gpse predict \
 ```
 
 关键输入契约仍然必须统一：
-
 - feature 名称、顺序、数量
 - SNP / allele 编码方向
 - 缺失 feature 处理策略
@@ -436,7 +427,7 @@ gpse predict \
 ```mermaid
 flowchart TD
     subgraph CLI["GPSE CLI"]
-        DC["gpse data_convert"]
+        DC["gpse convert"]
         TR["gpse train"]
         PR["gpse predict"]
         PM["gpse package-model"]
@@ -530,39 +521,39 @@ flowchart TD
 ```
 CLI (cli.py)
   │
-  ├── 1. [可选] 数据预处理 (GenomicDataProcessor)
+  ├── 1. [可选] 数据预处理 (GenomicDataProcessor via gpse convert)
   │      VCF → PLINK → 矩阵 → 表型匹配 → 清洗
   │
   ├── 2. GenomicPredictorV2.__init__()
   │      ├── 回归 → RegressionModelOptimizer
   │      └── 分类 → GenomicClassifier (内含 ClassificationModelOptimizer)
   │
-  └── 3. run_all_models()                              [_pipeline.py]
+  └── 3. run_all_models()                              [train/_pipeline.py]
          │
-         ├── load_data()                               [_data_io.py]
-         ├── prepare_cv_folds()                        [_cv_manager.py]
+         ├── load_data()                               [train/_data_io.py]
+         ├── prepare_cv_folds()                        [train/_cv_manager.py]
          │
          ├── For each model:
-         │    └── run_model_multiple_repeats()         [_repeat_training.py]
+         │    └── run_model_multiple_repeats()         [train/_repeat_training.py]
          │         ├── 可选: ProcessPoolExecutor 并行
          │         └── For each repeat:
-         │              ├── optimize_model_parameters() [_optimization.py]
+         │              ├── optimize_model_parameters() [train/_optimization.py]
          │              │    └── Optuna TPE + MedianPruner + 早停
-         │              ├── create_model(best_params)   [_model_tools.py]
+         │              ├── create_model(best_params)   [train/_model_tools.py]
          │              ├── For each fold:
-         │              │    └── _train_single_fold()   [_fold_training.py]
+         │              │    └── _train_single_fold()   [train/_fold_training.py]
          │              │         ├── StandardScaler.fit_transform
          │              │         ├── model.fit (threadpool_limits)
          │              │         ├── predict + metrics
          │              │         └── 保存 (model, scaler) pickle
-         │              └── _compute_ensemble_predictions() [_ensemble.py]
+         │              └── _compute_ensemble_predictions() [train/_ensemble.py]
          │
          ├── create_comparison_table() → model_comparison.csv
          │
-         ├── [可选] TOPSIS 排名                         [topsis.py]
+         ├── [可选] TOPSIS 排名                         [train/topsis.py]
          │    └── 按 Test Pearson/Accuracy 排序, 选 Top-N
          │
-         └── [可选] StackingEnsemble                    [stacking.py]
+         └── [可选] StackingEnsemble                    [train/stacking.py]
               └── 用 Top-N 模型训练元学习器 (Ridge/LogisticRegression)
 ```
 
@@ -570,7 +561,7 @@ CLI (cli.py)
 
 ## 四、核心模块详解
 
-### 4.1 ★ Stacking 集成 — `gpse/utils/stacking.py`
+### 4.1 ★ Stacking 集成 — `gpse/train/stacking.py`
 
 **核心类**: `StackingEnsemble`
 
@@ -609,7 +600,7 @@ fit(X_train, y_train, X_test, y_test, model_names)
 4. 没有交叉验证评估元模型
 5. `clone()` 要求 sklearn-compatible，自定义模型需适配
 
-### 4.2 ★ TOPSIS 排名 — `gpse/utils/topsis.py`
+### 4.2 ★ TOPSIS 排名 — `gpse/train/topsis.py`
 
 **核心类**: `TOPSISEvaluator`
 
@@ -631,7 +622,7 @@ evaluate(input_file, output_file, criteria, criteria_types, ...)
   └── Step 6: 输出（完整版 + 精简版 CSV）
 ```
 
-**默认配置**（`_topsis_config.py`）:
+**默认配置**（`train/_topsis_config.py`）:
 - 回归: `["Test Pearson", "Test Pearson (std)"]`, types `["max", "min"]`, weights `"0.8,0.2"`
 - 分类: `["Test Accuracy", "Test Accuracy (std)"]`, types `["max", "min"]`, weights `"0.8,0.2"`
 
@@ -981,6 +972,8 @@ def suggest_from_yaml(trial, search_space: dict, current_params: dict) -> dict:
 
 ### Phase 1: 基础架构（预计 2-3h）
 
+**状态**: ❌ **未开始**
+
 - [ ] 创建 `gpse/config/models/` 目录
 - [ ] 创建 `gpse/models/model_registry.py` — ModelRegistry 类
 - [ ] 创建 `gpse/models/search_space.py` — YAML 搜索空间解析器
@@ -990,6 +983,8 @@ def suggest_from_yaml(trial, search_space: dict, current_params: dict) -> dict:
   - 对比 Optuna 搜索空间 + 训练结果一致性
 
 ### Phase 2: 批量迁移（预计 3-4h）
+
+**状态**: ❌ **未开始**
 
 - [ ] 迁移全部 14 个回归模型到 YAML
 - [ ] 迁移全部 6 个分类模型到 YAML
@@ -1002,8 +997,10 @@ def suggest_from_yaml(trial, search_space: dict, current_params: dict) -> dict:
 
 ### Phase 3: 整合清理（预计 2h）
 
+**状态**: ❌ **未开始**
+
 - [ ] 更新 `_model_tools.py` 路由 → 通过 ModelRegistry
-- [ ] 更新 `prediction_v2.py` 初始化 → 创建 ModelRegistry
+- [ ] 更新 `predictor.py` 初始化 → 创建 ModelRegistry
 - [ ] 更新 `_optimization.py` → suggest_params 调用 Registry
 - [ ] 合并 `RegressionModelOptimizer` + `ClassificationModelOptimizer` → 统一为 ModelRegistry
 - [ ] 删除旧的 if/elif 链
@@ -1012,6 +1009,8 @@ def suggest_from_yaml(trial, search_space: dict, current_params: dict) -> dict:
 
 ### Phase 4: Stacking & TOPSIS 改进（预计 2-3h）
 
+**状态**: ❌ **未开始**
+
 - [ ] **Stacking: 修复模型加载** — 改为从 pipeline 直接传递模型实例
 - [ ] **Stacking: 修复元特征生成** — 不对基础模型原地 fit
 - [ ] Stacking: 支持更多元模型（ElasticNet, GBDT 等）
@@ -1019,6 +1018,8 @@ def suggest_from_yaml(trial, search_space: dict, current_params: dict) -> dict:
 - [ ] TOPSIS: 支持更多评价指标维度（训练时间、模型复杂度）
 
 ### Phase 5: 测试 & 文档（预计 1-2h）
+
+**状态**: ❌ **未开始**
 
 - [ ] 为 ModelRegistry 编写单元测试
 - [ ] 为 search_space.py 编写单元测试（含约束条件测试）
@@ -1029,27 +1030,27 @@ def suggest_from_yaml(trial, search_space: dict, current_params: dict) -> dict:
 
 ## 八、修改文件清单
 
-| 文件 | 操作 | 阶段 |
-|------|------|------|
-| `gpse/config/models/*.yaml` | **新建** 20 个 YAML（14 reg + 6 clf） | Phase 2 |
-| `gpse/models/model_registry.py` | **新建** ModelRegistry 类 | Phase 1 |
-| `gpse/models/search_space.py` | **新建** YAML 搜索空间解析器 | Phase 1 |
-| `gpse/models/custom_params.py` | **新建** MLP/NGBoost 等自定义 hook | Phase 2 |
-| `gpse/models/regression_model_optimizer.py` | **已新建** — 回归模型优化器（原 `model_optimizers.py` 拆分） | codex |
-| `gpse/models/model_optimizers.py` | **Phase 0 完成**: 已变为 shim; **Phase 3**: 替换为 ModelRegistry 委托 | 0, 3 |
-| `gpse/models/classification_models.py` | **Phase 3**: 替换为 ModelRegistry 委托 | 3 |
-| `gpse/core/_model_tools.py` | 路由改为通过 ModelRegistry | Phase 3 |
-| `gpse/core/prediction_v2.py` | 初始化时创建 ModelRegistry | Phase 3 |
-| `gpse/core/_optimization.py` | suggest_params 调用改为 Registry | Phase 3 |
-| `gpse/cli.py` | 添加 `--model_config_dir`; help 文本动态获取 | Phase 3 |
-| `gpse/utils/stacking.py` | 修复模型加载路径; 修复元特征 fit | Phase 4 |
-| `gpse/utils/topsis.py` | 权重/指标配置外置 | Phase 4 |
-| `gpse/core/_topsis_config.py` | 适配新配置 | Phase 4 |
-| `gpse/config/constants.py` | 可能需要扩展 ModelConfig | Phase 1 |
-| `scripts/qc.py` | 合并 QC / imputation / LD pruning / recode 逻辑到正式 data_convert 流程 | P6 后续 |
-| `gpse/utils/genomic_data_pipeline.py` | 升级为 data_convert 核心实现，区分 train-mode 与 predict-mode | P6 后续 |
-| `gpse/model_package/` 或 `gpse/core/model_package.py` | 新建 ModelPackage / PredictorPackage 抽象 | P6 后续 |
-| `gpse/cli.py` | 拆分为 `data_convert` / `train` / `predict` / 可选 `package-model` 子命令 | P6 后续 |
+| 文件 | 操作 | 阶段 | 状态 |
+|------|------|------|------|
+| `gpse/config/models/*.yaml` | **新建** 20 个 YAML（14 reg + 6 clf） | Phase 2 | ❌ 未开始 |
+| `gpse/models/model_registry.py` | **新建** ModelRegistry 类 | Phase 1 | ❌ 未开始 |
+| `gpse/models/search_space.py` | **新建** YAML 搜索空间解析器 | Phase 1 | ❌ 未开始 |
+| `gpse/models/custom_params.py` | **新建** MLP/NGBoost 等自定义 hook | Phase 2 | ❌ 未开始 |
+| `gpse/models/regression_model_optimizer.py` | **已新建** — 回归模型优化器（原 `model_optimizers.py` 拆分） | codex | ✅ 已完成 |
+| `gpse/models/model_optimizers.py` | **Phase 0 完成**: 已变为 shim; **Phase 3**: 替换为 ModelRegistry 委托 | 0, 3 | ✅ Phase 0 完成 |
+| `gpse/models/classification_models.py` | **Phase 3**: 替换为 ModelRegistry 委托 | 3 | ❌ 未开始 |
+| `gpse/train/_model_tools.py` | 路由改为通过 ModelRegistry | Phase 3 | ❌ 未开始 |
+| `gpse/train/predictor.py` | 初始化时创建 ModelRegistry | Phase 3 | ❌ 未开始 |
+| `gpse/train/_optimization.py` | suggest_params 调用改为 Registry | Phase 3 | ❌ 未开始 |
+| `gpse/cli.py` | 添加 `--model_config_dir`; help 文本动态获取 | Phase 3 | ⚠️ 子命令路由已完成，参数未加 |
+| `gpse/train/stacking.py` | 修复模型加载路径; 修复元特征 fit | Phase 4 | ❌ 未开始 |
+| `gpse/train/topsis.py` | 权重/指标配置外置 | Phase 4 | ❌ 未开始 |
+| `gpse/config/_topsis_config.py` | 适配新配置 | Phase 4 | ❌ 未开始 |
+| `gpse/config/constants.py` | 可能需要扩展 ModelConfig | Phase 1 | ❌ 未开始 |
+| `scripts/qc.py` | 合并 QC / imputation / LD pruning / recode 逻辑到正式 data_convert 流程 | P6 后续 | ❌ 未开始 |
+| `gpse/utils/genomic_data_pipeline.py` | 升级为 data_convert 核心实现，区分 train-mode 与 predict-mode | P6 后续 | ❌ 未开始 |
+| `gpse/model_package/` 或 `gpse/predict/model_package.py` | 新建 ModelPackage / PredictorPackage 抽象 | P6 后续 | ❌ 未开始 |
+| `gpse/cli.py` | 拆分为 `convert` / `train` / `predict` / 可选 `package-model` 子命令 | P6 后续 | ✅ **已完成** |
 
 ---
 
@@ -1057,21 +1058,21 @@ def suggest_from_yaml(trial, search_space: dict, current_params: dict) -> dict:
 
 | 功能 | 文件 | 行号/方法 |
 |------|------|----------|
-| 回归模型配置注册 | `models/regression_model_optimizer.py` | `_init_model_configs()` L41-117 |
-| 回归搜索空间 | `models/regression_model_optimizer.py` | `_xxx_reg_params()` L132-425 |
+| 回归模型配置注册 | `models/regression_model_optimizer.py` | `_init_model_configs()` |
+| 回归搜索空间 | `models/regression_model_optimizer.py` | `_xxx_reg_params()` |
 | ~~分类死代码~~ | ~~`models/model_optimizers.py`~~ | **已清理** |
-| 参数过滤 | `models/regression_model_optimizer.py` | `filter_model_params()` L427-463 |
-| 回归模型创建 | `models/regression_model_optimizer.py` | `create_model()` L465-556 |
-| 回归默认参数 | `models/regression_model_optimizer.py` | `get_default_params()` L558-676 |
-| 分类配置注册 | `models/classification_models.py` | `_init_classification_model_configs()` L39-67 |
-| 分类搜索空间 | `models/classification_models.py` | `_xxx_clf_params()` L80-237 |
-| 分类模型创建 | `models/classification_models.py` | `create_classification_model()` L259-300 |
-| 分类默认参数 | `models/classification_models.py` | `get_classification_default_params()` L302-390 |
-| 模型路由 | `core/_model_tools.py` | `create_model()`, `get_default_params()` |
-| Optuna 优化 | `core/_optimization.py` | `optimize_model_parameters()` L25-203 |
-| Stacking 集成 | `utils/stacking.py` | `StackingEnsemble` class |
-| TOPSIS 排名 | `utils/topsis.py` | `TOPSISEvaluator.evaluate()` L78-166 |
-| Pipeline 编排 | `core/_pipeline.py` | `run_all_models()` L22-212 |
+| 参数过滤 | `models/regression_model_optimizer.py` | `filter_model_params()` |
+| 回归模型创建 | `models/regression_model_optimizer.py` | `create_model()` |
+| 回归默认参数 | `models/regression_model_optimizer.py` | `get_default_params()` |
+| 分类配置注册 | `models/classification_models.py` | `_init_classification_model_configs()` |
+| 分类搜索空间 | `models/classification_models.py` | `_xxx_clf_params()` |
+| 分类模型创建 | `models/classification_models.py` | `create_classification_model()` |
+| 分类默认参数 | `models/classification_models.py` | `get_classification_default_params()` |
+| 模型路由 | `train/_model_tools.py` | `create_model()`, `get_default_params()` |
+| Optuna 优化 | `train/_optimization.py` | `optimize_model_parameters()` |
+| Stacking 集成 | `train/stacking.py` | `StackingEnsemble` class |
+| TOPSIS 排名 | `train/topsis.py` | `TOPSISEvaluator.evaluate()` |
+| Pipeline 编排 | `train/_pipeline.py` | `run_all_models()` |
 | 常量配置 | `config/constants.py` | `ModelConstants` singleton |
 | 线程控制 | `cli.py` L15-28; `_repeat_training.py` | 环境变量设置 |
 
@@ -1108,15 +1109,15 @@ def suggest_from_yaml(trial, search_space: dict, current_params: dict) -> dict:
 
 ## 十一、耗时对比
 
-| 阶段 | 纯人工 | 人机协作（推荐） |
-|------|--------|---------------|
-| Phase 0: 清理死代码 | 1h | **30min** |
-| Phase 1: 基础架构 | 5-6h | **2-3h** |
-| Phase 2: 批量迁移 | 8-10h | **3-4h** |
-| Phase 3: 整合清理 | 3-4h | **2h** |
-| Phase 4: Stacking & TOPSIS | 3-4h | **2-3h** |
-| Phase 5: 测试 & 文档 | 3-4h | **1-2h** |
-| **合计** | **23-30h（4-5天）** | **10-14h（2天）** |
+| 阶段 | 纯人工 | 人机协作（推荐） | 实际状态 |
+|------|--------|---------------|----------|
+| Phase 0: 清理死代码 | 1h | **30min** | ✅ **已完成** |
+| Phase 1: 基础架构 | 5-6h | **2-3h** | ❌ **未开始** |
+| Phase 2: 批量迁移 | 8-10h | **3-4h** | ❌ **未开始** |
+| Phase 3: 整合清理 | 3-4h | **2h** | ❌ **未开始** |
+| Phase 4: Stacking & TOPSIS | 3-4h | **2-3h** | ❌ **未开始** |
+| Phase 5: 测试 & 文档 | 3-4h | **1-2h** | ❌ **未开始** |
+| **合计** | **23-30h（4-5天）** | **10-14h（2天）** | 1/6 完成 |
 
 人机协作分工：
 - AI → 生成 YAML、写 ModelRegistry、删除死代码、修改路由
@@ -1126,7 +1127,7 @@ def suggest_from_yaml(trial, search_space: dict, current_params: dict) -> dict:
 
 ## 十二、基因型编码问题（待修复）
 
-> 发现日期: 2026-06-04
+> 发现日期: 2026-06-04  
 > 涉及文件: `convert/processor.py`, `convert/qc.py`, `scripts/qc.py`
 
 ### 背景：编码链路
@@ -1148,21 +1149,21 @@ PLINK `--recode compound-genotypes 01` 含义：
 
 主编码 `00→0, 01→1, 10→1, 11→2` 是正确的，README 描述无需修改。
 
-### 🔴 BUG-1: `convert/qc.py` 的 `recode_to_numeric()` header 缺少 ID 列
+### ✅ BUG-1: `convert/qc.py` 的 `recode_to_numeric()` header 缺少 ID 列
+
+**状态**: ✅ **已修复**
 
 ```python
-# convert/qc.py (L105)
-geno_file.write(','.join(snpid_list) + '\n')       # ❌ 没有 ID 列
+# convert/qc.py (L97)
+geno_file.write('ID,' + ','.join(snpid_list) + '\n')   # ✅ 已有 ID 列
 
 # convert/processor.py (L222)
-header = "ID," + ",".join(snpid_list)               # ✅ 有 ID 列
+header = "ID," + ",".join(snpid_list)                   # ✅ 有 ID 列
 ```
 
-**影响**：下游 `pd.read_csv(file, index_col=0)` 会把第一个 SNP 的值当作 sample index，导致数据错位。
-
-**修复**：在 `recode_to_numeric()` 的 header 写入时加上 `ID,` 前缀。
-
 ### 🟡 BUG-2: `convert/qc.py` 和 `convert/processor.py` 缺失值编码不一致
+
+**状态**: ❌ **未修复**
 
 | 文件 | 缺失 fallback | 结果 |
 |------|-------------|------|
@@ -1175,6 +1176,8 @@ header = "ID," + ",".join(snpid_list)               # ✅ 有 ID 列
 **修复**：统一为 `3`（与 PLINK `--output-missing-genotype 3` 一致）。
 
 ### 🟡 BUG-3: 部分缺失基因型 `03`/`30` 未处理
+
+**状态**: ❌ **未修复**
 
 PED 文件中可能出现 `33`（全缺失）、`03`（一个等位基因缺失）、`30`（另一个等位基因缺失）：
 
@@ -1193,13 +1196,14 @@ diploid = GENO_DICT.get(genotype, '3')
 
 ### 修复优先级
 
-| 优先级 | 问题 | 预计工作量 |
-|--------|------|-----------|
-| **P0** | BUG-1: `recode_to_numeric()` 缺 ID 列 | 1 min |
-| **P1** | BUG-2: 缺失值编码统一为 `3` | 5 min |
-| **P2** | BUG-3: 显式声明 `03`/`30`/`33` | 5 min |
+| 优先级 | 问题 | 预计工作量 | 状态 |
+|--------|------|-----------|------|
+| **P0** | BUG-1: `recode_to_numeric()` 缺 ID 列 | 1 min | ✅ 已修复 |
+| **P1** | BUG-2: 缺失值编码统一为 `3` | 5 min | ❌ 待修复 |
+| **P2** | BUG-3: 显式声明 `03`/`30`/`33` | 5 min | ❌ 待修复 |
 
 ---
 
-*文档生成时间: 2026-06-03*
-*基于代码版本: main@30aaafb*
+*文档更新时间: 2026-06-08*  
+*基于代码版本: main@30aaafb 及之后 commits*  
+*更新内容: 刷新 Phase 完成状态、更新目录结构、标记 BUG-1 已修复、标记 CLI 拆分已完成*

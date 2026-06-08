@@ -160,4 +160,21 @@ def run_command(
         with open(log_file, "a") as f:
             subprocess.run(cmd_args, stdout=f, stderr=f, check=True)
     else:
-        subprocess.run(cmd_args, check=True)
+        # When a logger is available but no dedicated log file is requested,
+        # capture the subprocess output and stream it through the logger so
+        # that external tool messages (e.g. PLINK) are tidy and unified with
+        # GPSE's own log format instead of being dumped raw to the terminal.
+        if logger is not None:
+            result = subprocess.run(
+                cmd_args, capture_output=True, text=True, check=True
+            )
+            if result.stdout:
+                for line in result.stdout.strip().splitlines():
+                    if line.strip():
+                        logger.info(f"[stdout] {line}")
+            if result.stderr:
+                for line in result.stderr.strip().splitlines():
+                    if line.strip():
+                        logger.warning(f"[stderr] {line}")
+        else:
+            subprocess.run(cmd_args, check=True)

@@ -10,11 +10,13 @@ This module does two things:
 """
 from __future__ import annotations
 
+import os
 import sys
 import argparse
 
 from gpse.convert.workflow import run_convert_workflow, validate_convert_mode
 from gpse.utils.cli_display import _build_convert_parser
+from gpse.utils.log_utils import logger_init
 
 # define convert main function
 def main(argv: list[str] | None = None,*,formatter_class=None,prog: str | None = None,help_action=None,parents: list[argparse.ArgumentParser] | None = None) -> int:
@@ -28,6 +30,25 @@ def main(argv: list[str] | None = None,*,formatter_class=None,prog: str | None =
         parents = parents,
     )
     args = parser.parse_args(argv)
+
+    # Initialise unified GPSE logging so that convert uses the same
+    # Rich-styled console format and file rotation as the train module.
+    log_level = getattr(args, "log_level", "INFO")
+    log_file = None
+    if getattr(args, "out_prefix", None):
+        log_dir = os.path.dirname(args.out_prefix) or "."
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, "gpse_convert.log")
+    elif getattr(args, "recode_prefix", None):
+        log_dir = os.path.dirname(args.recode_prefix) or "."
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, "gpse_convert.log")
+    else:
+        # Fallback for --check-deps and other modes without an output prefix.
+        log_file = "gpse_convert.log"
+
+    logger_init(logger_name=log_file, log_level=log_level)
+
     mode = validate_convert_mode(parser, args)
     return run_convert_workflow(args, mode)
 
