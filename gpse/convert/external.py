@@ -168,9 +168,8 @@ def _compress_stdout(lines: list[str]) -> list[str]:
             continue
 
         # 2. Inline progress-bar collapse  (e.g. "... 0%1%2%...99% done.")
+        #    Drop entirely — PLINK logs its own progress separately.
         if re.search(r"(?:\d+%)+\s*done\.?$", line):
-            line = re.sub(r"(?:\d+%)+", "...", line)
-            out.append(line)
             continue
 
         out.append(line)
@@ -213,11 +212,11 @@ def run_command(
                 cmd_args, capture_output=True, text=True, check=True
             )
             if result.stdout:
-                raw_lines = result.stdout.strip().splitlines()
+                raw_lines = re.split(r'[\r\n]+', result.stdout.strip())
                 for line in _compress_stdout(raw_lines):
                     logger.info(f"[stdout] {line}")
             if result.stderr:
-                for line in result.stderr.strip().splitlines():
+                for line in re.split(r'[\r\n]+', result.stderr.strip()):
                     if line.strip():
                         logger.warning(f"[stderr] {line.strip()}")
         else:

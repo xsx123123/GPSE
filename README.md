@@ -71,6 +71,7 @@ GPSE uses a subcommand architecture: `gpse {convert,train,predict}`.
 ```
 Input                        Processing                     Output
 ─────                        ──────────                     ──────
+                             Validate trait names            (abort on invalid names)
 samples.vcf            →  VCF → PLINK BED              →  {prefix}_genotype.csv
 phenotype.txt/.csv     →  PED/MAP → numeric (0/1/2)    →  {prefix}_phenotype.csv
                             SNP filtering                   {prefix}_phenotype_scaler.json
@@ -291,6 +292,24 @@ the first two columns are retained by the converter. Missing phenotype values
 (`NaN` and string `NA`) are removed. Use `--trait-name` to rename the target
 trait column.
 
+> **⚠️ Trait Name Restrictions**
+>
+> Trait (phenotype column) names are validated **before any conversion work
+> begins**. Invalid names will cause the pipeline to abort immediately.
+>
+> Trait names must **not** contain:
+>
+> - Spaces (` `), tabs, or newlines
+> - Percent sign (`%`)
+> - Colons (`:`) or slashes (`/`, `\`)
+> - Brackets (`[`, `]`, `{`, `}`)
+> - Pipes (`|`)
+> - Double quotes (`"`)
+> - Commas (`,`)
+>
+> Use underscores (`_`) or hyphens (`-`) instead. For example, rename
+> `fruit weight` to `fruit_weight` and `yield%` to `yield_pct`.
+
 ### `gpse convert` Outputs
 
 When only a genotype matrix is generated, GPSE writes:
@@ -494,7 +513,10 @@ and external tool execution.
 | `__init__.py` | Public convert package export for `GenomicDataProcessor`. |
 | `cli.py` | CLI parser and dispatcher for conversion modes such as full conversion, QC, recoding, and dependency checks. |
 | `external.py` | External-tool discovery, configured path resolution, version checks, and command execution helpers. |
-| `processor.py` | Main conversion processor: VCF/PLINK conversion, SNP extraction, numeric matrix generation, phenotype cleanup, sample matching, and phenotype standardization. |
+| `genotype_matrix.py` | Pure functions for genotype format conversion: VCF→PLINK BED, BED→PED/MAP, PED/MAP→numeric CSV matrix, and batch SNP directory processing. |
+| `phenotype.py` | Pure functions for phenotype file conversion, genotype-phenotype sample matching, z-score standardization, and scaler parameter persistence. |
+| `validators.py` | Data validation utilities: trait name validation, column-name sanitization (special character detection/cleaning), and matrix loading with summary statistics. |
+| `processor.py` | Thin orchestrator (`GenomicDataProcessor`) that coordinates genotype conversion, phenotype matching, and data validation by delegating to the specialised sub-modules above. |
 | `qc.py` | PLINK/Beagle QC utilities: format conversion, genotype filtering, imputation, LD pruning, and PED/MAP numeric recoding. |
 
 ### `gpse/train/`
@@ -588,6 +610,16 @@ live in the corresponding workflow package.
 * `rich` & `loguru` (for beautiful CLI output and logging)
 
 ## 📝 Recent Updates
+
+* **Convert Module Refactor & Trait Name Validation** (`2026-06-08`)
+  * Split the monolithic `processor.py` into focused sub-modules under `gpse/convert/`:
+    * `genotype_matrix.py` — pure functions for VCF→PLINK→PED→numeric CSV matrix conversion
+    * `phenotype.py` — pure functions for phenotype conversion, sample matching, and z-score standardization
+    * `validators.py` — trait name validation, column-name sanitization, and matrix loading
+  * `processor.py` is now a thin orchestrator that delegates to the above modules.
+  * Added **early trait name validation** — trait names containing spaces, `%`, `:`, `/`, brackets, pipes, quotes, commas, or whitespace characters are rejected before any conversion work begins.
+  * Improved PLINK stdout compression: `\r`-based progress bars (e.g. `0%1%2%...99%done.`) are now correctly parsed and suppressed from logs.
+  * Fixed `gpse convert` creating an empty `gpse_convert.log` file in the current directory when run without `--out-prefix`.
 
 * **Thread Control & Startup Performance** (`2026-06-03`)
   * Fixed BLAS/MKL thread pools ignoring `--n_jobs` by setting all 6 environment variables (`OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `NUMEXPR_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS`, `BLIS_NUM_THREADS`) **before** numpy/scipy import.
