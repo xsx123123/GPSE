@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import sys
 import argparse
+from datetime import datetime
 
 from gpse.convert.workflow import run_convert_workflow, validate_convert_mode
 from gpse.utils.cli_display import _build_convert_parser
@@ -35,14 +36,15 @@ def main(argv: list[str] | None = None,*,formatter_class=None,prog: str | None =
     # Rich-styled console format and file rotation as the train module.
     log_level = getattr(args, "log_level", "INFO")
     log_file = None
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if getattr(args, "out_prefix", None):
         log_dir = os.path.dirname(args.out_prefix) or "."
         os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, "gpse_convert.log")
+        log_file = os.path.join(log_dir, f"gpse_convert_{timestamp}.log")
     elif getattr(args, "recode_prefix", None):
         log_dir = os.path.dirname(args.recode_prefix) or "."
         os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, "gpse_convert.log")
+        log_file = os.path.join(log_dir, f"gpse_convert_{timestamp}.log")
     else:
         # No output prefix specified (e.g. --help, --check-deps, or no args).
         # Skip file logging — only use console output.

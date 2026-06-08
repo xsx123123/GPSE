@@ -10,6 +10,7 @@ numeric CSV matrix formats.  No class state required — the caller
 
 import os
 import glob
+from datetime import datetime
 
 from gpse.convert.external import resolve_configured_tool, run_command
 
@@ -38,6 +39,17 @@ def _resolve_plink(plink_path, config_path=None, auto_project_config=False):
     )
 
 
+def _timestamp_plink_log(out_prefix, logger=None):
+    """Rename PLINK's auto-generated ``<prefix>.log`` to include a timestamp."""
+    log_path = f"{out_prefix}.log"
+    if os.path.exists(log_path):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        new_log_path = f"{out_prefix}_{timestamp}.log"
+        os.rename(log_path, new_log_path)
+        if logger is not None:
+            logger.info(f"PLINK log saved to: {new_log_path}")
+
+
 # ---------------------------------------------------------------------------
 # VCF → PLINK BED
 # ---------------------------------------------------------------------------
@@ -64,6 +76,7 @@ def vcf_to_plink(
     plink = _resolve_plink(plink_path, config_path, auto_project_config)
     cmd = [plink, "--vcf", vcf_file, "--make-bed", "--out", out_prefix, "--double-id"]
     run_command(cmd, logger=log)
+    _timestamp_plink_log(out_prefix, logger=log)
 
     log.info(f"VCF conversion completed: {out_prefix}.bed, {out_prefix}.bim, {out_prefix}.fam")
     return out_prefix
@@ -102,6 +115,7 @@ def extract_snps(
         "--output-missing-genotype", "3",
     ]
     run_command(cmd, logger=log)
+    _timestamp_plink_log(out_prefix, logger=log)
 
     log.info(f"SNP extraction completed: {out_prefix}.ped, {out_prefix}.map")
     return out_prefix
@@ -138,6 +152,7 @@ def convert_bfile_to_ped(
         "--output-missing-genotype", "3",
     ]
     run_command(cmd, logger=log)
+    _timestamp_plink_log(out_prefix, logger=log)
 
     log.info(f"Conversion completed: {out_prefix}.ped, {out_prefix}.map")
     return out_prefix
