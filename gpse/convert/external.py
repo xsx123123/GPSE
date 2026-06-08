@@ -10,6 +10,7 @@ Java, Beagle, etc.), version checks, and safe command execution.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 from pathlib import Path
@@ -141,6 +142,49 @@ def ensure_existing_file(file_path: str, *, name: str = "file") -> str:
     return str(path)
 
 
+def _compress_stdout(lines: list[str]) -> list[str]:
+    """Compress high-frequency progress spam from external tools (e.g. PLINK).
+
+    Rules:
+      1. ``--vcf: Nk variants complete.``  — keep every 10 k plus the first.
+      2. ``0%1%2%...99% done``            — collapse the percentage run to ``...``.
+      3. ``0%1%2%...99%done``             — same, but without the space before *done*.
+    """
+    out: list[str] = []
+    vcf_seen = 0
+
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+
+        # 1. VCF milestone filter
+        m = re.match(r"^--vcf:\s+(\d+)k variants complete\.$", line)
+        if m:
+            vcf_seen += 1
+            n = int(m.group(1))
+            if n == 1 or n % 10 == 0:
+                out.append(line)
+            continue
+
+        # 2. Inline progress-bar collapse  (e.g. "... 0%1%2%...99% done.")
+        if re.search(r"(?:\d+%)+\s*done\.?$", line):
+            line = re.sub(r"(?:\d+%)+", "...", line)
+            out.append(line)
+            continue
+
+        out.append(line)
+
+    # If any VCF lines were filtered, append a summary so the user still knows
+    # the total scale of the job.
+    if vcf_seen:
+        kept = sum(1 for l in out if l.startswith("--vcf:"))
+        if kept < vcf_seen:
+            out.append(f"(VCF progress: {vcf_seen} milestones total, {kept} shown)")
+
+    return out
+
+
 def run_command(
     cmd_list: Sequence[object],
     *,
@@ -169,12 +213,12 @@ def run_command(
                 cmd_args, capture_output=True, text=True, check=True
             )
             if result.stdout:
-                for line in result.stdout.strip().splitlines():
-                    if line.strip():
-                        logger.info(f"[stdout] {line}")
+                raw_lines = result.stdout.strip().splitlines()
+                for line in _compress_stdout(raw_lines):
+                    logger.info(f"[stdout] {line}")
             if result.stderr:
                 for line in result.stderr.strip().splitlines():
                     if line.strip():
-                        logger.warning(f"[stderr] {line}")
+                        logger.warning(f"[stderr] {line.strip()}")
         else:
             subprocess.run(cmd_args, check=True)

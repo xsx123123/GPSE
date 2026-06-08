@@ -60,7 +60,7 @@ def _make_rich_sink(more_info: bool = False):
         text.append("GPSE ", style="bold cyan")
         text.append(f"{time} ", style="dim")
         text.append(f"{icon} ", style=style)
-        text.append(f"{level:<8}", style=style)
+        text.append(f"{level}", style=style)
         text.append(" │ ", style="dim")
 
         if more_info:

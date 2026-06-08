@@ -44,8 +44,9 @@ def main(argv: list[str] | None = None,*,formatter_class=None,prog: str | None =
         os.makedirs(log_dir, exist_ok=True)
         log_file = os.path.join(log_dir, "gpse_convert.log")
     else:
-        # Fallback for --check-deps and other modes without an output prefix.
-        log_file = "gpse_convert.log"
+        # No output prefix specified (e.g. --help, --check-deps, or no args).
+        # Skip file logging — only use console output.
+        log_file = None
 
     logger_init(logger_name=log_file, log_level=log_level)
 

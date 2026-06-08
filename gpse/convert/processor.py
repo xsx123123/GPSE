@@ -53,7 +53,9 @@ SPECIAL_CHARS = [
 
 
 class GenomicDataProcessor:
-    """Genomic data conversion processor."""
+    """
+    Genomic data conversion processor.
+    """
     
     def __init__(
         self,
@@ -87,7 +89,9 @@ class GenomicDataProcessor:
     # =================== 1. SNP extraction and matrix conversion ===================
     
     def vcf_to_plink(self, vcf_file, out_prefix):
-        """Convert a VCF file to PLINK binary format."""
+        """
+        Convert a VCF file to PLINK binary format.
+        """
         self.logger.info(f"Converting VCF file {vcf_file} to PLINK binary format...")
         
         # Skip conversion when all PLINK binary files already exist.
@@ -282,10 +286,25 @@ class GenomicDataProcessor:
     
     # =================== 2. Phenotype/genotype matching ===================
     
-    def convert_phenotype(self, pheno_file, out_file=None, trait_name=None):
-        """Convert a phenotype file to CSV and remove missing phenotype values."""
+    def convert_phenotype(self, pheno_file, out_file=None, trait_name=None, trait_col=None):
+        """Convert a phenotype file to CSV and remove missing phenotype values.
+
+        Parameters
+        ----------
+        pheno_file : str
+            Path to the input phenotype file.
+        out_file : str, optional
+            Path for the output CSV. If omitted, defaults to a path derived from
+            *pheno_file* (with a ``_converted`` suffix when the input is already a
+            ``.csv`` so the original file is never overwritten).
+        trait_name : str, optional
+            Rename the selected trait column to this value in the output.
+        trait_col : str, optional
+            Name of the trait column to extract. When omitted the second column
+            is used.
+        """
         self.logger.info(f"Processing phenotype file: {pheno_file}")
-        
+
         # Read with pandas, assuming the first row contains headers.
         try:
             # Try tab-separated input first.
@@ -309,14 +328,23 @@ class GenomicDataProcessor:
         if df.shape[1] < 2:
             raise ValueError(f"Phenotype file {pheno_file} must contain at least two columns")
 
-        # Get original column names.
+        # Determine ID and trait columns.
         original_id_col = df.columns[0]
-        original_trait_col = df.columns[1]
+        if trait_col is not None:
+            if trait_col not in df.columns:
+                raise ValueError(
+                    f"Trait column '{trait_col}' not found in {pheno_file}. "
+                    f"Available columns: {list(df.columns)}"
+                )
+            original_trait_col = trait_col
+        else:
+            original_trait_col = df.columns[1]
+
         self.logger.info(f"Original columns: ID={original_id_col}, Trait={original_trait_col}")
-        
+
         # Normalize the first column to ID.
         rename_dict = {original_id_col: 'ID'}
-        
+
         # Normalize the trait column name.
         target_col_name = original_trait_col
         if trait_name:
@@ -328,28 +356,32 @@ class GenomicDataProcessor:
             if cleaned_col != original_trait_col:
                 rename_dict[original_trait_col] = cleaned_col
                 target_col_name = cleaned_col
-        
+
         df = df.rename(columns=rename_dict)
-        
+
         # Keep only ID and target trait columns.
         df = df[['ID', target_col_name]]
-        
+
         # Drop missing phenotype values.
         df = df.dropna(subset=[target_col_name])
-        
+
         # Remove string-form NA values as well.
         if df[target_col_name].dtype == object:
              df = df[df[target_col_name] != 'NA']
-             
+
         self.logger.info(f"Remaining samples after dropping missing phenotypes: {len(df)}")
-        
+
         # Save as CSV.
         if out_file is None:
-            out_file = os.path.splitext(pheno_file)[0] + '.csv'
-        
+            base, ext = os.path.splitext(pheno_file)
+            if ext.lower() == '.csv':
+                out_file = f"{base}_converted.csv"
+            else:
+                out_file = f"{base}.csv"
+
         df.to_csv(out_file, index=False)
         self.logger.info(f"Phenotype CSV saved to: {out_file}")
-        
+
         return df
     
     def match_genotype_phenotype(self, pheno_df, geno_file, out_prefix):
@@ -622,60 +654,108 @@ class GenomicDataProcessor:
             final_pheno_file = None
             final_geno_file = None
             scaler_params = None
-            
+
             if not kwargs.get('skip_match') and kwargs.get('pheno') and geno_matrix_file:
                 self.logger.info("\nStarting integrated data processing: matching, cleanup, and standardization")
-                
-                pheno_df = self.convert_phenotype(kwargs['pheno'], trait_name=kwargs.get('trait_name'))
-                
+
+                # Discover trait columns from the phenotype file.
+                try:
+                    pheno_raw = pd.read_csv(kwargs['pheno'], sep='\t')
+                    if pheno_raw.shape[1] < 2:
+                        pheno_raw = pd.read_csv(kwargs['pheno'], sep=',')
+                except Exception:
+                    pheno_raw = pd.read_csv(kwargs['pheno'], sep=None, engine='python')
+
+                if pheno_raw.shape[1] < 2:
+                    raise ValueError(f"Phenotype file {kwargs['pheno']} must contain at least two columns")
+
+                id_col = pheno_raw.columns[0]
+                trait_cols = pheno_raw.columns[1:].tolist()
+
+                # If user passed --trait-name, keep only that trait.
+                user_trait = kwargs.get('trait_name')
+                if user_trait:
+                    if user_trait in trait_cols:
+                        trait_cols = [user_trait]
+                    else:
+                        self.logger.warning(
+                            f"--trait-name '{user_trait}' not found in phenotype file; "
+                            f"available traits: {trait_cols}"
+                        )
+
+                self.logger.info(f"Discovered {len(trait_cols)} trait(s): {', '.join(trait_cols)}")
+
                 geno_df = pd.read_csv(geno_matrix_file, index_col=0)
-                
                 geno_samples = set(geno_df.index)
-                pheno_samples = set(pheno_df['ID'])
-                common_samples = sorted(list(geno_samples.intersection(pheno_samples)))
-                
-                self.logger.info(f"Genotype samples: {len(geno_samples)}, phenotype samples: {len(pheno_samples)}")
-                self.logger.info(f"Shared samples: {len(common_samples)}")
-                
-                if len(common_samples) == 0:
-                    raise ValueError("No shared sample IDs found. Check sample ID formatting.")
-                
-                pheno_filtered = pheno_df[pheno_df['ID'].isin(common_samples)]
-                pheno_filtered = pheno_filtered.set_index('ID').loc[common_samples].reset_index()
-                geno_filtered = geno_df.loc[common_samples]
-                
-                geno_cleaned_cols = self.clean_column_names(geno_filtered.columns)
-                geno_filtered.columns = geno_cleaned_cols
-                
-                pheno_cols = pheno_filtered.columns.tolist()
-                pheno_cleaned_cols = self.clean_column_names(pheno_cols)
-                pheno_filtered.columns = pheno_cleaned_cols
-                
-                trait_col = pheno_filtered.columns[1]
-                
-                if kwargs.get('standardize_phenotype', False):
-                    self.logger.info("Standardizing phenotype data...")
-                    pheno_filtered, scaler_params = self.standardize_phenotype(pheno_filtered, trait_col)
-                    
-                    import json
-                    scaler_file = f"{out_prefix}_phenotype_scaler.json"
-                    with open(scaler_file, 'w') as f:
-                        json.dump(scaler_params, f, indent=2)
-                    self.logger.info(f"Phenotype scaler parameters saved to: {scaler_file}")
-                
-                final_pheno_file = f"{out_prefix}_phenotype.csv"
-                final_geno_file = f"{out_prefix}_genotype.csv"
-                
-                pheno_filtered.to_csv(final_pheno_file, index=False)
-                geno_filtered.to_csv(final_geno_file)
-                
-                self.logger.info(f"\nFinal phenotype file: {final_pheno_file}")
-                self.logger.info(f"Final genotype file: {final_geno_file}")
-                self.logger.info(f"Sample count: {len(common_samples)}")
-                self.logger.info(f"SNP count: {len(geno_filtered.columns)}")
-                if scaler_params and scaler_params.get('applied'):
-                    self.logger.info(f"Phenotype standardized: mean={scaler_params['mean']:.4f}, std={scaler_params['std']:.4f}")
-                
+                self.logger.info(f"Genotype file contains {len(geno_samples)} samples")
+
+                for trait in trait_cols:
+                    self.logger.info(f"\n--- Processing trait: {trait} ---")
+
+                    safe_trait = re.sub(r'[^\w\-]', '_', trait)
+                    pheno_raw_file = f"{out_prefix}_{safe_trait}_phenotype_raw.csv"
+
+                    # Convert phenotype for this trait, explicitly writing to out-prefix.
+                    pheno_df = self.convert_phenotype(
+                        kwargs['pheno'],
+                        out_file=pheno_raw_file,
+                        trait_col=trait,
+                        trait_name=user_trait if user_trait else None,
+                    )
+
+                    pheno_samples = set(pheno_df['ID'])
+                    common_samples = sorted(list(geno_samples.intersection(pheno_samples)))
+
+                    self.logger.info(f"Phenotype samples: {len(pheno_samples)}")
+                    self.logger.info(f"Shared samples: {len(common_samples)}")
+
+                    if len(common_samples) == 0:
+                        self.logger.warning(f"No shared samples for trait '{trait}', skipping")
+                        continue
+
+                    pheno_filtered = pheno_df[pheno_df['ID'].isin(common_samples)]
+                    pheno_filtered = pheno_filtered.set_index('ID').loc[common_samples].reset_index()
+                    geno_filtered = geno_df.loc[common_samples]
+
+                    geno_cleaned_cols = self.clean_column_names(geno_filtered.columns)
+                    geno_filtered.columns = geno_cleaned_cols
+
+                    pheno_cols = pheno_filtered.columns.tolist()
+                    pheno_cleaned_cols = self.clean_column_names(pheno_cols)
+                    pheno_filtered.columns = pheno_cleaned_cols
+
+                    actual_trait_col = pheno_filtered.columns[1]
+
+                    trait_scaler = None
+                    if kwargs.get('standardize_phenotype', False):
+                        self.logger.info("Standardizing phenotype data...")
+                        pheno_filtered, trait_scaler = self.standardize_phenotype(pheno_filtered, actual_trait_col)
+
+                        import json
+                        scaler_file = f"{out_prefix}_{safe_trait}_scaler.json"
+                        with open(scaler_file, 'w') as f:
+                            json.dump(trait_scaler, f, indent=2)
+                        self.logger.info(f"Phenotype scaler parameters saved to: {scaler_file}")
+
+                    final_pheno_file = f"{out_prefix}_{safe_trait}_phenotype.csv"
+                    final_geno_file = f"{out_prefix}_{safe_trait}_genotype.csv"
+
+                    pheno_filtered.to_csv(final_pheno_file, index=False)
+                    geno_filtered.to_csv(final_geno_file)
+
+                    self.logger.info(f"Trait '{trait}' completed:")
+                    self.logger.info(f"  Phenotype: {final_pheno_file}")
+                    self.logger.info(f"  Genotype:  {final_geno_file}")
+                    self.logger.info(f"  Samples:   {len(common_samples)}")
+                    self.logger.info(f"  SNPs:      {len(geno_filtered.columns)}")
+                    if trait_scaler and trait_scaler.get('applied'):
+                        self.logger.info(
+                            f"  Standardized: mean={trait_scaler['mean']:.4f}, "
+                            f"std={trait_scaler['std']:.4f}"
+                        )
+
+                self.logger.info("\nAll traits processed")
+
             else:
                 if kwargs.get('skip_match'):
                     self.logger.info("Skipping phenotype/genotype matching")
@@ -721,10 +801,10 @@ def process_snp_dir(bfile, snp_dir, out_dir, plink_path="plink"):
     processor = GenomicDataProcessor(plink_path=plink_path)
     return processor.process_snp_dir(bfile, snp_dir, out_dir)
 
-def convert_phenotype(pheno_file, out_file=None, trait_name=None):
+def convert_phenotype(pheno_file, out_file=None, trait_name=None, trait_col=None):
     """Backward-compatible wrapper."""
     processor = GenomicDataProcessor()
-    return processor.convert_phenotype(pheno_file, out_file, trait_name)
+    return processor.convert_phenotype(pheno_file, out_file, trait_name, trait_col)
 
 def match_genotype_phenotype(pheno_df, geno_file, out_prefix):
     """Backward-compatible wrapper."""
