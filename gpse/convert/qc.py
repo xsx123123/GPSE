@@ -268,11 +268,12 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
     Returns:
         Tuple of ``(qc_filled_prefix, pruned_prefix)``.
     """
-    # 0. Normalize input format.
+    # 0. Normalize input format to PLINK BED.
     raw_prefix = output_prefix + "_raw"
     current_flag = format_converter(user_params, input_prefix, raw_prefix)
     if current_flag != '--bfile':
         raise ValueError(f"QC pipeline requires PLINK bfile input after conversion, got: {current_flag}")
+    
     if all(os.path.exists(raw_prefix + suffix) for suffix in ('.bed', '.bim', '.fam')):
         bed_prefix = raw_prefix
     else:
@@ -280,19 +281,44 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
 
     snp_miss = user_params['snpmaxmiss']
     sample_miss = user_params['samplemaxmiss']
-    maf = user_params['maf_max']  # Minimum allele frequency
+    maf = user_params['maf_max']
     r2 = user_params['r2_cutoff']
     config_ctx = _config_context(user_params)
     plink_path = _check_tool_path(user_params.get('plink_path', 'plink'), **config_ctx)
     allow_extra_chr = user_params.get('allow_extra_chr', False)
+
+    # 1. Handle Imputation / Missingness Filling FIRST if requested
+    # This avoids "All people removed" errors when initial missingness is high.
+    qc_filled_prefix = output_prefix + '_qc_filled'
     
+    if run_imputation and user_params.get('beagle_jar_path'):
+        logger.info("Running Beagle imputation (pre-filtering)...")
+        impute_genotype_beagle(user_params, bed_prefix, qc_filled_prefix)
+    elif run_imputation:
+        logger.warning("Beagle imputation requested but beagle_jar_path is not configured. Falling back to PLINK filling.")
+        logger.info("Running simple PLINK filling...")
+        cmd_fill = [
+            plink_path, 
+            '--bfile', bed_prefix, 
+            '--out', qc_filled_prefix,
+            '--make-bed', 
+            '--fill-missing-a2'
+        ]
+        if allow_extra_chr:
+            cmd_fill.append('--allow-extra-chr')
+        _run_command(cmd_fill, output_prefix + '_qc.log')
+    else:
+        # No imputation requested, we'll use bed_prefix for the next step.
+        qc_filled_prefix = bed_prefix
+
+    # 2. Basic QC statistics and filtering (Strict).
+    # If imputed, this will filter low MAF variants.
+    # If not imputed, this will filter based on missingness and MAF.
     qc_prefix = output_prefix + '_qc'
-    
-    # 1. Basic QC statistics and filtering.
-    logger.info("Running QC filtering...")
+    logger.info("Running QC filtering (missingness, MAF)...")
     cmd_qc = [
         plink_path, 
-        '--bfile', bed_prefix,
+        '--bfile', qc_filled_prefix,
         '--out', qc_prefix,
         '--make-bed',
         '--geno', str(snp_miss),
@@ -305,34 +331,16 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
         cmd_qc.append('--allow-extra-chr')
     _run_command(cmd_qc, output_prefix + '_qc.log')
 
-    # 2. Optional Beagle imputation or simple PLINK filling.
-    qc_filled_prefix = qc_prefix + '_filled'
-    
-    if run_imputation and user_params.get('beagle_jar_path'):
-        logger.info("Running Beagle imputation option...")
-        impute_genotype_beagle(user_params, qc_prefix, qc_filled_prefix)
-    else:
-        if run_imputation:
-            logger.warning("Beagle imputation requested but beagle_jar_path is not configured. Falling back to PLINK filling.")
-        logger.info("Running simple PLINK filling...")
-        cmd_fill = [
-            plink_path, 
-            '--bfile', qc_prefix, 
-            '--out', qc_filled_prefix,
-            '--make-bed', 
-            '--fill-missing-a2'
-        ]
-        if allow_extra_chr:
-            cmd_fill.append('--allow-extra-chr')
-        _run_command(cmd_fill, output_prefix + '_qc.log')
+    # Update qc_filled_prefix to point to the filtered result for LD pruning.
+    qc_final_prefix = qc_prefix
 
     # 3. LD pruning.
     # First calculate the list of SNPs to keep (.prune.in).
     logger.info("Calculating LD for pruning...")
     cmd_indep = [
         plink_path,
-        '--bfile', qc_filled_prefix,
-        '--out', qc_filled_prefix, # writes .prune.in
+        '--bfile', qc_final_prefix,
+        '--out', qc_final_prefix, # writes .prune.in
         '--indep-pairwise', '50', '10', str(r2)
     ]
     if allow_extra_chr:
@@ -344,13 +352,13 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
     logger.info("Extracting pruned SNPs...")
     cmd_extract = [
         plink_path,
-        '--bfile', qc_filled_prefix,
+        '--bfile', qc_final_prefix,
         '--out', pruned_prefix,
-        '--extract', qc_filled_prefix + '.prune.in',
+        '--extract', qc_final_prefix + '.prune.in',
         '--make-bed'
     ]
     if allow_extra_chr:
         cmd_extract.append('--allow-extra-chr')
     _run_command(cmd_extract, output_prefix + '_qc.log')
 
-    return qc_filled_prefix, pruned_prefix
+    return qc_final_prefix, pruned_prefix
