@@ -105,7 +105,7 @@ def _run_pipeline(args: argparse.Namespace) -> int:
             r2_cutoff=args.r2_cutoff,
             impute=args.impute,
             java_path=args.java_path,
-            beagle_jar_path=args.beagle_jar_path,
+            beagle_jar_path=_get_beagle_jar_path(args),
         )
     )
 
