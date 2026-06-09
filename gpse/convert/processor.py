@@ -15,6 +15,7 @@ validation by delegating to specialised sub-modules:
 import os
 import re
 import glob
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
 try:
@@ -576,6 +577,9 @@ class GenomicDataProcessor:
 
         except ValueError as e:
             self.logger.error(str(e))
+            return 1
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Error: {str(e)}")
             return 1
         except Exception as e:
             self.logger.error(f"Error: {str(e)}")

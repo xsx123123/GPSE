@@ -40,6 +40,7 @@ htmlcov/
 # IDE / Editor
 # =============================================================================
 .idea/
+.antigravitycli/
 .vscode/
 *.swp
 *.swo
