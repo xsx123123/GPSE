@@ -401,11 +401,24 @@ class GenomicDataProcessor:
         if output_dir and not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
 
-        # ── Inform the user about output directory / prefix ──
+        # ── Inform the user about run configuration ──
         base_name = os.path.basename(out_prefix)
         abs_out_dir = os.path.abspath(output_dir) if output_dir else os.getcwd()
+        threads = kwargs.get('threads', 1)
+        vcf_file = kwargs.get('vcf', '')
+        pheno_file = kwargs.get('pheno', '')
+        allow_extra_chr = kwargs.get('allow_extra_chr', False)
+
         self.logger.info(f"Output directory : {abs_out_dir}")
         self.logger.info(f"Output prefix    : {base_name}")
+        self.logger.info(f"Output format    : {out_format}")
+        self.logger.info(f"Threads          : {threads}")
+        if vcf_file:
+            self.logger.info(f"VCF file         : {vcf_file}")
+        if pheno_file:
+            self.logger.info(f"Phenotype file   : {pheno_file}")
+        if allow_extra_chr:
+            self.logger.info(f"Allow extra chr  : {allow_extra_chr}")
 
         try:
             # ── Step 0: Early trait name validation ──
