@@ -66,7 +66,8 @@ GPSE 使用子命令结构：`gpse {convert,train,predict}`。
 ```text
 Input                        Processing                     Output
 ─────                        ──────────                     ──────
-samples.vcf            →  VCF → PLINK BED              →  {prefix}_genotype.csv
+                             Validate trait names            (非法名称时中止)
+samples.vcf            →  VCF → PLINK BED              →  {prefix}_genotype.{csv|parquet|feather}
 phenotype.txt/.csv     →  PED/MAP → numeric (0/1/2)    →  {prefix}_phenotype.csv
                             SNP filtering                   {prefix}_phenotype_scaler.json
                             Sample ID matching                 (仅在 --standardize-phenotype 时)
@@ -76,35 +77,53 @@ phenotype.txt/.csv     →  PED/MAP → numeric (0/1/2)    →  {prefix}_phenoty
 
 基因型编码：`00→0`（纯合参考），`01/10→1`（杂合），`11→2`（纯合替代），缺失→`3`。
 
+> **💡 `--direct` 现已变为可选**
+>
+> 当提供 `--pheno` 时，GPSE 会自动将完整 PLINK 二进制数据集转换为数值矩阵（即之前需要显式传入 `--direct` 的行为）。
+> 仅在**没有**表型文件时（例如提前预处理基因型数据）才需要显式传入 `--direct`。
+>
+> 如需过滤 SNP，请使用 `--extract` 或 `--snp-dir`。
+
 #### 1.1 VCF + 表型 → 训练数据
 
 ```bash
 gpse convert \
     --vcf samples.vcf \
     --pheno phenotype.txt \
-    --direct \
     --out-prefix data/train
 ```
 
-输出：
+输出文件：
 
-* `data/train_genotype.csv` - 数值矩阵（行=样本，列=SNP，值为 0/1/2）
-* `data/train_phenotype.csv` - 清洗并匹配后的表型文件（ID + trait 值）
+* `data/train_genotype.parquet` — 数值矩阵（行=样本，列=SNP，值为 0/1/2）。默认格式为 **Parquet**；可通过 `--out-format csv` 或 `--out-format feather` 切换，`feather` 需要安装 `pyarrow`。
+* `data/train_phenotype.csv` — 清洗并匹配后的表型文件（ID + 性状值）
 
-#### 1.2 表型标准化
+#### 1.2 VCF + 表型（非标准染色体，园艺作物常用）
+
+许多园艺作物（如西瓜、黄瓜）使用非标准染色体名或 scaffold ID。使用 `--allow-extra-chr` 将该参数传递给 PLINK：
+
+```bash
+gpse convert \
+    --vcf samples.vcf.gz \
+    --pheno phenotype.csv \
+    --out-prefix data/train \
+    -t 10 \
+    --allow-extra-chr
+```
+
+#### 1.3 表型标准化
 
 ```bash
 gpse convert \
     --vcf samples.vcf \
     --pheno phenotype.txt \
-    --direct \
     --standardize-phenotype \
     --out-prefix data/train
 ```
 
 额外输出：`data/train_phenotype_scaler.json`（用于预测阶段逆标准化）
 
-#### 1.3 提取指定 SNP
+#### 1.4 提取指定 SNP
 
 ```bash
 # 从 PLINK 二进制输入
@@ -121,7 +140,7 @@ gpse convert \
     --out-prefix data/train
 ```
 
-#### 1.4 使用已有矩阵（跳过矩阵生成）
+#### 1.5 使用已有矩阵（跳过矩阵生成）
 
 ```bash
 gpse convert \
@@ -130,9 +149,24 @@ gpse convert \
     --out-prefix data/matched
 ```
 
-#### 1.5 QC 过滤 + LD pruning
+#### 1.6 QC 过滤 + LD 修剪 + 基因型填充
 
-独立执行基因型层面的 QC（缺失率、MAF）、可选 Beagle imputation 和 LD pruning。
+基因型数据通常包含缺失位点、低质量 SNP，以及由于连锁不平衡（LD）导致的冗余标记。`gpse convert --run-qc` 按顺序执行三项任务：
+
+1. **QC 过滤** — 在分析前剔除低质量变异和样本。
+   - `--snpmaxmiss`（对应 PLINK `--geno`）：缺失率超过阈值的 SNP 会被移除（默认 `0.1`，即保留检出率 ≥90% 的 SNP）。
+   - `--samplemaxmiss`（对应 PLINK `--mind`）：缺失率超过阈值的样本会被移除（默认 `0.1`）。
+   - `--maf`： minor allele frequency（MAF）低于阈值的 SNP 会被移除（默认 `0.05`）。稀有变异通常噪音较大，对基因组选择预测力贡献有限。
+
+2. **基因型填充（可选）** — 在 LD 修剪前使用 Beagle 填补缺失基因型。
+   - `--impute` 触发 Beagle 填充，使用的 JAR 包路径在 `gpse.yaml` 中配置，或通过 `--beagle-jar-path` 指定。
+   - 当数据存在中度缺失、且希望保留尽可能多的 SNP 时，建议启用填充。
+
+3. **LD 修剪** — 去除高度连锁的 SNP，降低冗余和共线性。
+   - `--r2-cutoff`：在滑动窗口内，R² 超过该阈值的 SNP 对会被修剪（默认 `0.2`）。
+   - 最终得到一组相对独立的 SNP，更适合机器学习模型。
+
+**基础 QC + LD 修剪（无填充）：**
 
 ```bash
 gpse convert \
@@ -145,40 +179,54 @@ gpse convert \
     --r2-cutoff 0.2
 ```
 
-带 Beagle imputation：
+**QC + Beagle 填充 + LD 修剪：**
 
 ```bash
 gpse convert \
     --run-qc \
     --input-prefix plink_data \
     --out-prefix data/qc_data \
+    --snpmaxmiss 0.1 \
+    --samplemaxmiss 0.1 \
+    --maf 0.05 \
+    --r2-cutoff 0.2 \
     --impute \
     --beagle-jar-path /path/to/beagle.jar
 ```
 
-输出：`data/qc_data_pruned.bed/bim/fam`（可直接进入矩阵转换）
+> **注意：** `--run-qc` 是独立步骤，**不需要** `--vcf` 或 `--pheno`。输入必须是 PLINK 二进制前缀（`--input-prefix`）。
 
-#### 1.6 PED/MAP 重编码为数值矩阵
+**输出文件：**
+
+| 文件 | 说明 |
+| --- | --- |
+| `data/qc_data_raw.bed/.bim/.fam` | 初始格式转换后的 PLINK 二进制（若输入为 VCF/PLINK 文本）。 |
+| `data/qc_data_qc.bed/.bim/.fam` | QC 过滤后（缺失率 + MAF）。 |
+| `data/qc_data_qc_filled.bed/.bim/.fam` | Beagle 填充后（仅当使用 `--impute`）。 |
+| `data/qc_data_qc_filled.prune.in` | LD 修剪后保留的 SNP 列表。 |
+| `data/qc_data_pruned.bed/.bim/.fam` | **最终 LD 修剪后的 PLINK 二进制**，可直接进入矩阵转换。 |
+| `data/qc_data_qc.log` | PLINK QC 日志。 |
+
+#### 1.7 PED/MAP 重编码为数值矩阵
 
 ```bash
 gpse convert --recode-prefix plink_data
 # 输出：plink_data.geno
 ```
 
-#### 1.7 检查外部依赖
+#### 1.8 检查外部依赖
 
 ```bash
 gpse convert --check-deps
 ```
 
-#### 1.8 重命名表型列
+#### 1.9 重命名表型列
 
 ```bash
 gpse convert \
     --vcf samples.vcf \
     --pheno phenotype.txt \
     --trait-name Fruit_Weight \
-    --direct \
     --out-prefix data/train
 ```
 
@@ -278,6 +326,10 @@ gpse train --help
 | 已有矩阵 | `--matrix-file genotype.csv` | 第一列为样本 ID 的 CSV 基因型矩阵。 |
 | SNP 列表 | `--extract snp_list.txt` | 每行一个 SNP ID，传给 PLINK `--extract`。 |
 | SNP 列表目录 | `--snp-dir snp_lists/` | 目录下包含多个 `.txt` SNP 列表文件。 |
+| 输出格式 | `--out-format {csv,parquet,feather}` | 基因型矩阵输出格式。默认 `parquet`；`feather` 需要 `pyarrow`。 |
+| 线程数 | `-t, --threads N` | 批量性状处理的并行线程数（默认：10）。 |
+| 非标准染色体 | `--allow-extra-chr` | 将 `--allow-extra-chr` 传给 PLINK，支持 scaffold 等非标准染色体名。 |
+| 性状重命名 | `--trait-name NAME` | 重命名输出表型文件中的目标性状列。 |
 
 表型文件通过 `--pheno` 传入。文件应包含表头，第一列为样本 ID，第二列为目标性状。GPSE 会先尝试按 tab 读取，失败后再按逗号读取。转换时只保留前两列。缺失值（`NaN` 和字符串 `NA`）会被删除。可通过 `--trait-name` 重命名目标性状列。
 
@@ -286,10 +338,12 @@ gpse train --help
 仅生成基因型矩阵时，输出：
 
 ```text
-{out_prefix}.csv
+{out_prefix}.{csv|parquet|feather}
 ```
 
-格式示例：
+默认输出格式为 **Parquet**（`--out-format parquet`），可通过 `--out-format csv` 或 `--out-format feather` 切换（`feather` 需要安装 `pyarrow`）。
+
+格式示例（CSV 视图）：
 
 ```csv
 ID,SNP1,SNP2,SNP3
@@ -309,7 +363,7 @@ sample2,1,3,0
 启用表型/基因型匹配后，输出推荐训练文件：
 
 ```text
-{out_prefix}_genotype.csv
+{out_prefix}_genotype.{csv|parquet|feather}
 {out_prefix}_phenotype.csv
 ```
 
