@@ -38,12 +38,21 @@ def validate_convert_mode(parser: argparse.ArgumentParser, args: argparse.Namesp
     """Determine which convert feature to run and validate required args."""
     if args.check_deps:
         return "deps"
+
+    # Standard pipeline inputs
+    is_pipeline = any([args.vcf, args.pheno, args.bfile, args.ped_file, args.matrix_file])
+
     if args.run_qc:
-        if not args.input_prefix:
-            parser.error("--run-qc requires --input-prefix.")
+        # Standalone QC requires input_prefix
+        if not is_pipeline and not args.input_prefix:
+            parser.error("--run-qc requires --input-prefix when not using the conversion pipeline.")
         if not args.out_prefix:
             parser.error("--run-qc requires --out-prefix.")
+
+        if is_pipeline:
+            return "pipeline"
         return "qc"
+
     if args.recode_prefix:
         return "recode"
 
@@ -88,6 +97,15 @@ def _run_pipeline(args: argparse.Namespace) -> int:
             skip_matrix=args.skip_matrix,
             threads=args.threads,
             out_format=getattr(args, "out_format", "parquet"),
+            # Pass QC-related arguments
+            run_qc=args.run_qc,
+            snpmaxmiss=args.snpmaxmiss,
+            samplemaxmiss=args.samplemaxmiss,
+            maf=args.maf,
+            r2_cutoff=args.r2_cutoff,
+            impute=args.impute,
+            java_path=args.java_path,
+            beagle_jar_path=args.beagle_jar_path,
         )
     )
 

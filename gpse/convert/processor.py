@@ -31,6 +31,7 @@ from gpse.convert.genotype_matrix import (
     process_snp_dir as _process_snp_dir,
     GENO_DICT,
 )
+from gpse.convert.qc import analyze_and_prune as _analyze_and_prune
 from gpse.convert.phenotype import (
     convert_phenotype as _convert_phenotype,
     match_genotype_phenotype as _match_genotype_phenotype,
@@ -512,6 +513,32 @@ class GenomicDataProcessor:
                 # Continue when a PLINK binary prefix is available.
                 if kwargs.get('bfile'):
                     bfile = kwargs['bfile']
+
+                    # ── Optional: Integrated Quality Control (QC) and LD pruning ──
+                    if kwargs.get('run_qc'):
+                        self.logger.info("Running integrated Quality Control (QC) and LD pruning...")
+                        qc_params = {
+                            "plink_path": self.plink_path,
+                            "java_path": kwargs.get('java_path'),
+                            "config_path": self.config_path,
+                            "auto_project_config": self.auto_project_config,
+                            "snpmaxmiss": kwargs.get('snpmaxmiss', 0.1),
+                            "samplemaxmiss": kwargs.get('samplemaxmiss', 0.1),
+                            "maf_max": kwargs.get('maf', 0.05),
+                            "r2_cutoff": kwargs.get('r2_cutoff', 0.2),
+                            "beagle_jar_path": kwargs.get('beagle_jar_path'),
+                        }
+                        _, pruned_prefix = _analyze_and_prune(
+                            qc_params,
+                            bfile,
+                            out_prefix,
+                            run_imputation=kwargs.get('impute', False),
+                        )
+                        # Use the pruned result for subsequent matrix conversion steps
+                        kwargs['bfile'] = pruned_prefix
+                        bfile = pruned_prefix
+                        self.logger.info(f"QC and LD pruning completed. New PLINK prefix: {bfile}")
+
                     if kwargs.get('snp_dir'):
                         self.process_snp_dir(bfile, kwargs['snp_dir'], os.path.dirname(out_prefix))
                         snp_files = glob.glob(os.path.join(kwargs['snp_dir'], "*.txt"))

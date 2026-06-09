@@ -130,10 +130,10 @@ def _build_convert_parser(formatter_class=argparse.HelpFormatter,
         prog=prog,
         description=(
             "Convert VCF + phenotype files into training-ready numeric matrices.\n"
-            "Core usage:  gpse convert --vcf FILE --pheno FILE --out-prefix PREFIX [--direct]\n"
+            "Core usage:  gpse convert --vcf FILE --pheno FILE --out-prefix PREFIX [--run-qc]\n"
             "\n"
             "Standalone utilities (--check-deps, --run-qc, --recode-prefix) do not\n"
-            "require the core arguments."
+            "require all core arguments when used alone."
         ),
         formatter_class=formatter_class,
         add_help=help_action is None,
@@ -178,7 +178,8 @@ def _build_convert_parser(formatter_class=argparse.HelpFormatter,
     required = parser.add_argument_group(
         "required arguments (conversion pipeline)",
         description="Required for the default VCF + phenotype conversion. "
-                    "Not needed for --check-deps, --run-qc, or --recode-prefix.",
+                    "Some utilities like --check-deps or standalone --run-qc "
+                    "do not require all of these.",
     )
     required.add_argument("--vcf", help="Input VCF file path. [REQUIRED]")
     required.add_argument("--pheno", help="Phenotype file path. [REQUIRED]")

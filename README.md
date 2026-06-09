@@ -72,7 +72,7 @@ GPSE uses a subcommand architecture: `gpse {convert,train,predict}`.
 Input                        Processing                     Output
 ─────                        ──────────                     ──────
                              Validate trait names            (abort on invalid names)
-samples.vcf            →  VCF → PLINK BED              →  {prefix}_genotype.csv
+samples.vcf            →  VCF → PLINK BED              →  {prefix}_genotype.{csv|parquet|feather}
 phenotype.txt/.csv     →  PED/MAP → numeric (0/1/2)    →  {prefix}_phenotype.csv
                             SNP filtering                   {prefix}_phenotype_scaler.json
                             Sample ID matching                 (only with --standardize-phenotype)
@@ -101,10 +101,23 @@ gpse convert \
 ```
 
 Output files:
-- `data/train_genotype.csv` — numeric matrix (rows=samples, columns=SNPs, values=0/1/2)
+- `data/train_genotype.parquet` — numeric matrix (rows=samples, columns=SNPs, values=0/1/2). Default format is **Parquet**; use `--out-format csv` or `--out-format feather` to switch. `feather` requires `pyarrow`.
 - `data/train_phenotype.csv` — cleaned, sample-matched phenotype (ID + trait value)
 
-#### 1.2 With Phenotype Standardization
+#### 1.2 VCF + Phenotype with Extra Chromosomes (Horticultural Crops)
+
+Many horticultural crops (e.g., watermelon, cucumber) use non-standard chromosome names or scaffold IDs. Use `--allow-extra-chr` to pass this flag to PLINK:
+
+```bash
+gpse convert \
+    --vcf samples.vcf.gz \
+    --pheno phenotype.csv \
+    --out-prefix data/train \
+    -t 10 \
+    --allow-extra-chr
+```
+
+#### 1.3 With Phenotype Standardization
 
 ```bash
 gpse convert \
@@ -116,7 +129,7 @@ gpse convert \
 
 Additional output: `data/train_phenotype_scaler.json` (mean/std for inverse transform during prediction).
 
-#### 1.3 Extract Specific SNPs
+#### 1.4 Extract Specific SNPs
 
 ```bash
 # From PLINK binary input
@@ -133,7 +146,7 @@ gpse convert \
     --out-prefix data/train
 ```
 
-#### 1.4 Use Existing Matrix (Skip Matrix Generation)
+#### 1.5 Use Existing Matrix (Skip Matrix Generation)
 
 ```bash
 gpse convert \
@@ -142,9 +155,24 @@ gpse convert \
     --out-prefix data/matched
 ```
 
-#### 1.5 QC Filtering + LD Pruning
+#### 1.6 QC Filtering + LD Pruning + Imputation
 
-Runs genotype-level QC (missing rate, MAF), optional Beagle imputation, and LD pruning as a standalone step.
+Genotype data often contains missing calls, low-quality SNPs, and redundant markers due to linkage disequilibrium (LD). `gpse convert --run-qc` performs three main tasks in sequence:
+
+1. **QC Filtering** — removes low-quality variants and samples before analysis.
+   - `--snpmaxmiss` (`--geno`): SNPs with missing rate > threshold are removed (default `0.1`, i.e. keep SNPs with ≥90 % call rate).
+   - `--samplemaxmiss` (`--mind`): Samples with missing rate > threshold are removed (default `0.1`).
+   - `--maf`: SNPs with minor allele frequency below threshold are removed (default `0.05`). Rare variants are often noisy and provide little predictive power for genomic selection.
+
+2. **Imputation (optional)** — fills missing genotypes with Beagle before pruning.
+   - `--impute` triggers Beagle imputation using the JAR specified in `gpse.yaml` or via `--beagle-jar-path`.
+   - Imputation is recommended when your dataset has moderate missingness and you want to retain as many SNPs as possible.
+
+3. **LD Pruning** — removes highly correlated SNPs to reduce redundancy and collinearity.
+   - `--r2-cutoff`: SNP pairs with squared correlation (R²) above this threshold within a sliding window are pruned (default `0.2`).
+   - The result is a subset of relatively independent SNPs that are better suited for machine learning models.
+
+**Basic QC + LD pruning (no imputation):**
 
 ```bash
 gpse convert \
@@ -156,34 +184,49 @@ gpse convert \
     --maf 0.05 \
     --r2-cutoff 0.2
 ```
-
-With Beagle imputation:
+ 
+**QC + Beagle imputation + LD pruning:**
 
 ```bash
 gpse convert \
     --run-qc \
     --input-prefix plink_data \
     --out-prefix data/qc_data \
+    --snpmaxmiss 0.1 \
+    --samplemaxmiss 0.1 \
+    --maf 0.05 \
+    --r2-cutoff 0.2 \
     --impute \
     --beagle-jar-path /path/to/beagle.jar
 ```
 
-Output: `data/qc_data_pruned.bed/bim/fam` (LD-pruned PLINK binary, ready for matrix conversion).
+> **Note:** `--run-qc` is a standalone step. It does **not** require `--vcf` or `--pheno`. The input must be a PLINK binary prefix (`--input-prefix`).
 
-#### 1.6 Recode PED/MAP to Numeric
+**Outputs:**
+
+| File | Description |
+| --- | --- |
+| `data/qc_data_raw.bed/bim/fam` | PLINK binary after initial format conversion (if input was VCF/PLINK text). |
+| `data/qc_data_qc.bed/bim/fam` | After QC filtering (missing rate + MAF). |
+| `data/qc_data_qc_filled.bed/bim/fam` | After Beagle imputation (only with `--impute`). |
+| `data/qc_data_qc_filled.prune.in` | List of SNPs retained after LD pruning. |
+| `data/qc_data_pruned.bed/bim/fam` | **Final LD-pruned PLINK binary**, ready for matrix conversion. |
+| `data/qc_data_qc.log` | PLINK QC log file. |
+
+#### 1.7 Recode PED/MAP to Numeric
 
 ```bash
 gpse convert --recode-prefix plink_data
 # Output: plink_data.geno
 ```
 
-#### 1.7 Check External Dependencies
+#### 1.8 Check External Dependencies
 
 ```bash
 gpse convert --check-deps
 ```
 
-#### 1.8 Rename Phenotype Trait
+#### 1.9 Rename Phenotype Trait
 
 ```bash
 gpse convert \
@@ -292,6 +335,10 @@ GPSE currently defines concrete I/O for `gpse convert` and `gpse train`.
 | SNP list directory | `--snp-dir snp_lists/` | Directory containing `.txt` SNP-list files. |
 | Phenotype | `--pheno phenotype.txt` | Tab- or comma-separated; first column = sample ID, second column = trait value. |
 | Full conversion | `--direct` | Optional. Auto-enabled when `--pheno` is provided. Forces full bfile → matrix conversion even without a phenotype file. |
+| Output format | `--out-format {csv,parquet,feather}` | Genotype matrix output format. Default `parquet`; `feather` requires `pyarrow`. |
+| Threads | `-t, --threads N` | Parallel threads for batch trait processing (default: 10). |
+| Extra chromosomes | `--allow-extra-chr` | Pass `--allow-extra-chr` to PLINK for non-standard chromosome names (e.g. scaffold). |
+| Trait rename | `--trait-name NAME` | Rename the target trait column in the output phenotype file. |
 
 Phenotype input is passed with `--pheno`. The file should have a header row,
 sample IDs in the first column, and the target trait in the second column. GPSE
@@ -345,10 +392,12 @@ trait column.
 When only a genotype matrix is generated, GPSE writes:
 
 ```text
-{out_prefix}.csv
+{out_prefix}.{csv|parquet|feather}
 ```
 
-The genotype matrix format is:
+The default output format is **Parquet** (`--out-format parquet`). You can switch to CSV (`--out-format csv`) or Feather (`--out-format feather`, requires `pyarrow`).
+
+The genotype matrix structure (CSV view) is:
 
 ```csv
 ID,SNP1,SNP2,SNP3
@@ -369,7 +418,7 @@ When phenotype/genotype matching is enabled, GPSE writes the recommended
 training inputs:
 
 ```text
-{out_prefix}_genotype.csv
+{out_prefix}_genotype.{csv|parquet|feather}
 {out_prefix}_phenotype.csv
 ```
 
