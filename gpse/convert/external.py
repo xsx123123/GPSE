@@ -237,6 +237,30 @@ def _plink_chr_error_hint(cmd_args: list[str], logger) -> None:
         )
 
 
+def _plink_qc_error_hint(exc: subprocess.CalledProcessError, logger) -> None:
+    """Check if a PLINK command failed because all samples or SNPs were removed
+    by missingness filters (exit code 11 or 1)."""
+    if not _is_plink_cmd(exc.cmd):
+        return
+
+    # Exit code 11 often means "All people removed" or "All variants removed"
+    # during --mind/--geno filtering.
+    if exc.returncode in (1, 11):
+        try:
+            # Check for --mind or --geno in the command line
+            has_miss_filter = "--mind" in exc.cmd or "--geno" in exc.cmd
+            if has_miss_filter:
+                logger.error(
+                    "QC FAILURE: All samples or variants were removed by PLINK filters. "
+                    "This usually means the initial missingness rate is higher than "
+                    "the thresholds specified by --snpmaxmiss or --samplemaxmiss. "
+                    "TIP: Try relaxing the thresholds (e.g., set them to 0.5 or 1.0) "
+                    "or enable --impute to fill missing data first."
+                )
+        except Exception:
+            pass
+
+
 def run_command(
     cmd_list: Sequence[object],
     *,
@@ -259,6 +283,7 @@ def run_command(
         except subprocess.CalledProcessError as exc:
             if logger is not None:
                 _plink_chr_error_hint(cmd_args, logger)
+                _plink_qc_error_hint(exc, logger)
             raise
     else:
         # When a logger is available but no dedicated log file is requested,
@@ -281,6 +306,7 @@ def run_command(
                     for line in _compress_stdout(re.split(r"[\r\n]+", stderr_text.strip())):
                         logger.warning(f"[stderr] {line}")
                 _plink_chr_error_hint(cmd_args, logger)
+                _plink_qc_error_hint(exc, logger)
                 raise
             if result.stdout:
                 stdout_text = result.stdout.decode('utf-8', errors='replace').replace('\r', '')

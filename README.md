@@ -157,20 +157,20 @@ gpse convert \
 
 #### 1.6 QC Filtering + LD Pruning + Imputation
 
-Genotype data often contains missing calls, low-quality SNPs, and redundant markers due to linkage disequilibrium (LD). `gpse convert --run-qc` performs three main tasks in sequence:
+Genotype data often contains missing calls, low-quality SNPs, and redundant markers due to linkage disequilibrium (LD). `gpse convert --run-qc` performs three main tasks:
 
-1. **QC Filtering** — removes low-quality variants and samples before analysis.
-   - `--snpmaxmiss` (`--geno`): SNPs with missing rate > threshold are removed (default `0.1`, i.e. keep SNPs with ≥90 % call rate).
-   - `--samplemaxmiss` (`--mind`): Samples with missing rate > threshold are removed (default `0.1`).
-   - `--maf`: SNPs with minor allele frequency below threshold are removed (default `0.05`). Rare variants are often noisy and provide little predictive power for genomic selection.
-
-2. **Imputation (optional)** — fills missing genotypes with Beagle before pruning.
+1. **Imputation (optional)** — fills missing genotypes with Beagle **before** strict filtering.
    - `--impute` triggers Beagle imputation using the JAR specified in `gpse.yaml` or via `--beagle-jar-path`.
-   - Imputation is recommended when your dataset has moderate missingness and you want to retain as many SNPs as possible.
+   - **Recommended for high-missingness data**: By filling gaps first, you avoid losing samples or SNPs that would otherwise exceed the filtering thresholds.
 
-3. **LD Pruning** — removes highly correlated SNPs to reduce redundancy and collinearity.
+2. **QC Filtering** — removes variants and samples that still fail quality standards.
+   - `--snpmaxmiss` (`--geno`): SNPs with missing rate > threshold are removed (default `0.1`).
+   - `--samplemaxmiss` (`--mind`): Samples with missing rate > threshold are removed (default `0.1`).
+   - `--maf`: SNPs with minor allele frequency below threshold are removed (default `0.05`).
+   - *Note: If all samples are removed (PLINK error), try relaxing these thresholds (e.g., to 0.5).*
+
+3. **LD Pruning** — removes highly correlated SNPs to reduce redundancy.
    - `--r2-cutoff`: SNP pairs with squared correlation (R²) above this threshold within a sliding window are pruned (default `0.2`).
-   - The result is a subset of relatively independent SNPs that are better suited for machine learning models.
 
 **Basic QC + LD pruning (no imputation):**
 
