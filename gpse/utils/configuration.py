@@ -98,6 +98,15 @@ def _project_config_paths(search_dir: str | Path | None = None) -> list[Path]:
     return [root / name for name in PROJECT_CONFIG_FILES if (root / name).is_file()]
 
 
+def get_loaded_project_configs(search_dir: str | Path | None = None) -> list[Path]:
+    """Return the list of project-level config files that exist and will be merged.
+
+    This is a public wrapper around ``_project_config_paths`` intended for
+    startup-log display so users can see which files are active.
+    """
+    return _project_config_paths(search_dir)
+
+
 def _load_config_with_overrides(
     config_name: str,
     user_config_path: str | Path | None = None,

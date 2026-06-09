@@ -147,8 +147,10 @@ def _compress_stdout(lines: list[str]) -> list[str]:
 
     Rules:
       1. ``--vcf: Nk variants complete.``  — keep every 10 k plus the first.
-      2. ``0%1%2%...99% done``            — collapse the percentage run to ``...``.
+      2. ``0%1%2%...99% done``            — strip the percentage run, keep the prefix.
       3. ``0%1%2%...99%done``             — same, but without the space before *done*.
+      4. Standalone ``N%`` fragments       — drop entirely.
+      5. Lines with many inline percentages — strip the percentage run, keep the prefix.
     """
     out: list[str] = []
     vcf_seen = 0
@@ -167,12 +169,24 @@ def _compress_stdout(lines: list[str]) -> list[str]:
                 out.append(line)
             continue
 
-        # 2. Drop inline progress-bar completion lines entirely.
+        # 2. Strip inline progress-bar completion (e.g. "0%1%2%...99% done.")
+        #    Keep the meaningful prefix before the progress run.
         if re.search(r"(?:\d+%)+\s*done\.?$", line):
+            cleaned = re.sub(r"\s*(?:\d+%)+\s*done\.?$", "", line).strip()
+            if cleaned:
+                out.append(cleaned)
             continue
 
         # 3. Drop \r-split progress fragments (e.g. standalone "1%", "2%" ...).
         if re.fullmatch(r"\d+%", line):
+            continue
+
+        # 4. Strip many inline percentages (PLINK progress bars without "done").
+        #    Keep the meaningful prefix.
+        if re.search(r"(?:\d+%){5,}", line):
+            cleaned = re.sub(r"\s*(?:\d+%){5,}.*", "", line).strip()
+            if cleaned:
+                out.append(cleaned)
             continue
 
         out.append(line)
@@ -185,6 +199,42 @@ def _compress_stdout(lines: list[str]) -> list[str]:
             out.append(f"(VCF progress: {vcf_seen} milestones total, {kept} shown)")
 
     return out
+
+
+def _is_plink_cmd(cmd_args: list[str]) -> bool:
+    """Return True if the command looks like a PLINK invocation."""
+    if not cmd_args:
+        return False
+    return "plink" in os.path.basename(cmd_args[0]).lower()
+
+
+def _plink_chr_error_hint(cmd_args: list[str], logger) -> None:
+    """When a PLINK command fails, check its log for chromosome-name errors
+    and suggest ``--allow-extra-chr`` if applicable."""
+    if not _is_plink_cmd(cmd_args) or "--allow-extra-chr" in cmd_args:
+        return
+
+    # Look for PLINK's auto-generated log next to the --out prefix.
+    try:
+        out_idx = cmd_args.index("--out")
+        log_path = cmd_args[out_idx + 1] + ".log"
+    except (ValueError, IndexError):
+        return
+
+    if not os.path.isfile(log_path):
+        return
+
+    try:
+        log_text = Path(log_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+
+    # PLINK prints this exact phrase when it encounters non-standard chroms.
+    if "Allow-extra-chr" in log_text or "allow-extra-chr" in log_text:
+        logger.error(
+            "PLINK rejected non-standard chromosome names in this VCF. "
+            "Re-run with --allow-extra-chr to accept them."
+        )
 
 
 def run_command(
@@ -203,24 +253,44 @@ def run_command(
         logger.info(f"Executing: {cmd_text}")
 
     if log_file:
-        with open(log_file, "a") as f:
-            subprocess.run(cmd_args, stdout=f, stderr=f, check=True)
+        try:
+            with open(log_file, "a") as f:
+                subprocess.run(cmd_args, stdout=f, stderr=f, check=True)
+        except subprocess.CalledProcessError as exc:
+            if logger is not None:
+                _plink_chr_error_hint(cmd_args, logger)
+            raise
     else:
         # When a logger is available but no dedicated log file is requested,
         # capture the subprocess output and stream it through the logger so
         # that external tool messages (e.g. PLINK) are tidy and unified with
         # GPSE's own log format instead of being dumped raw to the terminal.
         if logger is not None:
-            result = subprocess.run(
-                cmd_args, capture_output=True, text=True, check=True
-            )
+            try:
+                result = subprocess.run(
+                    cmd_args, capture_output=True, check=True
+                )
+            except subprocess.CalledProcessError as exc:
+                # Print whatever output PLINK produced before the error.
+                if exc.stdout:
+                    stdout_text = exc.stdout.decode("utf-8", errors="replace").replace("\r", "")
+                    for line in _compress_stdout(re.split(r"[\r\n]+", stdout_text.strip())):
+                        logger.info(f"[stdout] {line}")
+                if exc.stderr:
+                    stderr_text = exc.stderr.decode("utf-8", errors="replace").replace("\r", "")
+                    for line in _compress_stdout(re.split(r"[\r\n]+", stderr_text.strip())):
+                        logger.warning(f"[stderr] {line}")
+                _plink_chr_error_hint(cmd_args, logger)
+                raise
             if result.stdout:
-                raw_lines = re.split(r'[\r\n]+', result.stdout.strip())
+                stdout_text = result.stdout.decode('utf-8', errors='replace').replace('\r', '')
+                raw_lines = re.split(r'[\r\n]+', stdout_text.strip())
                 for line in _compress_stdout(raw_lines):
                     logger.info(f"[stdout] {line}")
             if result.stderr:
-                for line in re.split(r'[\r\n]+', result.stderr.strip()):
-                    if line.strip():
-                        logger.warning(f"[stderr] {line.strip()}")
+                stderr_text = result.stderr.decode('utf-8', errors='replace').replace('\r', '')
+                raw_err_lines = re.split(r'[\r\n]+', stderr_text.strip())
+                for line in _compress_stdout(raw_err_lines):
+                    logger.warning(f"[stderr] {line}")
         else:
             subprocess.run(cmd_args, check=True)

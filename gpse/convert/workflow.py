@@ -65,6 +65,7 @@ def _run_pipeline(args: argparse.Namespace) -> int:
         plink_path=args.plink_path,
         config_path=args.config,
         auto_project_config=_auto_project_config(args),
+        allow_extra_chr=getattr(args, "allow_extra_chr", False),
     )
     return int(
         processor.process_genomic_data(
@@ -85,6 +86,7 @@ def _run_pipeline(args: argparse.Namespace) -> int:
             skip_clean=args.skip_clean,
             skip_match=args.skip_match,
             skip_matrix=args.skip_matrix,
+            threads=args.threads,
         )
     )
 

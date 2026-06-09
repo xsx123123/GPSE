@@ -67,13 +67,14 @@ def _make_rich_sink(more_info: bool = False):
             text.append(f"{record['name']}:{record['line']}", style="cyan")
             text.append(" │ ", style="dim")
 
-        text.append(msg)
+        text.append(Text.from_ansi(msg))
         console.print(text, end="\n", soft_wrap=True)
 
     return sink
 
 
-def _print_run_header(sw: dict, logger_name: str, output_dir: str) -> None:
+def _print_run_header(sw: dict, logger_name: str, output_dir: str,
+                      project_configs: list | None = None) -> None:
     """Print a compact software-metadata header via Rich."""
     if not _RICH_AVAILABLE:
         return
@@ -90,6 +91,11 @@ def _print_run_header(sw: dict, logger_name: str, output_dir: str) -> None:
     )
     _CONSOLE.print(f"[dim]Log    : {logger_name}[/dim]")
     _CONSOLE.print(f"[dim]Output : {output_dir}[/dim]")
+    if project_configs:
+        for cfg_path in project_configs:
+            _CONSOLE.print(f"[dim]Config : {cfg_path}[/dim]")
+    else:
+        _CONSOLE.print("[dim]Config : (no project config found)[/dim]")
     _CONSOLE.print("─" * 60, style="dim")
 
 
@@ -214,7 +220,7 @@ def logger_init(
     """
     _ensure_loguru()
 
-    from .configuration import load_default_config
+    from .configuration import load_default_config, get_loaded_project_configs
     default = load_default_config()
     cfg_logs = default.get("logs", {})
 
@@ -247,6 +253,14 @@ def logger_init(
         Path(logger_name).parent.mkdir(parents=True, exist_ok=True)
         logger.add(logger_name, format=file_fmt, level=log_level, colorize=False, enqueue=True)
 
+    # Print project config info as the first log messages
+    project_configs = get_loaded_project_configs()
+    if project_configs:
+        for cfg_path in project_configs:
+            logger.info(f"GPSE config loaded: {cfg_path}")
+    else:
+        logger.info("GPSE config: none found (using package defaults)")
+
     return logger
 
 
@@ -260,7 +274,11 @@ def logger_generator(
     """
     _ensure_loguru()
 
-    from .configuration import load_software_config, load_default_config
+    from .configuration import (
+        load_software_config,
+        load_default_config,
+        get_loaded_project_configs,
+    )
 
     software = load_software_config()
     default = load_default_config()
@@ -272,10 +290,13 @@ def logger_generator(
     logger_name = f"{output_dir}/{label}_{times}.log"
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    # Pretty console header
-    _print_run_header(sw, logger_name, output_dir)
+    # Detect project-level config files
+    project_configs = get_loaded_project_configs()
 
-    # Init logger
+    # Pretty console header
+    _print_run_header(sw, logger_name, output_dir, project_configs=project_configs)
+
+    # Init logger (also prints project config info)
     logger = logger_init(logger_name, log_level=log_level, more_info=more_info)
 
     # Also persist metadata to the log file

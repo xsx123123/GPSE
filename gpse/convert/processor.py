@@ -15,6 +15,12 @@ validation by delegating to specialised sub-modules:
 import os
 import re
 import glob
+from concurrent.futures import ThreadPoolExecutor
+
+try:
+    import cyvcf2
+except ImportError:  # pragma: no cover
+    cyvcf2 = None
 
 from gpse.convert.genotype_matrix import (
     vcf_to_plink as _vcf_to_plink,
@@ -46,6 +52,45 @@ except Exception:  # pragma: no cover - fallback for minimal environments
     import logging
     gpse_logger = logging.getLogger(__name__)
 
+def _write_large_csv(df, output_path, *, chunk_rows=100, logger=None):
+    """Write a large DataFrame to CSV in chunks with progress logging.
+
+    pandas ``to_csv`` is single-threaded and can be extremely slow for very
+    wide DataFrames (e.g. 800 samples × 113 000 SNPs).  Writing in chunks
+    keeps memory bounded and lets us emit progress messages so the user
+    doesn't think the process has hung.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame to write (index is included).
+    output_path : str
+        Destination CSV path.
+    chunk_rows : int
+        Number of rows per chunk.
+    logger
+        Logger for progress messages.
+    """
+    total_rows = len(df)
+    if total_rows <= chunk_rows:
+        df.to_csv(output_path)
+        return
+
+    # Write header + first chunk
+    first_chunk = chunk_rows
+    df.iloc[:first_chunk].to_csv(output_path)
+    if logger:
+        pct = min(100, int(first_chunk / total_rows * 100))
+        logger.info(f"  CSV write progress: {first_chunk}/{total_rows} rows ({pct}%)")
+
+    # Append remaining chunks
+    for start in range(first_chunk, total_rows, chunk_rows):
+        end = min(start + chunk_rows, total_rows)
+        df.iloc[start:end].to_csv(output_path, mode='a', header=False)
+        if logger and (end - start == chunk_rows or end == total_rows):
+            pct = min(100, int(end / total_rows * 100))
+            logger.info(f"  CSV write progress: {end}/{total_rows} rows ({pct}%)")
+
 
 class GenomicDataProcessor:
     """
@@ -61,6 +106,7 @@ class GenomicDataProcessor:
         plink_path="plink",
         config_path=None,
         auto_project_config=False,
+        allow_extra_chr=False,
     ):
         """
         Initialize a genomic data processor.
@@ -77,11 +123,15 @@ class GenomicDataProcessor:
         auto_project_config
             Whether to auto-load ``gpse.yaml``/``gpse.local.yaml`` from the
             current working directory.
+        allow_extra_chr
+            Pass ``--allow-extra-chr`` to PLINK so that non-standard
+            chromosome names (e.g. scaffold IDs) are accepted.
         """
         self.logger = logger or gpse_logger
         self.plink_path = plink_path
         self.config_path = config_path
         self.auto_project_config = auto_project_config
+        self.allow_extra_chr = allow_extra_chr
 
     # -- Shared tool-path kwargs used when delegating to genotype_matrix --
 
@@ -90,6 +140,7 @@ class GenomicDataProcessor:
             "plink_path": self.plink_path,
             "config_path": self.config_path,
             "auto_project_config": self.auto_project_config,
+            "allow_extra_chr": self.allow_extra_chr,
             "logger": self.logger,
         }
 
@@ -141,6 +192,73 @@ class GenomicDataProcessor:
         """Replace unsupported characters in column names with underscores."""
         return _clean_column_names(column_names)
 
+    def _validate_vcf_phenotype_overlap(self, vcf_file, pheno_file):
+        """Defensive check: ensure VCF sample IDs overlap with phenotype sample IDs.
+
+        Uses ``cyvcf2`` to read VCF headers and pandas to read the phenotype
+        file.  Logs an error and returns ``False`` when the intersection is
+        smaller than the smaller of the two sets, allowing the caller to abort
+        gracefully without a traceback.
+        """
+        if cyvcf2 is None:
+            self.logger.warning(
+                "cyvcf2 not installed; skipping VCF/phenotype sample overlap check"
+            )
+            return True
+
+        import os
+        import pandas as pd
+
+        # Silence htslib C-level stderr warnings (e.g. header sanity).
+        _stderr_fd = os.dup(2)
+        with open(os.devnull, "w") as _devnull:
+            os.dup2(_devnull.fileno(), 2)
+            try:
+                vcf = cyvcf2.VCF(vcf_file)
+            finally:
+                os.dup2(_stderr_fd, 2)
+                os.close(_stderr_fd)
+        vcf_samples = set(vcf.samples)
+
+        try:
+            pheno_df = pd.read_csv(pheno_file, sep='\t')
+            if pheno_df.shape[1] < 2:
+                pheno_df = pd.read_csv(pheno_file, sep=',')
+        except Exception:
+            pheno_df = pd.read_csv(pheno_file, sep=None, engine='python')
+
+        pheno_samples = set(pheno_df.iloc[:, 0].astype(str))
+
+        common_samples = vcf_samples & pheno_samples
+        min_expected = min(len(vcf_samples), len(pheno_samples))
+
+        self.logger.info(
+            f"VCF/phenotype overlap check — VCF: {len(vcf_samples)}, "
+            f"Phenotype: {len(pheno_samples)}, Shared: {len(common_samples)}"
+        )
+
+        if len(common_samples) < min_expected:
+            vcf_examples = sorted(vcf_samples)[:5]
+            pheno_examples = sorted(pheno_samples)[:5]
+            only_in_vcf = sorted(vcf_samples - pheno_samples)[:5]
+            only_in_pheno = sorted(pheno_samples - vcf_samples)[:5]
+            _rb = "\033[1;31m"
+            _rs = "\033[0m"
+            self.logger.error(
+                f"Insufficient sample overlap between VCF and phenotype: "
+                f"{_rb}only {len(common_samples)} shared samples, but minimum required "
+                f"is {min_expected} (the smaller of VCF={len(vcf_samples)} and "
+                f"phenotype={len(pheno_samples)}){_rs}. "
+                f"This usually means sample IDs do not match between the two files. "
+                f"VCF examples: {vcf_examples}; "
+                f"Phenotype examples: {pheno_examples}; "
+                f"Only in VCF: {only_in_vcf}; "
+                f"Only in phenotype: {only_in_pheno}"
+            )
+            return False
+
+        return True
+
     def process_file(self, file_path, output_path):
         """Sanitize column names in a CSV file and write the result."""
         return _process_file(file_path, output_path, logger=self.logger)
@@ -156,6 +274,75 @@ class GenomicDataProcessor:
     def standardize_phenotype(self, pheno_df, trait_col):
         """Apply z-score standardization to a phenotype column."""
         return _standardize_phenotype(pheno_df, trait_col, logger=self.logger)
+
+
+    def _process_single_trait(self, trait, pheno_file, geno_df, geno_samples,
+                               out_prefix, user_trait, standardize_phenotype):
+        """Process a single trait: match phenotype with genotype and write CSVs."""
+        safe_trait = re.sub(r'[^\w\-]', '_', trait)
+        pheno_raw_file = f"{out_prefix}_{safe_trait}_phenotype_raw.csv"
+
+        pheno_df = self.convert_phenotype(
+            pheno_file,
+            out_file=pheno_raw_file,
+            trait_col=trait,
+            trait_name=user_trait if user_trait else None,
+        )
+
+        pheno_samples = set(pheno_df['ID'])
+        common_samples = sorted(list(geno_samples.intersection(pheno_samples)))
+
+        self.logger.info(f"Phenotype samples: {len(pheno_samples)}")
+        self.logger.info(f"Shared samples: {len(common_samples)}")
+
+        if len(common_samples) == 0:
+            self.logger.warning(f"No shared samples for trait '{trait}', skipping")
+            return None
+
+        pheno_filtered = pheno_df[pheno_df['ID'].isin(common_samples)]
+        pheno_filtered = pheno_filtered.set_index('ID').loc[common_samples].reset_index()
+        self.logger.info("Filtering genotype matrix to shared samples...")
+        geno_filtered = geno_df.loc[common_samples]
+
+        self.logger.info("Cleaning column names...")
+        geno_filtered.columns = self.clean_column_names(geno_filtered.columns)
+        pheno_filtered.columns = self.clean_column_names(pheno_filtered.columns)
+
+        actual_trait_col = pheno_filtered.columns[1]
+
+        trait_scaler = None
+        if standardize_phenotype:
+            self.logger.info("Standardizing phenotype data...")
+            pheno_filtered, trait_scaler = self.standardize_phenotype(pheno_filtered, actual_trait_col)
+            save_scaler_params(
+                trait_scaler,
+                f"{out_prefix}_{safe_trait}_scaler.json",
+                logger=self.logger,
+            )
+
+        final_pheno_file = f"{out_prefix}_{safe_trait}_phenotype.csv"
+        final_geno_file = f"{out_prefix}_{safe_trait}_genotype.csv"
+
+        pheno_filtered.to_csv(final_pheno_file, index=False)
+        self.logger.info(
+            f"Writing genotype matrix ({geno_filtered.shape[0]} samples x "
+            f"{geno_filtered.shape[1]} SNPs) to {final_geno_file} ..."
+        )
+        _write_large_csv(geno_filtered, final_geno_file, logger=self.logger)
+        self.logger.info("Genotype matrix written successfully.")
+
+        self.logger.info(f"Trait '{trait}' completed:")
+        self.logger.info(f"  Phenotype: {final_pheno_file}")
+        self.logger.info(f"  Genotype:  {final_geno_file}")
+        self.logger.info(f"  Samples:   {len(common_samples)}")
+        self.logger.info(f"  SNPs:      {len(geno_filtered.columns)}")
+        if trait_scaler and trait_scaler.get('applied'):
+            self.logger.info(
+                f"  Standardized: mean={trait_scaler['mean']:.4f}, "
+                f"std={trait_scaler['std']:.4f}"
+            )
+
+        return final_pheno_file, final_geno_file
 
     # =================== Main workflow ===================
 
@@ -204,6 +391,12 @@ class GenomicDataProcessor:
                     trait_cols = [user_trait]
 
                 self.validate_trait_names(trait_cols)
+
+            # ── Step 0b: Defensive VCF/phenotype sample overlap check ──
+            if kwargs.get('vcf') and kwargs.get('pheno') and not kwargs.get('skip_match'):
+                if not self._validate_vcf_phenotype_overlap(kwargs['vcf'], kwargs['pheno']):
+                    self.logger.error("Aborting due to insufficient sample overlap.")
+                    return 1
 
             # ── Step 1: SNP extraction / matrix conversion ──
             geno_matrix_file = None
@@ -271,7 +464,7 @@ class GenomicDataProcessor:
                         geno_matrix_file = self.convert_to_matrix(out_prefix_temp)
                         if kwargs.get('load') and geno_matrix_file:
                             self.load_matrix(geno_matrix_file)
-                    elif kwargs.get('direct'):
+                    elif kwargs.get('direct') or kwargs.get('pheno'):
                         self.logger.info("Converting the full bfile to a genotype matrix...")
                         out_prefix_temp = self.convert_bfile_to_ped(bfile, out_prefix)
                         geno_matrix_file = self.convert_to_matrix(out_prefix_temp)
@@ -330,64 +523,44 @@ class GenomicDataProcessor:
                 geno_samples = set(geno_df.index)
                 self.logger.info(f"Genotype file contains {len(geno_samples)} samples")
 
-                for trait in trait_cols:
-                    self.logger.info(f"\n--- Processing trait: {trait} ---")
-
-                    safe_trait = re.sub(r'[^\w\-]', '_', trait)
-                    pheno_raw_file = f"{out_prefix}_{safe_trait}_phenotype_raw.csv"
-
-                    pheno_df = self.convert_phenotype(
-                        kwargs['pheno'],
-                        out_file=pheno_raw_file,
-                        trait_col=trait,
-                        trait_name=user_trait if user_trait else None,
-                    )
-
-                    pheno_samples = set(pheno_df['ID'])
-                    common_samples = sorted(list(geno_samples.intersection(pheno_samples)))
-
-                    self.logger.info(f"Phenotype samples: {len(pheno_samples)}")
-                    self.logger.info(f"Shared samples: {len(common_samples)}")
-
-                    if len(common_samples) == 0:
-                        self.logger.warning(f"No shared samples for trait '{trait}', skipping")
-                        continue
-
-                    pheno_filtered = pheno_df[pheno_df['ID'].isin(common_samples)]
-                    pheno_filtered = pheno_filtered.set_index('ID').loc[common_samples].reset_index()
-                    geno_filtered = geno_df.loc[common_samples]
-
-                    geno_filtered.columns = self.clean_column_names(geno_filtered.columns)
-                    pheno_filtered.columns = self.clean_column_names(pheno_filtered.columns)
-
-                    actual_trait_col = pheno_filtered.columns[1]
-
-                    trait_scaler = None
-                    if kwargs.get('standardize_phenotype', False):
-                        self.logger.info("Standardizing phenotype data...")
-                        pheno_filtered, trait_scaler = self.standardize_phenotype(pheno_filtered, actual_trait_col)
-                        save_scaler_params(
-                            trait_scaler,
-                            f"{out_prefix}_{safe_trait}_scaler.json",
-                            logger=self.logger,
-                        )
-
-                    final_pheno_file = f"{out_prefix}_{safe_trait}_phenotype.csv"
-                    final_geno_file = f"{out_prefix}_{safe_trait}_genotype.csv"
-
-                    pheno_filtered.to_csv(final_pheno_file, index=False)
-                    geno_filtered.to_csv(final_geno_file)
-
-                    self.logger.info(f"Trait '{trait}' completed:")
-                    self.logger.info(f"  Phenotype: {final_pheno_file}")
-                    self.logger.info(f"  Genotype:  {final_geno_file}")
-                    self.logger.info(f"  Samples:   {len(common_samples)}")
-                    self.logger.info(f"  SNPs:      {len(geno_filtered.columns)}")
-                    if trait_scaler and trait_scaler.get('applied'):
-                        self.logger.info(
-                            f"  Standardized: mean={trait_scaler['mean']:.4f}, "
-                            f"std={trait_scaler['std']:.4f}"
-                        )
+                threads = kwargs.get('threads', 1)
+                if threads > 1:
+                    self.logger.info(f"Processing {len(trait_cols)} trait(s) with {threads} threads...")
+                    with ThreadPoolExecutor(max_workers=threads) as executor:
+                        futures = {
+                            executor.submit(
+                                self._process_single_trait,
+                                trait,
+                                kwargs['pheno'],
+                                geno_df,
+                                geno_samples,
+                                out_prefix,
+                                user_trait,
+                                kwargs.get('standardize_phenotype', False),
+                            ): trait
+                            for trait in trait_cols
+                        }
+                        for future in futures:
+                            trait = futures[future]
+                            try:
+                                future.result()
+                            except Exception as exc:
+                                self.logger.error(f"Trait '{trait}' failed: {exc}")
+                else:
+                    for trait in trait_cols:
+                        self.logger.info(f"\n--- Processing trait: {trait} ---")
+                        try:
+                            self._process_single_trait(
+                                trait,
+                                kwargs['pheno'],
+                                geno_df,
+                                geno_samples,
+                                out_prefix,
+                                user_trait,
+                                kwargs.get('standardize_phenotype', False),
+                            )
+                        except Exception as exc:
+                            self.logger.error(f"Trait '{trait}' failed: {exc}")
 
                 self.logger.info("\nAll traits processed")
 
@@ -401,6 +574,9 @@ class GenomicDataProcessor:
 
             self.logger.info("\nProcessing workflow completed")
 
+        except ValueError as e:
+            self.logger.error(str(e))
+            return 1
         except Exception as e:
             self.logger.error(f"Error: {str(e)}")
             import traceback

@@ -159,6 +159,12 @@ def _build_convert_parser(formatter_class=argparse.HelpFormatter,
             help="Logging level.",
         )
     general.add_argument(
+        "-t", "--threads",
+        type=int,
+        default=10,
+        help="Number of parallel threads for trait processing (default: 10).",
+    )
+    general.add_argument(
         "--config",
         help="User YAML config path. Overrides package defaults and project config files.",
     )
@@ -192,6 +198,11 @@ def _build_convert_parser(formatter_class=argparse.HelpFormatter,
     conv.add_argument("--skip-clean", action="store_true", help="Reserved compatibility flag.")
     conv.add_argument("--skip-match", action="store_true", help="Skip phenotype/genotype matching.")
     conv.add_argument("--skip-matrix", action="store_true", help="Skip matrix generation.")
+    conv.add_argument(
+        "--allow-extra-chr",
+        action="store_true",
+        help="Pass --allow-extra-chr to PLINK to support non-standard chromosome names.",
+    )
 
     # Phenotype options
     pheno = parser.add_argument_group("phenotype options")

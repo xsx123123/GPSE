@@ -61,6 +61,7 @@ def vcf_to_plink(
     plink_path="plink",
     config_path=None,
     auto_project_config=False,
+    allow_extra_chr=False,
     logger=None,
 ):
     """Convert a VCF file to PLINK binary format (BED/BIM/FAM)."""
@@ -75,6 +76,8 @@ def vcf_to_plink(
 
     plink = _resolve_plink(plink_path, config_path, auto_project_config)
     cmd = [plink, "--vcf", vcf_file, "--make-bed", "--out", out_prefix, "--double-id"]
+    if allow_extra_chr:
+        cmd.extend(["--allow-extra-chr"])
     run_command(cmd, logger=log)
     _timestamp_plink_log(out_prefix, logger=log)
 
@@ -94,6 +97,7 @@ def extract_snps(
     plink_path="plink",
     config_path=None,
     auto_project_config=False,
+    allow_extra_chr=False,
     logger=None,
 ):
     """Extract selected SNPs from a PLINK binary dataset to PED/MAP."""
@@ -114,6 +118,8 @@ def extract_snps(
         "--recode", "compound-genotypes", "01",
         "--output-missing-genotype", "3",
     ]
+    if allow_extra_chr:
+        cmd.extend(["--allow-extra-chr"])
     run_command(cmd, logger=log)
     _timestamp_plink_log(out_prefix, logger=log)
 
@@ -132,6 +138,7 @@ def convert_bfile_to_ped(
     plink_path="plink",
     config_path=None,
     auto_project_config=False,
+    allow_extra_chr=False,
     logger=None,
 ):
     """Convert PLINK binary files directly to PED/MAP without SNP filtering."""
@@ -151,6 +158,8 @@ def convert_bfile_to_ped(
         "--recode", "compound-genotypes", "01",
         "--output-missing-genotype", "3",
     ]
+    if allow_extra_chr:
+        cmd.extend(["--allow-extra-chr"])
     run_command(cmd, logger=log)
     _timestamp_plink_log(out_prefix, logger=log)
 
@@ -238,6 +247,7 @@ def process_snp_dir(
     plink_path="plink",
     config_path=None,
     auto_project_config=False,
+    allow_extra_chr=False,
     logger=None,
 ):
     """Process all SNP list files (*.txt) in a directory."""
@@ -262,6 +272,7 @@ def process_snp_dir(
                 plink_path=plink_path,
                 config_path=config_path,
                 auto_project_config=auto_project_config,
+                allow_extra_chr=allow_extra_chr,
                 logger=log,
             )
             matrix_file = convert_to_matrix(out_prefix, logger=log)
