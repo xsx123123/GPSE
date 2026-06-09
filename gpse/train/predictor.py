@@ -26,10 +26,35 @@ import datetime
 
 from gpse.config import ModelConstants
 from gpse.models.regression_model_optimizer import RegressionModelOptimizer
-from gpse.utils.log_utils import logger_init
 from gpse.tasks.classification import GenomicClassifier
 
-main_logger = logger_init()
+
+class _LazyMainLogger:
+    """Delay logger_init() until the first actual log call.
+
+    This prevents spurious "GPSE config loaded" messages when a user
+    simply runs ``gpse train`` without arguments and only wants help.
+    """
+    _real = None
+
+    @classmethod
+    def _get(cls):
+        if cls._real is None:
+            from gpse.utils.log_utils import logger_init
+            cls._real = logger_init()
+        return cls._real
+
+    def __getattr__(self, name):
+        return getattr(self._get(), name)
+
+    def __setattr__(self, name, value):
+        if name in ("_real",):
+            super().__setattr__(name, value)
+        else:
+            setattr(self._get(), name, value)
+
+
+main_logger = _LazyMainLogger()
 
 # ---------------------------------------------------------------------------
 # Import method implementations from sub-modules

@@ -87,8 +87,10 @@ def _run_pipeline(args: argparse.Namespace) -> int:
             skip_match=args.skip_match,
             skip_matrix=args.skip_matrix,
             threads=args.threads,
+            out_format=getattr(args, "out_format", "parquet"),
         )
     )
+
 
 
 def _run_qc(args: argparse.Namespace) -> int:

@@ -93,6 +93,23 @@ def _write_large_csv(df, output_path, *, chunk_rows=100, logger=None):
             logger.info(f"  CSV write progress: {end}/{total_rows} rows ({pct}%)")
 
 
+from pathlib import Path
+
+def _read_geno_matrix(file_path):
+    path = Path(file_path)
+    suffix = path.suffix.lower()
+    if suffix == '.parquet':
+        import pandas as pd
+        return pd.read_parquet(file_path).set_index('ID')
+    elif suffix == '.feather':
+        import pandas as pd
+        return pd.read_feather(file_path).set_index('ID')
+    else:
+        import pandas as pd
+        return pd.read_csv(file_path, index_col=0)
+
+
+
 class GenomicDataProcessor:
     """
     Thin orchestrator for genomic data conversion.
@@ -159,9 +176,9 @@ class GenomicDataProcessor:
         """Convert PLINK binary files directly to PED/MAP without SNP filtering."""
         return _convert_bfile_to_ped(bfile, out_prefix, **self._plink_kwargs())
 
-    def convert_to_matrix(self, fileprefix, out_file=None):
-        """Convert PLINK PED/MAP genotype data to a numeric CSV matrix."""
-        return _convert_to_matrix(fileprefix, out_file, logger=self.logger)
+    def convert_to_matrix(self, fileprefix, out_file=None, out_format="parquet"):
+        """Wrapper method."""
+        return _convert_to_matrix(fileprefix, out_file, out_format=out_format, logger=self.logger)
 
     def process_snp_dir(self, bfile, snp_dir, out_dir):
         """Process all SNP list files in a directory."""
@@ -278,7 +295,8 @@ class GenomicDataProcessor:
 
 
     def _process_single_trait(self, trait, pheno_file, geno_df, geno_samples,
-                               out_prefix, user_trait, standardize_phenotype):
+                               out_prefix, user_trait, standardize_phenotype,
+                               out_format="parquet"):
         """Process a single trait: match phenotype with genotype and write CSVs."""
         safe_trait = re.sub(r'[^\w\-]', '_', trait)
         pheno_raw_file = f"{out_prefix}_{safe_trait}_phenotype_raw.csv"
@@ -321,15 +339,33 @@ class GenomicDataProcessor:
                 logger=self.logger,
             )
 
+        # Detect pyarrow
+        out_format = out_format.lower()
+        if out_format in ('parquet', 'feather'):
+            try:
+                import pyarrow
+            except ImportError:
+                self.logger.warning(
+                    f"Output format '{out_format}' requires the 'pyarrow' package, which is not installed. "
+                    "Falling back to 'csv'. Please run 'pip install pyarrow' to enable highly optimized binary formats."
+                )
+                out_format = 'csv'
+
         final_pheno_file = f"{out_prefix}_{safe_trait}_phenotype.csv"
-        final_geno_file = f"{out_prefix}_{safe_trait}_genotype.csv"
+        ext = '.parquet' if out_format == 'parquet' else '.feather' if out_format == 'feather' else '.csv'
+        final_geno_file = f"{out_prefix}_{safe_trait}_genotype" + ext
 
         pheno_filtered.to_csv(final_pheno_file, index=False)
         self.logger.info(
             f"Writing genotype matrix ({geno_filtered.shape[0]} samples x "
             f"{geno_filtered.shape[1]} SNPs) to {final_geno_file} ..."
         )
-        _write_large_csv(geno_filtered, final_geno_file, logger=self.logger)
+        if out_format == 'parquet':
+            geno_filtered.reset_index().to_parquet(final_geno_file, index=False)
+        elif out_format == 'feather':
+            geno_filtered.reset_index().to_feather(final_geno_file)
+        else:
+            _write_large_csv(geno_filtered, final_geno_file, logger=self.logger)
         self.logger.info("Genotype matrix written successfully.")
 
         self.logger.info(f"Trait '{trait}' completed:")
@@ -345,6 +381,7 @@ class GenomicDataProcessor:
 
         return final_pheno_file, final_geno_file
 
+
     # =================== Main workflow ===================
 
     def process_genomic_data(self, **kwargs):
@@ -357,11 +394,18 @@ class GenomicDataProcessor:
             Processing parameters.
         """
         import pandas as pd
+        out_format = kwargs.get('out_format', 'parquet')
 
         out_prefix = kwargs.get('out_prefix')
         output_dir = os.path.dirname(out_prefix)
         if output_dir and not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
+
+        # ── Inform the user about output directory / prefix ──
+        base_name = os.path.basename(out_prefix)
+        abs_out_dir = os.path.abspath(output_dir) if output_dir else os.getcwd()
+        self.logger.info(f"Output directory : {abs_out_dir}")
+        self.logger.info(f"Output prefix    : {base_name}")
 
         try:
             # ── Step 0: Early trait name validation ──
@@ -435,7 +479,8 @@ class GenomicDataProcessor:
                         os.symlink(os.path.abspath(map_file), temp_prefix + ".map")
                         ped_prefix = temp_prefix
 
-                    geno_matrix_file = self.convert_to_matrix(ped_prefix, out_prefix + ".csv")
+                    ext = '.parquet' if out_format == 'parquet' else '.feather' if out_format == 'feather' else '.csv'
+                    geno_matrix_file = self.convert_to_matrix(ped_prefix, out_prefix + ext, out_format=out_format)
                     if kwargs.get('load') and geno_matrix_file:
                         self.load_matrix(geno_matrix_file)
 
@@ -459,16 +504,17 @@ class GenomicDataProcessor:
                         snp_files = glob.glob(os.path.join(kwargs['snp_dir'], "*.txt"))
                         if snp_files:
                             first_phenotype = os.path.basename(snp_files[0]).replace('.txt', '')
-                            geno_matrix_file = os.path.join(os.path.dirname(out_prefix), first_phenotype + ".csv")
+                            ext = '.parquet' if out_format == 'parquet' else '.feather' if out_format == 'feather' else '.csv'
+                            geno_matrix_file = os.path.join(os.path.dirname(out_prefix), first_phenotype + ext)
                     elif kwargs.get('extract'):
                         out_prefix_temp = self.extract_snps(bfile, kwargs['extract'], out_prefix)
-                        geno_matrix_file = self.convert_to_matrix(out_prefix_temp)
+                        geno_matrix_file = self.convert_to_matrix(out_prefix_temp, out_format=out_format)
                         if kwargs.get('load') and geno_matrix_file:
                             self.load_matrix(geno_matrix_file)
                     elif kwargs.get('direct') or kwargs.get('pheno'):
                         self.logger.info("Converting the full bfile to a genotype matrix...")
                         out_prefix_temp = self.convert_bfile_to_ped(bfile, out_prefix)
-                        geno_matrix_file = self.convert_to_matrix(out_prefix_temp)
+                        geno_matrix_file = self.convert_to_matrix(out_prefix_temp, out_format=out_format)
                         if kwargs.get('load') and geno_matrix_file:
                             self.load_matrix(geno_matrix_file)
                     else:
@@ -477,6 +523,11 @@ class GenomicDataProcessor:
                 self.logger.info("Skipping SNP extraction and matrix conversion")
                 if kwargs.get('load'):
                     matrix_file = out_prefix + ".csv"
+                    for ext in [".parquet", ".feather", ".csv"]:
+                        test_file = out_prefix + ext
+                        if os.path.exists(test_file):
+                            matrix_file = test_file
+                            break
                     if os.path.exists(matrix_file):
                         self.load_matrix(matrix_file)
                         geno_matrix_file = matrix_file
@@ -484,6 +535,11 @@ class GenomicDataProcessor:
                         self.logger.warning(f"Matrix file not found: {matrix_file}")
                 elif kwargs.get('extract') or kwargs.get('direct'):
                     geno_matrix_file = out_prefix + ".csv"
+                    for ext in [".parquet", ".feather", ".csv"]:
+                        test_file = out_prefix + ext
+                        if os.path.exists(test_file):
+                            geno_matrix_file = test_file
+                            break
                     if not os.path.exists(geno_matrix_file):
                         raise FileNotFoundError(f"Genotype matrix file not found: {geno_matrix_file}")
 
@@ -494,6 +550,12 @@ class GenomicDataProcessor:
 
             if not kwargs.get('skip_match') and kwargs.get('pheno') and geno_matrix_file:
                 self.logger.info("\nStarting integrated data processing: matching, cleanup, and standardization")
+                self.logger.info("Expected output file structure (one set per trait):")
+                self.logger.info(f"  {{prefix}}_{{trait}}_genotype.csv   — numeric genotype matrix")
+                self.logger.info(f"  {{prefix}}_{{trait}}_phenotype.csv  — matched phenotype data")
+                self.logger.info(f"  {{prefix}}_{{trait}}_phenotype_raw.csv — raw phenotype before matching")
+                if kwargs.get('standardize_phenotype'):
+                    self.logger.info(f"  {{prefix}}_{{trait}}_scaler.json    — standardization parameters")
 
                 try:
                     pheno_raw = pd.read_csv(kwargs['pheno'], sep='\t')
@@ -520,7 +582,7 @@ class GenomicDataProcessor:
 
                 self.logger.info(f"Discovered {len(trait_cols)} trait(s): {', '.join(trait_cols)}")
 
-                geno_df = pd.read_csv(geno_matrix_file, index_col=0)
+                geno_df = _read_geno_matrix(geno_matrix_file)
                 geno_samples = set(geno_df.index)
                 self.logger.info(f"Genotype file contains {len(geno_samples)} samples")
 
@@ -538,6 +600,7 @@ class GenomicDataProcessor:
                                 out_prefix,
                                 user_trait,
                                 kwargs.get('standardize_phenotype', False),
+                                out_format,
                             ): trait
                             for trait in trait_cols
                         }
@@ -559,6 +622,7 @@ class GenomicDataProcessor:
                                 out_prefix,
                                 user_trait,
                                 kwargs.get('standardize_phenotype', False),
+                                out_format,
                             )
                         except Exception as exc:
                             self.logger.error(f"Trait '{trait}' failed: {exc}")

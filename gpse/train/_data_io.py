@@ -17,6 +17,17 @@ from pathlib import Path
 from loguru import logger as main_logger
 
 
+def _read_file_auto(file_path: str) -> pd.DataFrame:
+    path = Path(file_path)
+    suffix = path.suffix.lower()
+    if suffix == '.parquet':
+        return pd.read_parquet(file_path)
+    elif suffix == '.feather':
+        return pd.read_feather(file_path)
+    else:
+        return pd.read_csv(file_path)
+
+
 def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     """
     Load genotype and phenotype data.
@@ -48,8 +59,8 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
 
     # Step 1: Load raw data files
     try:
-        geno_data = pd.read_csv(geno_file)
-        pheno_data = pd.read_csv(pheno_file)
+        geno_data = _read_file_auto(geno_file)
+        pheno_data = _read_file_auto(pheno_file)
         main_logger.info(
             f"Successfully loaded genotype data: {geno_data.shape}, "
             f"phenotype data: {pheno_data.shape}"

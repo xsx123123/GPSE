@@ -135,11 +135,24 @@ def main(
 
             main_logger.info("Data preprocessing completed successfully!")
             if not args.skip_phenotype_match and args.raw_pheno_file:
-                processed_geno_file = f"{args.preprocess_prefix}_genotype.csv"
+                for ext in [".parquet", ".feather", ".csv"]:
+                    test_file = f"{args.preprocess_prefix}_genotype{ext}"
+                    if os.path.exists(test_file):
+                        processed_geno_file = test_file
+                        break
+                else:
+                    processed_geno_file = f"{args.preprocess_prefix}_genotype.csv"
                 processed_pheno_file = f"{args.preprocess_prefix}_phenotype.csv"
             else:
-                processed_geno_file = args.preprocess_prefix + ".csv"
+                for ext in [".parquet", ".feather", ".csv"]:
+                    test_file = args.preprocess_prefix + ext
+                    if os.path.exists(test_file):
+                        processed_geno_file = test_file
+                        break
+                else:
+                    processed_geno_file = args.preprocess_prefix + ".csv"
                 processed_pheno_file = args.raw_pheno_file
+
 
         except Exception as e:
             main_logger.error(f"Error during data preprocessing: {e}")

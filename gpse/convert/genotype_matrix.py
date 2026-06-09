@@ -171,13 +171,25 @@ def convert_bfile_to_ped(
 # PED/MAP → numeric CSV matrix
 # ---------------------------------------------------------------------------
 
-def convert_to_matrix(fileprefix, out_file=None, *, logger=None):
-    """Convert PLINK PED/MAP genotype data to a numeric CSV matrix.
+def convert_to_matrix(fileprefix, out_file=None, *, out_format="parquet", logger=None):
+    """Convert PLINK PED/MAP genotype data to a numeric CSV or binary matrix.
 
     Encoding: ``00→0, 01→1, 10→1, 11→2``, missing → ``3``.
     """
     log = logger or _default_logger
     log.info(f"Converting {fileprefix}.ped and {fileprefix}.map to matrix format...")
+
+    # Detect pyarrow
+    out_format = out_format.lower()
+    if out_format in ('parquet', 'feather'):
+        try:
+            import pyarrow
+        except ImportError:
+            log.warning(
+                f"Output format '{out_format}' requires the 'pyarrow' package, which is not installed. "
+                "Falling back to 'csv'. Please run 'pip install pyarrow' to enable highly optimized binary formats."
+            )
+            out_format = 'csv'
 
     ped_path = fileprefix + '.ped'
     map_path = fileprefix + '.map'
@@ -193,7 +205,8 @@ def convert_to_matrix(fileprefix, out_file=None, *, logger=None):
             map_path = alt_map
 
     if out_file is None:
-        out_file = fileprefix + '.csv'
+        ext = '.parquet' if out_format == 'parquet' else '.feather' if out_format == 'feather' else '.csv'
+        out_file = fileprefix + ext
 
     if os.path.exists(out_file):
         log.info(f"Matrix file already exists: {out_file}")
@@ -225,14 +238,27 @@ def convert_to_matrix(fileprefix, out_file=None, *, logger=None):
             encoded_geno = [GENO_DICT.get(g, '3') for g in geno]
             sample_genotypes.append((sample_id, encoded_geno))
 
-    # Write CSV matrix.
-    with open(out_file, 'w') as csv_file:
-        csv_file.write("ID," + ",".join(snpid_list) + '\n')
-        for sample_id, genotypes in sample_genotypes:
-            csv_file.write(sample_id + "," + ",".join(genotypes) + '\n')
+    # Write matrix based on format.
+    if out_format in ('parquet', 'feather'):
+        import pandas as pd
+        data = {sample_id: genotypes for sample_id, genotypes in sample_genotypes}
+        df = pd.DataFrame.from_dict(data, orient='index', columns=snpid_list)
+        df.index.name = 'ID'
+        df_reset = df.reset_index()
+        if out_format == 'parquet':
+            df_reset.to_parquet(out_file, index=False)
+        else:
+            df_reset.to_feather(out_file)
+    else:
+        # Write CSV matrix.
+        with open(out_file, 'w') as csv_file:
+            csv_file.write("ID," + ",".join(snpid_list) + '\n')
+            for sample_id, genotypes in sample_genotypes:
+                csv_file.write(sample_id + "," + ",".join(genotypes) + '\n')
 
     log.info(f"Matrix conversion completed: {out_file}")
     return out_file
+
 
 
 # ---------------------------------------------------------------------------

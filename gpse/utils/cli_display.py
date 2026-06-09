@@ -203,6 +203,13 @@ def _build_convert_parser(formatter_class=argparse.HelpFormatter,
         action="store_true",
         help="Pass --allow-extra-chr to PLINK to support non-standard chromosome names.",
     )
+    conv.add_argument(
+        "--out-format",
+        default="parquet",
+        choices=["csv", "parquet", "feather"],
+        help="Output genotype matrix format (default: parquet).",
+    )
+
 
     # Phenotype options
     pheno = parser.add_argument_group("phenotype options")
