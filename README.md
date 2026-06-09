@@ -161,6 +161,7 @@ Genotype data often contains missing calls, low-quality SNPs, and redundant mark
 
 1. **Imputation (optional)** — fills missing genotypes with Beagle **before** strict filtering.
    - `--impute` triggers Beagle imputation using the JAR specified in `gpse.yaml` or via `--beagle-jar-path`.
+   - *Pre-filtering:* Variants completely lacking REF/ALT allele definitions in the raw data are automatically excluded before imputation, as they are incompatible with Beagle.
    - **Recommended for high-missingness data**: By filling gaps first, you avoid losing samples or SNPs that would otherwise exceed the filtering thresholds.
 
 2. **QC Filtering** — removes variants and samples that still fail quality standards.

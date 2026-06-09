@@ -261,6 +261,22 @@ def _plink_qc_error_hint(exc: subprocess.CalledProcessError, logger) -> None:
             pass
 
 
+def _beagle_qc_error_hint(exc: subprocess.CalledProcessError, logger) -> None:
+    """Check if a Beagle command failed due to missing alleles or format issues."""
+    if not exc.cmd or "java" not in os.path.basename(str(exc.cmd[0])).lower() or "beagle" not in " ".join(str(c).lower() for c in exc.cmd):
+        return
+        
+    if exc.returncode != 0:
+        logger.error(
+            "IMPUTATION FAILURE: Beagle imputation failed. "
+            "This can happen if the input data has too many missing variants, "
+            "invalid REF/ALT alleles (e.g., indels or structural variants not supported by Beagle), "
+            "or severe format issues. "
+            "TIP: Try running without --impute first, but relax your --snpmaxmiss and --samplemaxmiss "
+            "thresholds to see if the raw data can be processed without imputation."
+        )
+
+
 def run_command(
     cmd_list: Sequence[object],
     *,
@@ -284,6 +300,7 @@ def run_command(
             if logger is not None:
                 _plink_chr_error_hint(cmd_args, logger)
                 _plink_qc_error_hint(exc, logger)
+                _beagle_qc_error_hint(exc, logger)
             raise
     else:
         # When a logger is available but no dedicated log file is requested,
@@ -307,6 +324,7 @@ def run_command(
                         logger.warning(f"[stderr] {line}")
                 _plink_chr_error_hint(cmd_args, logger)
                 _plink_qc_error_hint(exc, logger)
+                _beagle_qc_error_hint(exc, logger)
                 raise
             if result.stdout:
                 stdout_text = result.stdout.decode('utf-8', errors='replace').replace('\r', '')
