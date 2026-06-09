@@ -59,6 +59,7 @@ tomli = "^2.4.1"
 PyYAML = "^6.0.3"
 rich-gradient = "^0.3.12"
 loguru = "^0.7.0"
+pyarrow = "^24.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
