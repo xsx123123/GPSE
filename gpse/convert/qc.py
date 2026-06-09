@@ -129,6 +129,7 @@ def format_converter(user_params: Dict, input_prefix: str, output_prefix: str) -
     """
     config_ctx = _config_context(user_params)
     plink_path = _check_tool_path(user_params.get('plink_path', 'plink'), **config_ctx)
+    allow_extra_chr = user_params.get('allow_extra_chr', False)
     
     # Infer input format from available files.
     if os.path.exists(input_prefix + '.vcf') or os.path.exists(input_prefix + '.vcf.gz'):
@@ -136,13 +137,17 @@ def format_converter(user_params: Dict, input_prefix: str, output_prefix: str) -
         vcf_file = input_prefix + '.vcf' if os.path.exists(input_prefix + '.vcf') else input_prefix + '.vcf.gz'
         cmd = [plink_path, '--vcf', vcf_file, '--make-bed', '--out', output_prefix]
         # Preserve VCF IDs and allow non-standard chromosome names.
-        cmd.extend(['--const-fid', '--allow-extra-chr']) 
+        cmd.extend(['--const-fid'])
+        if allow_extra_chr:
+            cmd.append('--allow-extra-chr')
         _run_command(cmd, output_prefix + '.log')
         return '--bfile'
         
     elif os.path.exists(input_prefix + '.ped') and os.path.exists(input_prefix + '.map'):
         logger.info("Detected PED/MAP format. Converting to BED...")
         cmd = [plink_path, '--file', input_prefix, '--make-bed', '--out', output_prefix]
+        if allow_extra_chr:
+            cmd.append('--allow-extra-chr')
         _run_command(cmd, output_prefix + '.log')
         return '--bfile'
         
@@ -165,6 +170,7 @@ def filter_genotype(user_params: Dict, input_prefix: str, output_prefix: str, in
     remove_sampleid = user_params.get('remove_sampleid_path')
     config_ctx = _config_context(user_params)
     plink_path = _check_tool_path(user_params.get('plink_path', 'plink'), **config_ctx)
+    allow_extra_chr = user_params.get('allow_extra_chr', False)
     
     log_file = output_prefix + '_preprocessed.log'
 
@@ -183,6 +189,8 @@ def filter_genotype(user_params: Dict, input_prefix: str, output_prefix: str, in
     
     # Recode compound genotypes for downstream numeric conversion.
     cmd.extend(['--recode', 'compound-genotypes', '01', '--output-missing-genotype', '3'])
+    if allow_extra_chr:
+        cmd.append('--allow-extra-chr')
     
     _run_command(cmd, log_file)
 
@@ -205,11 +213,14 @@ def impute_genotype_beagle(user_params: Dict, input_prefix: str, output_prefix: 
         command_override=user_params.get('java_path'),
         **config_ctx,
     )
+    allow_extra_chr = user_params.get('allow_extra_chr', False)
     
     # 1. PLINK BED -> VCF
     logger.info("Converting BED to VCF for Beagle...")
     vcf_temp = input_prefix + '_temp_for_beagle'
     cmd_to_vcf = [plink_path, '--bfile', input_prefix, '--recode', 'vcf', '--out', vcf_temp]
+    if allow_extra_chr:
+        cmd_to_vcf.append('--allow-extra-chr')
     _run_command(cmd_to_vcf, output_prefix + '.log')
     
     # 2. Run Beagle
@@ -230,6 +241,8 @@ def impute_genotype_beagle(user_params: Dict, input_prefix: str, output_prefix: 
          raise FileNotFoundError(f"Beagle output VCF not found: {out_beagle}.vcf.gz or {out_beagle}.vcf")
          
     cmd_to_bed = [plink_path, '--vcf', imputed_vcf, '--make-bed', '--out', output_prefix]
+    if allow_extra_chr:
+        cmd_to_bed.append('--allow-extra-chr')
     _run_command(cmd_to_bed, output_prefix + '.log')
 
     # Clean temporary files.
@@ -271,6 +284,7 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
     r2 = user_params['r2_cutoff']
     config_ctx = _config_context(user_params)
     plink_path = _check_tool_path(user_params.get('plink_path', 'plink'), **config_ctx)
+    allow_extra_chr = user_params.get('allow_extra_chr', False)
     
     qc_prefix = output_prefix + '_qc'
     
@@ -287,6 +301,8 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
         '--freq', 
         '--missing'
     ]
+    if allow_extra_chr:
+        cmd_qc.append('--allow-extra-chr')
     _run_command(cmd_qc, output_prefix + '_qc.log')
 
     # 2. Optional Beagle imputation or simple PLINK filling.
@@ -306,6 +322,8 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
             '--make-bed', 
             '--fill-missing-a2'
         ]
+        if allow_extra_chr:
+            cmd_fill.append('--allow-extra-chr')
         _run_command(cmd_fill, output_prefix + '_qc.log')
 
     # 3. LD pruning.
@@ -317,6 +335,8 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
         '--out', qc_filled_prefix, # writes .prune.in
         '--indep-pairwise', '50', '10', str(r2)
     ]
+    if allow_extra_chr:
+        cmd_indep.append('--allow-extra-chr')
     _run_command(cmd_indep, output_prefix + '_qc.log')
 
     # Then extract pruned SNPs.
@@ -329,6 +349,8 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
         '--extract', qc_filled_prefix + '.prune.in',
         '--make-bed'
     ]
+    if allow_extra_chr:
+        cmd_extract.append('--allow-extra-chr')
     _run_command(cmd_extract, output_prefix + '_qc.log')
 
     return qc_filled_prefix, pruned_prefix
