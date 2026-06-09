@@ -12,4 +12,4 @@ external_tools:
 
 convert:
   # Optional Beagle jar used only when imputation is enabled.
-  beagle_jar_path: /home/zj/software/Beagle_4.1_27Jan18.7e1/beagle.27Jan18.7e1.jar
+  beagle_jar_path: /home/jzhang/software/Beagle/beagle.27Jan18.7e1.jar

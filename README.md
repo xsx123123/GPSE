@@ -82,13 +82,21 @@ phenotype.txt/.csv     →  PED/MAP → numeric (0/1/2)    →  {prefix}_phenoty
 
 Genotype encoding: `00→0` (homozygous ref), `01/10→1` (heterozygous), `11→2` (homozygous alt), missing→`3`.
 
+> **💡 `--direct` is now optional**
+>
+> When `--pheno` is provided, GPSE automatically converts the full PLINK binary
+> dataset to a numeric matrix (the behaviour previously triggered by `--direct`).
+> You only need to pass `--direct` explicitly when converting a genotype file
+> **without** a phenotype file (e.g. preprocessing genotype data ahead of time).
+>
+> If you want to filter SNPs instead, use `--extract` or `--snp-dir`.
+
 #### 1.1 VCF + Phenotype → Training Data
 
 ```bash
 gpse convert \
     --vcf samples.vcf \
     --pheno phenotype.txt \
-    --direct \
     --out-prefix data/train
 ```
 
@@ -102,7 +110,6 @@ Output files:
 gpse convert \
     --vcf samples.vcf \
     --pheno phenotype.txt \
-    --direct \
     --standardize-phenotype \
     --out-prefix data/train
 ```
@@ -183,7 +190,6 @@ gpse convert \
     --vcf samples.vcf \
     --pheno phenotype.txt \
     --trait-name Fruit_Weight \
-    --direct \
     --out-prefix data/train
 ```
 
@@ -284,6 +290,8 @@ GPSE currently defines concrete I/O for `gpse convert` and `gpse train`.
 | Existing matrix | `--matrix-file genotype.csv` | CSV genotype matrix with sample IDs in the first column. |
 | SNP list | `--extract snp_list.txt` | One SNP ID per line, passed to PLINK `--extract`. |
 | SNP list directory | `--snp-dir snp_lists/` | Directory containing `.txt` SNP-list files. |
+| Phenotype | `--pheno phenotype.txt` | Tab- or comma-separated; first column = sample ID, second column = trait value. |
+| Full conversion | `--direct` | Optional. Auto-enabled when `--pheno` is provided. Forces full bfile → matrix conversion even without a phenotype file. |
 
 Phenotype input is passed with `--pheno`. The file should have a header row,
 sample IDs in the first column, and the target trait in the second column. GPSE
@@ -309,6 +317,28 @@ trait column.
 >
 > Use underscores (`_`) or hyphens (`-`) instead. For example, rename
 > `fruit weight` to `fruit_weight` and `yield%` to `yield_pct`.
+
+> **⚠️ VCF / Phenotype Sample ID Matching**
+>
+> Before starting the long-running VCF → PLINK → matrix conversion, GPSE
+> performs a **defensive sample-overlap check** using `cyvcf2`.
+>
+> - VCF sample IDs are read directly from the VCF header.
+> - Phenotype sample IDs are read from the first column of the phenotype file.
+> - The pipeline aborts immediately if the number of shared samples is smaller
+>   than the smaller of the two sets (i.e. not every sample in the smaller file
+>   has a counterpart in the other).
+>
+> When the check fails, the log shows:
+> - Total samples in VCF and phenotype
+> - Number of shared samples
+> - Representative examples from **both** files
+> - Samples that exist **only in VCF**
+> - Samples that exist **only in phenotype**
+>
+> This makes it easy to spot naming mismatches (e.g. `Ames_12781` in VCF vs
+> `Chipper` in phenotype) and fix the input data before wasting time on
+> conversion.
 
 ### `gpse convert` Outputs
 
@@ -620,6 +650,10 @@ live in the corresponding workflow package.
   * Added **early trait name validation** — trait names containing spaces, `%`, `:`, `/`, brackets, pipes, quotes, commas, or whitespace characters are rejected before any conversion work begins.
   * Improved PLINK stdout compression: `\r`-based progress bars (e.g. `0%1%2%...99%done.`) are now correctly parsed and suppressed from logs.
   * Fixed `gpse convert` creating an empty `gpse_convert.log` file in the current directory when run without `--out-prefix`.
+
+* **Defensive Sample Matching & Clean Error Reporting** (`2026-06-09`)
+  * Added **`cyvcf2`-based VCF/phenotype sample overlap validation** in `gpse convert`. The pipeline aborts immediately (before any long-running format conversion) when sample IDs between the VCF and phenotype file do not match sufficiently. The error message lists examples from both sides as well as IDs that exist only in one file, making mismatches easy to diagnose.
+  * **ValueError business errors no longer print Python tracebacks** to the terminal. Both trait-name validation failures and sample-overlap failures now produce clean, human-readable error logs and exit with code `1`. Unexpected runtime exceptions still print full tracebacks for debugging.
 
 * **Thread Control & Startup Performance** (`2026-06-03`)
   * Fixed BLAS/MKL thread pools ignoring `--n_jobs` by setting all 6 environment variables (`OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `NUMEXPR_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS`, `BLIS_NUM_THREADS`) **before** numpy/scipy import.

@@ -44,6 +44,7 @@ include = [
 python = "^3.10"
 pandas = "^2.3.3"
 numpy = "^2.2.6"
+cyvcf2 = "^0.33.0"
 scipy = "^1.15.3"
 scikit-learn = "^1.7.2"
 xgboost = "^3.2.0"
