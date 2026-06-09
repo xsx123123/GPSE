@@ -197,9 +197,9 @@ class GenomicDataProcessor:
             logger=self.logger,
         )
 
-    def match_genotype_phenotype(self, pheno_df, geno_file, out_prefix):
+    def match_genotype_phenotype(self, pheno_df, geno_file, out_prefix, out_format='csv'):
         """Match genotype and phenotype samples and preserve a shared order."""
-        return _match_genotype_phenotype(pheno_df, geno_file, out_prefix, logger=self.logger)
+        return _match_genotype_phenotype(pheno_df, geno_file, out_prefix, out_format=out_format, logger=self.logger)
 
     # =================== 3. Data validation and cleanup ===================
 
@@ -352,11 +352,21 @@ class GenomicDataProcessor:
                 )
                 out_format = 'csv'
 
-        final_pheno_file = f"{out_prefix}_{safe_trait}_phenotype.csv"
         ext = '.parquet' if out_format == 'parquet' else '.feather' if out_format == 'feather' else '.csv'
+        final_pheno_file = f"{out_prefix}_{safe_trait}_phenotype" + ext
         final_geno_file = f"{out_prefix}_{safe_trait}_genotype" + ext
 
-        pheno_filtered.to_csv(final_pheno_file, index=False)
+        self.logger.info(
+            f"Writing phenotype ({len(pheno_filtered)} samples) to {final_pheno_file} ..."
+        )
+        if out_format == 'parquet':
+            pheno_filtered.to_parquet(final_pheno_file, index=False)
+        elif out_format == 'feather':
+            pheno_filtered.to_feather(final_pheno_file)
+        else:
+            pheno_filtered.to_csv(final_pheno_file, index=False)
+        self.logger.info("Phenotype file written successfully.")
+
         self.logger.info(
             f"Writing genotype matrix ({geno_filtered.shape[0]} samples x "
             f"{geno_filtered.shape[1]} SNPs) to {final_geno_file} ..."
@@ -592,8 +602,8 @@ class GenomicDataProcessor:
             if not kwargs.get('skip_match') and kwargs.get('pheno') and geno_matrix_file:
                 self.logger.info("\nStarting integrated data processing: matching, cleanup, and standardization")
                 self.logger.info("Expected output file structure (one set per trait):")
-                self.logger.info(f"  {{prefix}}_{{trait}}_genotype.csv   — numeric genotype matrix")
-                self.logger.info(f"  {{prefix}}_{{trait}}_phenotype.csv  — matched phenotype data")
+                self.logger.info(f"  {{prefix}}_{{trait}}_genotype.{{ext}}   — numeric genotype matrix (ext = csv/parquet/feather)")
+                self.logger.info(f"  {{prefix}}_{{trait}}_phenotype.{{ext}}  — matched phenotype data (same ext as genotype)")
                 self.logger.info(f"  {{prefix}}_{{trait}}_phenotype_raw.csv — raw phenotype before matching")
                 if kwargs.get('standardize_phenotype'):
                     self.logger.info(f"  {{prefix}}_{{trait}}_scaler.json    — standardization parameters")
@@ -733,10 +743,10 @@ def convert_phenotype(pheno_file, out_file=None, trait_name=None, trait_col=None
     return processor.convert_phenotype(pheno_file, out_file, trait_name=trait_name, trait_col=trait_col)
 
 
-def match_genotype_phenotype(pheno_df, geno_file, out_prefix):
+def match_genotype_phenotype(pheno_df, geno_file, out_prefix, out_format='csv'):
     """Backward-compatible wrapper."""
     processor = GenomicDataProcessor()
-    return processor.match_genotype_phenotype(pheno_df, geno_file, out_prefix)
+    return processor.match_genotype_phenotype(pheno_df, geno_file, out_prefix, out_format=out_format)
 
 
 def check_special_chars(column_names):

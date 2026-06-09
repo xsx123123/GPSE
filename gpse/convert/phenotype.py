@@ -128,7 +128,7 @@ def convert_phenotype(
     return df
 
 
-def match_genotype_phenotype(pheno_df, geno_file, out_prefix, *, logger=None):
+def match_genotype_phenotype(pheno_df, geno_file, out_prefix, *, out_format='csv', logger=None):
     """Match genotype and phenotype samples and preserve a shared order.
 
     Parameters
@@ -136,16 +136,18 @@ def match_genotype_phenotype(pheno_df, geno_file, out_prefix, *, logger=None):
     pheno_df : pandas.DataFrame
         Phenotype DataFrame with an ``ID`` column.
     geno_file : str
-        Path to the genotype CSV matrix (first column = sample IDs).
+        Path to the genotype matrix (first column = sample IDs).
     out_prefix : str
         Output prefix for the matched files.
+    out_format : str
+        Output format: ``csv``, ``parquet``, or ``feather``. Default ``csv``.
     logger
         Logger instance.
 
     Returns
     -------
     tuple[str, str]
-        Paths to the matched phenotype and genotype CSV files.
+        Paths to the matched phenotype and genotype files.
     """
     log = logger or _default_logger
     log.info(f"Reading genotype file: {geno_file}")
@@ -169,11 +171,20 @@ def match_genotype_phenotype(pheno_df, geno_file, out_prefix, *, logger=None):
     pheno_filtered = pheno_filtered.set_index('ID').loc[common_samples].reset_index()
     geno_filtered = geno_df.loc[common_samples]
 
-    pheno_out_file = f"{out_prefix}_phenotype.csv"
-    geno_out_file = f"{out_prefix}_genotype.csv"
+    out_format = out_format.lower()
+    ext = '.parquet' if out_format == 'parquet' else '.feather' if out_format == 'feather' else '.csv'
+    pheno_out_file = f"{out_prefix}_phenotype" + ext
+    geno_out_file = f"{out_prefix}_genotype" + ext
 
-    pheno_filtered.to_csv(pheno_out_file, index=False)
-    geno_filtered.to_csv(geno_out_file)
+    if out_format == 'parquet':
+        pheno_filtered.to_parquet(pheno_out_file, index=False)
+        geno_filtered.reset_index().to_parquet(geno_out_file, index=False)
+    elif out_format == 'feather':
+        pheno_filtered.to_feather(pheno_out_file)
+        geno_filtered.reset_index().to_feather(geno_out_file)
+    else:
+        pheno_filtered.to_csv(pheno_out_file, index=False)
+        geno_filtered.to_csv(geno_out_file)
 
     log.info(f"Matched phenotype file saved to: {pheno_out_file}")
     log.info(f"Matched genotype file saved to: {geno_out_file}")
