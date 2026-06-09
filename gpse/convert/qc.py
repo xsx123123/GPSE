@@ -215,10 +215,43 @@ def impute_genotype_beagle(user_params: Dict, input_prefix: str, output_prefix: 
     )
     allow_extra_chr = user_params.get('allow_extra_chr', False)
     
+    # 0. Pre-filter: Beagle fails if any variant has a missing allele (REF/ALT is '0' in bim)
+    # We must exclude these variants before converting to VCF.
+    bim_path = input_prefix + '.bim'
+    exclude_list = []
+    if os.path.exists(bim_path):
+        with open(bim_path, 'r') as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) >= 6:
+                    # PLINK uses '0' to represent a missing allele definition.
+                    if parts[4] == '0' or parts[5] == '0':
+                        exclude_list.append(parts[1])
+    
+    clean_input_prefix = input_prefix
+    if exclude_list:
+        exclude_file = output_prefix + '_bad_alleles_for_beagle.txt'
+        with open(exclude_file, 'w') as f:
+            f.write('\n'.join(exclude_list))
+        
+        logger.warning(
+            f"Found {len(exclude_list)} variants with missing alleles (0 in bim). "
+            f"Beagle requires valid REF/ALT; excluding these variants first..."
+        )
+        clean_input_prefix = output_prefix + '_clean_for_beagle'
+        cmd_clean = [
+            plink_path, '--bfile', input_prefix, 
+            '--exclude', exclude_file, 
+            '--make-bed', '--out', clean_input_prefix
+        ]
+        if allow_extra_chr:
+            cmd_clean.append('--allow-extra-chr')
+        _run_command(cmd_clean, output_prefix + '.log')
+
     # 1. PLINK BED -> VCF
     logger.info("Converting BED to VCF for Beagle...")
-    vcf_temp = input_prefix + '_temp_for_beagle'
-    cmd_to_vcf = [plink_path, '--bfile', input_prefix, '--recode', 'vcf', '--out', vcf_temp]
+    vcf_temp = clean_input_prefix + '_temp_for_beagle'
+    cmd_to_vcf = [plink_path, '--bfile', clean_input_prefix, '--recode', 'vcf', '--out', vcf_temp]
     if allow_extra_chr:
         cmd_to_vcf.append('--allow-extra-chr')
     _run_command(cmd_to_vcf, output_prefix + '.log')
@@ -247,9 +280,13 @@ def impute_genotype_beagle(user_params: Dict, input_prefix: str, output_prefix: 
 
     # Clean temporary files.
     try:
-        os.remove(f"{vcf_temp}.vcf")
-        os.remove(f"{vcf_temp}.log")
-        os.remove(f"{vcf_temp}.nosex")
+        if os.path.exists(f"{vcf_temp}.vcf"): os.remove(f"{vcf_temp}.vcf")
+        if os.path.exists(f"{vcf_temp}.log"): os.remove(f"{vcf_temp}.log")
+        if os.path.exists(f"{vcf_temp}.nosex"): os.remove(f"{vcf_temp}.nosex")
+        if clean_input_prefix != input_prefix:
+            for ext in ('.bed', '.bim', '.fam', '.log'):
+                p = clean_input_prefix + ext
+                if os.path.exists(p): os.remove(p)
     except OSError:
         pass
 
