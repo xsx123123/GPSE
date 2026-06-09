@@ -32,6 +32,11 @@ def main(argv: list[str] | None = None,*,formatter_class=None,prog: str | None =
     )
     args = parser.parse_args(argv)
 
+    # Determine workflow mode first so that missing-argument errors and --help
+    # are handled before initialising the logger.  This avoids spurious
+    # "GPSE config loaded" messages when the user only wants usage info.
+    mode = validate_convert_mode(parser, args)
+
     # Initialise unified GPSE logging so that convert uses the same
     # Rich-styled console format and file rotation as the train module.
     log_level = getattr(args, "log_level", "INFO")
@@ -46,13 +51,12 @@ def main(argv: list[str] | None = None,*,formatter_class=None,prog: str | None =
         os.makedirs(log_dir, exist_ok=True)
         log_file = os.path.join(log_dir, f"gpse_convert_{timestamp}.log")
     else:
-        # No output prefix specified (e.g. --help, --check-deps, or no args).
+        # No output prefix specified (e.g. --check-deps).
         # Skip file logging — only use console output.
         log_file = None
 
     logger_init(logger_name=log_file, log_level=log_level)
 
-    mode = validate_convert_mode(parser, args)
     return run_convert_workflow(args, mode)
 
 
