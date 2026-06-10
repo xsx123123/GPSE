@@ -42,6 +42,7 @@ htmlcov/
 .idea/
 .antigravitycli/
 .vscode/
+.claude/
 *.swp
 *.swo
 *~
@@ -94,6 +95,7 @@ melon_test_results/
 test_output/
 test_pkg_output/
 out/
+dummy_out/
 # result/
 
 # ---- Other ----
