@@ -357,7 +357,7 @@ class GenomicDataProcessor:
         final_geno_file = f"{out_prefix}_{safe_trait}_genotype" + ext
 
         self.logger.info(
-            f"Writing phenotype ({len(pheno_filtered)} samples) to {final_pheno_file} ..."
+            f"Writing phenotype ({len(pheno_filtered)} samples) to {os.path.basename(final_pheno_file)} ..."
         )
         if out_format == 'parquet':
             pheno_filtered.to_parquet(final_pheno_file, index=False)
@@ -369,7 +369,7 @@ class GenomicDataProcessor:
 
         self.logger.info(
             f"Writing genotype matrix ({geno_filtered.shape[0]} samples x "
-            f"{geno_filtered.shape[1]} SNPs) to {final_geno_file} ..."
+            f"{geno_filtered.shape[1]} SNPs) to {os.path.basename(final_geno_file)} ..."
         )
         if out_format == 'parquet':
             geno_filtered.reset_index().to_parquet(final_geno_file, index=False)
@@ -380,8 +380,8 @@ class GenomicDataProcessor:
         self.logger.info("Genotype matrix written successfully.")
 
         self.logger.info(f"Trait '{trait}' completed:")
-        self.logger.info(f"  Phenotype: {final_pheno_file}")
-        self.logger.info(f"  Genotype:  {final_geno_file}")
+        self.logger.info(f"  Phenotype: {os.path.basename(final_pheno_file)}")
+        self.logger.info(f"  Genotype:  {os.path.basename(final_geno_file)}")
         self.logger.info(f"  Samples:   {len(common_samples)}")
         self.logger.info(f"  SNPs:      {len(geno_filtered.columns)}")
         if trait_scaler and trait_scaler.get('applied'):
