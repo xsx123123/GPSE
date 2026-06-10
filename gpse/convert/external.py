@@ -147,10 +147,9 @@ def _compress_stdout(lines: list[str]) -> list[str]:
 
     Rules:
       1. ``--vcf: Nk variants complete.``  — keep every 10 k plus the first.
-      2. ``0%1%2%...99% done``            — strip the percentage run, keep the prefix.
-      3. ``0%1%2%...99%done``             — same, but without the space before *done*.
-      4. Standalone ``N%`` fragments       — drop entirely.
-      5. Lines with many inline percentages — strip the percentage run, keep the prefix.
+      2. Lines with many percentages + "done"  — clean and keep prefix.
+      3. Standalone ``N%`` fragments       — drop entirely.
+      4. Lines with many inline percentages — strip the percentage run, keep the prefix.
     """
     out: list[str] = []
     vcf_seen = 0
@@ -169,10 +168,9 @@ def _compress_stdout(lines: list[str]) -> list[str]:
                 out.append(line)
             continue
 
-        # 2. Strip inline progress-bar completion (e.g. "0%1%2%...99% done.")
-        #    Keep the meaningful prefix before the progress run.
-        if re.search(r"(?:\d+%)+\s*done\.?$", line):
-            cleaned = re.sub(r"\s*(?:\d+%)+\s*done\.?$", "", line).strip()
+        # 2. Strip inline progress-bar completion with "done" (with or without space, with or without dot)
+        if re.search(r"(?:\d+%){3,}.*done\.?$", line):
+            cleaned = re.sub(r"\s*(?:\d+%){3,}.*done\.?$", "", line).strip()
             if cleaned:
                 out.append(cleaned)
             continue
