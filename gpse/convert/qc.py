@@ -251,7 +251,7 @@ def impute_genotype_beagle(user_params: Dict, input_prefix: str, output_prefix: 
     # 1. PLINK BED -> VCF
     logger.info("Converting BED to VCF for Beagle...")
     vcf_temp = clean_input_prefix + '_temp_for_beagle'
-    cmd_to_vcf = [plink_path, '--bfile', clean_input_prefix, '--recode', 'vcf', 'id-paste-iid', '--out', vcf_temp]
+    cmd_to_vcf = [plink_path, '--bfile', clean_input_prefix, '--recode', 'vcf', '--out', vcf_temp]
     if allow_extra_chr:
         cmd_to_vcf.append('--allow-extra-chr')
     _run_command(cmd_to_vcf, output_prefix + '.log')

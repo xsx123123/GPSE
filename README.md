@@ -681,6 +681,87 @@ and external tool execution.
 | `processor.py` | Thin orchestrator (`GenomicDataProcessor`) that coordinates genotype conversion, phenotype matching, and data validation by delegating to the specialised sub-modules above. |
 | `qc.py` | PLINK/Beagle QC utilities: format conversion, genotype filtering, imputation, LD pruning, and PED/MAP numeric recoding. |
 
+#### Convert API Reference (Function-Level)
+
+The tables below describe every public function / method in `gpse.convert`.  Internal helpers (e.g. `_run_command`, `_config_context`) are omitted.
+
+##### `gpse.convert.qc`
+
+| Function | Signature (key args) | Description |
+|---|---|---|
+| `format_converter` | `(user_params, input_prefix, output_prefix)` | Detect input format (VCF / PED+MAP / BED) and normalise to PLINK binary (BED/BIM/FAM). Returns the PLINK input flag (`--bfile`). |
+| `filter_genotype` | `(user_params, input_prefix, output_prefix, input_flag='--bfile')` | Filter samples/SNPs by user-supplied ID lists (`--extract`, `--exclude`, `--keep`, `--remove`) and recode to compound genotypes (`01`) with missing coded as `3`. |
+| `impute_genotype_beagle` | `(user_params, input_prefix, output_prefix)` | Run Beagle imputation end-to-end: **BED → VCF → Beagle → VCF.gz → BED**. Pre-filters variants with missing alleles (`0` in BIM) because Beagle requires valid REF/ALT. Uses `--const-fid` when converting the imputed VCF back to BED to safely handle sample IDs containing underscores. |
+| `analyze_and_prune` | `(user_params, input_prefix, output_prefix, run_imputation=False)` | **Main QC orchestrator.** Executes, in order: (0) `format_converter`, (1) `impute_genotype_beagle` (if `run_imputation=True`), (2) QC filtering (`--geno`, `--mind`, `--maf`), (3) LD pruning (`--indep-pairwise`). Returns `(qc_prefix, pruned_prefix)`. |
+| `recode_to_numeric` | `(fileprefix)` | Convert PLINK PED/MAP compound genotypes to additive numeric coding: `00→0`, `01/10→1`, `11→2`. Writes a `.geno` CSV file with header `ID,SNP1,SNP2,...`. |
+
+##### `gpse.convert.genotype_matrix`
+
+| Function | Signature (key args) | Description |
+|---|---|---|
+| `vcf_to_plink` | `(vcf_file, out_prefix, plink_path='plink', allow_extra_chr=False)` | Convert VCF to PLINK binary format (BED/BIM/FAM). Skips if output already exists. Uses `--double-id` so the full VCF sample name becomes the IID. |
+| `extract_snps` | `(bfile, extract_file, out_prefix, ...)` | Extract selected SNPs from a PLINK binary dataset to PED/MAP. Compound-genotype recoding with missing=`3`. |
+| `convert_bfile_to_ped` | `(bfile, out_prefix, ...)` | Convert the **full** PLINK binary dataset to PED/MAP (no SNP filtering). Compound-genotype recoding with missing=`3`. |
+| `convert_to_matrix` | `(fileprefix, out_file=None, out_format='parquet')` | Read PED/MAP, apply the genotype encoding map (`00→0`, `01→1`, `10→1`, `11→2`, missing→`3`), and write a numeric matrix. Output formats: `csv`, `parquet`, `feather`. Falls back to CSV if `pyarrow` is missing. |
+| `process_snp_dir` | `(bfile, snp_dir, out_dir, ...)` | Batch-process every `.txt` SNP list file in `snp_dir`: extract → PED/MAP → numeric matrix. Writes one output file per list. |
+
+##### `gpse.convert.phenotype`
+
+| Function | Signature (key args) | Description |
+|---|---|---|
+| `convert_phenotype` | `(pheno_file, out_file=None, trait_name=None, trait_col=None)` | Read a tab- or comma-separated phenotype file, drop rows with missing values (`NaN` / `NA`), optionally rename the trait column, and return a two-column DataFrame (`ID`, trait). |
+| `match_genotype_phenotype` | `(pheno_df, geno_file, out_prefix, out_format='csv')` | Intersect genotype and phenotype samples by ID, sort to a shared order, and write matched `{prefix}_phenotype.{ext}` and `{prefix}_genotype.{ext}`. Raises `ValueError` if no overlap. |
+| `standardize_phenotype` | `(pheno_df, trait_col)` | Apply z-score standardization to the trait column. Returns `(standardised_df, scaler_params)`. |
+| `detect_phenotype_type` | `(series, max_classes=20, min_samples_per_class=5)` | Auto-detect whether a trait should be treated as `regression` or `classification` based on value distribution (≤2 unique values → classification; string labels → classification; integer with ≤20 classes and ≥5 samples/class → classification; otherwise → regression). |
+| `save_phenotype_info` | `(info, info_file)` | Persist phenotype metadata (trait name, task type, `n_classes`, sample count, mean/std) to JSON. |
+| `save_scaler_params` | `(scaler_params, scaler_file)` | Save z-score standardization parameters (`mean`, `std`) to JSON for inverse transformation during prediction. |
+
+##### `gpse.convert.validators`
+
+| Function | Signature | Description |
+|---|---|---|
+| `validate_trait_names` | `(trait_names)` | Pre-flight check: raises `ValueError` if any trait name contains invalid characters (spaces, `%`, `:`, `/`, `\`, `|`, brackets, quotes, commas) or is empty. |
+| `check_special_chars` | `(column_names)` | Detect characters in feature names that are unsupported by LightGBM (`:`, `|`, `[`, `]`, `{`, `}`, `"`, `\`, `,`, ` `). |
+| `clean_column_names` | `(column_names)` | Replace unsupported characters with underscores so feature names are safe for all ML frameworks. |
+| `process_file` | `(file_path, output_path)` | Sanitize column names in a CSV file and rewrite it. |
+| `load_matrix` | `(matrix_file)` | Load a genotype matrix (CSV/Parquet/Feather) and log row/column counts and sample ID examples. |
+
+##### `gpse.convert.processor` — `GenomicDataProcessor`
+
+`GenomicDataProcessor` is the thin orchestrator used by `gpse convert`.  Most methods are thin wrappers that delegate to the pure functions above.
+
+| Method | Delegates to | Description |
+|---|---|---|
+| `process_genomic_data(**kwargs)` | — | **Main entry point.** Coordinates the entire convert pipeline: format conversion → optional QC/imputation → matrix generation → phenotype matching/standardization → per-trait output writing. |
+| `vcf_to_plink(vcf_file, out_prefix)` | `genotype_matrix.vcf_to_plink` | Convert VCF → PLINK BED. |
+| `extract_snps(bfile, extract_file, out_prefix)` | `genotype_matrix.extract_snps` | Extract SNP subset → PED/MAP. |
+| `convert_bfile_to_ped(bfile, out_prefix)` | `genotype_matrix.convert_bfile_to_ped` | Full BED → PED/MAP. |
+| `convert_to_matrix(fileprefix, out_file, out_format)` | `genotype_matrix.convert_to_matrix` | PED/MAP → numeric matrix. |
+| `process_snp_dir(bfile, snp_dir, out_dir)` | `genotype_matrix.process_snp_dir` | Batch SNP extraction. |
+| `convert_phenotype(pheno_file, ...)` | `phenotype.convert_phenotype` | Read and clean phenotype. |
+| `match_genotype_phenotype(pheno_df, geno_file, out_prefix)` | `phenotype.match_genotype_phenotype` | Intersect and reorder genotype/phenotype samples. |
+| `standardize_phenotype(pheno_df, trait_col)` | `phenotype.standardize_phenotype` | Z-score standardize a trait. |
+| `check_special_chars(column_names)` | `validators.check_special_chars` | Detect unsupported chars. |
+| `clean_column_names(column_names)` | `validators.clean_column_names` | Sanitize column names. |
+| `validate_trait_names(trait_names)` | `validators.validate_trait_names` | Pre-flight trait name validation. |
+
+##### `gpse.convert.workflow`
+
+| Function | Description |
+|---|---|
+| `run_convert_workflow(args, mode)` | Top-level dispatcher. Routes to `_run_pipeline`, `_run_qc`, `_run_recode`, or `_run_deps` based on CLI arguments. |
+| `validate_convert_mode(parser, args)` | Determine which convert sub-mode to run (`pipeline`, `qc`, `recode`, `deps`) and validate required arguments. |
+
+##### `gpse.convert.external`
+
+| Function | Description |
+|---|---|
+| `run_command(cmd_list, log_file)` | Execute an external command without a shell. Compresses PLINK progress-spam logs and prints friendly error hints for common PLINK/Beagle failures. |
+| `resolve_configured_tool(name, ...)` | Resolve an executable path from (1) explicit CLI override, (2) YAML config, (3) `$PATH`. |
+| `ensure_existing_file(file_path, name)` | Validate that `file_path` exists; raise `FileNotFoundError` with a descriptive message if not. |
+| `check_configured_external_tools(tools, ...)` | Check that required externals (PLINK, Java) are installed and meet minimum version requirements. |
+| `get_convert_config(config_path, ...)` | Load and merge convert-specific configuration from packaged YAML and optional project/user overrides. |
+
 ### `gpse/train/`
 
 Implementation for `gpse train`: model training, repeated CV, optimization,
