@@ -292,6 +292,51 @@ gpse convert \
 
 ### 2. Model Training (`gpse train`)
 
+`gpse train` supports two modes: training from pre-processed matrices, or a one-stop pipeline that internally reuses `gpse convert` for preprocessing and then proceeds directly to model training.
+
+**Architecture overview (`--enable_preprocess`):**
+
+```
+User runs: gpse train --enable_preprocess --vcf_file samples.vcf --raw_pheno_file pheno.txt ...
+
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│  gpse/train/cli.py   main()                                             │
+│  ─────────────────────────────────────────────────────────────────────  │
+│                                                                         │
+│  Stage 1: Argument validation (--enable_preprocess? --preprocess_only?) │
+│       │                                                                 │
+│       ▼                                                                 │
+│  Stage 2: Preprocessing (if enable_preprocess)                          │
+│       │  ┌──────────────────────────────────────────────────┐          │
+│       │  │ GenomicDataProcessor (from gpse.convert)         │          │
+│       │  │  • process_genomic_data(vcf=..., pheno=...)      │          │
+│       │  │  • VCF → BED → PED → numeric matrix             │          │
+│       │  │  • phenotype matching, standardization, type    │          │
+│       │  │    detection (regression vs classification)     │          │
+│       │  │  • Output: *_genotype.parquet, *_phenotype.csv  │          │
+│       │  └──────────────────────────────────────────────────┘          │
+│       │                                                                 │
+│       ▼                                                                 │
+│  Stage 3: Auto-detect task_type (from *_phenotype_info.json)            │
+│       │                                                                 │
+│       ▼                                                                 │
+│  Stage 4: Training                                                      │
+│       │  ┌──────────────────────────────────────────────────┐          │
+│       │  │ GenomicPredictorV2 (gpse.train)                  │          │
+│       │  │  • load_data(geno_file, pheno_file)              │          │
+│       │  │  • prepare_cv_folds()                            │          │
+│       │  │  • run_model_multiple_repeats()  ← Optuna HPO   │          │
+│       │  │  • TOPSIS ranking                                │          │
+│       │  │  • Stacking ensemble (optional)                  │          │
+│       │  └──────────────────────────────────────────────────┘          │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+> **Design note:** `--enable_preprocess` does **not** shell-out to `gpse convert`. Instead, `gpse train` directly `import`s and instantiates `GenomicDataProcessor` inside the same Python process, runs the full convert pipeline, infers output file paths automatically, and then passes those paths to `GenomicPredictorV2` for training.
+
 #### 2.1 Train with Pre-processed Data
 
 ```bash
