@@ -558,6 +558,7 @@ class GenomicDataProcessor:
                             "r2_cutoff": kwargs.get('r2_cutoff', 0.2),
                             "beagle_jar_path": kwargs.get('beagle_jar_path'),
                             "allow_extra_chr": self.allow_extra_chr,
+                            "threads": kwargs.get('threads', 10),
                         }
                         _, pruned_prefix = _analyze_and_prune(
                             qc_params,

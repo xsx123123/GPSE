@@ -123,6 +123,7 @@ def _run_qc(args: argparse.Namespace) -> int:
         "maf_max": args.maf,
         "r2_cutoff": args.r2_cutoff,
         "allow_extra_chr": getattr(args, "allow_extra_chr", False),
+        "threads": getattr(args, "threads", 10),
     }
     if beagle_jar_path:
         params["beagle_jar_path"] = beagle_jar_path

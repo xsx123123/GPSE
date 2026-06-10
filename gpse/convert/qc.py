@@ -262,6 +262,10 @@ def impute_genotype_beagle(user_params: Dict, input_prefix: str, output_prefix: 
     out_beagle = output_prefix + '_imputed'
     # Beagle 5.x syntax: gt=input.vcf out=output_prefix
     cmd_beagle = [java_path, '-jar', beagle_jar, f'gt={vcf_temp}.vcf', f'out={out_beagle}']
+    n_threads = user_params.get('threads')
+    if n_threads is not None and n_threads > 0:
+        cmd_beagle.append(f'nthreads={n_threads}')
+        logger.info(f"Beagle imputation using {n_threads} thread(s)")
     _run_command(cmd_beagle, output_prefix + '.log')
 
     # 3. VCF (Imputed) -> PLINK BED
