@@ -67,11 +67,12 @@ GPSE 使用子命令结构：`gpse {convert,train,predict}`。
 Input                        Processing                     Output
 ─────                        ──────────                     ──────
                              Validate trait names            (非法名称时中止)
-samples.vcf            →  VCF → PLINK BED              →  {prefix}_genotype.{csv|parquet|feather}
-phenotype.txt/.csv     →  PED/MAP → numeric (0/1/2)    →  {prefix}_phenotype.csv
-                            SNP filtering                   {prefix}_phenotype_scaler.json
-                            Sample ID matching                 (仅在 --standardize-phenotype 时)
-                            Column name cleaning
+samples.vcf            →  VCF → PLINK BED              →  {prefix}_{trait}_genotype.{csv|parquet|feather}
+phenotype.txt/.csv     →  PED/MAP → numeric (0/1/2)    →  {prefix}_{trait}_phenotype.{ext}
+                            SNP filtering                   {prefix}_{trait}_phenotype_info.json
+                            Sample ID matching                 (自动检测的 task_type 与 n_classes)
+                            Phenotype type detection        {prefix}_{trait}_scaler.json
+                            Column name cleaning               (仅在 --standardize-phenotype 时)
                             Phenotype Z-score (optional)
 ```
 
@@ -95,8 +96,9 @@ gpse convert \
 
 输出文件：
 
-* `data/train_genotype.parquet` — 数值矩阵（行=样本，列=SNP，值为 0/1/2）。默认格式为 **Parquet**；可通过 `--out-format csv` 或 `--out-format feather` 切换，`feather` 需要安装 `pyarrow`。
-* `data/train_phenotype.csv` — 清洗并匹配后的表型文件（ID + 性状值）
+* `data/train_{trait}_genotype.parquet` — 数值矩阵（行=样本，列=SNP，值为 0/1/2）。默认格式为 **Parquet**；可通过 `--out-format csv` 或 `--out-format feather` 切换，`feather` 需要安装 `pyarrow`。
+* `data/train_{trait}_phenotype.csv` — 清洗并匹配后的表型文件（ID + 性状值）
+* `data/train_{trait}_phenotype_info.json` — 自动检测的任务类型（`regression`/`classification`）、类别数、样本量和类别分布（如适用）
 
 #### 1.2 VCF + 表型（非标准染色体，园艺作物常用）
 
@@ -239,7 +241,6 @@ gpse train \
     --geno_file data/train_genotype.csv \
     --pheno_file data/train_phenotype.csv \
     --target_trait Fruit_Weight \
-    --task_type regression \
     --n_splits 5 \
     --n_repeats 10 \
     --trials 50 \
@@ -250,6 +251,12 @@ gpse train \
     --results_dir output_results/
 ```
 
+> **💡 `--task_type` 和 `--n_classes` 现已变为可选**
+>
+> 当 `gpse convert` 已生成 `{prefix}_{trait}_phenotype_info.json` 文件时，
+> `gpse train` 会自动读取并设置 `--task_type` 和 `--n_classes`。
+> 仅在需要覆盖自动检测结果，或没有 info 文件时，才需显式传入。
+
 #### 2.2 一键式：预处理 + 训练
 
 ```bash
@@ -259,7 +266,6 @@ gpse train \
     --vcf_file samples.vcf \
     --raw_pheno_file phenotype.txt \
     --target_trait Fruit_Weight \
-    --task_type regression \
     --n_splits 5 \
     --n_repeats 10 \
     --trials 50 \
@@ -285,13 +291,15 @@ gpse train \
     --geno_file genotype.csv \
     --pheno_file phenotype.csv \
     --target_trait Disease_Resistance \
-    --task_type classification \
-    --n_classes 3 \
     --n_splits 5 \
     --n_repeats 10 \
     --trials 50 \
     --results_dir classification_results/
 ```
+
+> 当存在 `phenotype_info.json` 文件时，`--task_type classification` 和
+> `--n_classes 3` 会自动推断。显式传入的值会覆盖自动检测结果，
+> 若与检测结果冲突则会发出警告。
 
 ### 3. 表型分析
 
@@ -360,11 +368,12 @@ sample2,1,3,0
 | `11` | `2` |
 | 缺失或未知 | `3` |
 
-启用表型/基因型匹配后，输出推荐训练文件：
+启用表型/基因型匹配后，输出推荐训练文件（每个性状一组）：
 
 ```text
-{out_prefix}_genotype.{csv|parquet|feather}
-{out_prefix}_phenotype.csv
+{out_prefix}_{trait}_genotype.{csv|parquet|feather}
+{out_prefix}_{trait}_phenotype.{csv|parquet|feather}
+{out_prefix}_{trait}_phenotype_info.json
 ```
 
 匹配后的表型文件示例：
@@ -375,10 +384,36 @@ sample1,12.3
 sample2,9.8
 ```
 
+匹配后的表型文件示例：
+
+```csv
+ID,TraitName
+sample1,12.3
+sample2,9.8
+```
+
+`phenotype_info.json` 文件包含自动检测的元数据：
+
+```json
+{
+  "trait": "Fruit_Weight",
+  "task_type": "regression",
+  "n_classes": null,
+  "reason": "continuous numeric values",
+  "n_samples": 500,
+  "mean": 12.34,
+  "std": 3.56
+}
+```
+
+GPSE 会根据表型值的分布自动判断每个性状更适合作为**回归**（连续值）还是**分类**（离散值）处理：
+二元性状和整数编码且类别数 ≤20 的性状会被判定为 `classification`；其余数值性状为 `regression`。
+该元数据会被 `gpse train` 读取，大多数情况下不再需要手动传入 `--task_type` 和 `--n_classes`。
+
 启用 `--standardize-phenotype` 时，还会输出：
 
 ```text
-{out_prefix}_phenotype_scaler.json
+{out_prefix}_{trait}_scaler.json
 ```
 
 QC 模式（`--run-qc`）会输出 PLINK 前缀文件：
@@ -407,8 +442,8 @@ prefix.geno
 | `--geno_file` | 需要包含 `ID` 列的 CSV 基因型矩阵；如果没有 `ID`，会尝试 `--cv_id_column`。 |
 | `--pheno_file` | 与基因型文件共享同一 ID 列的 CSV 表型表。 |
 | `--target_trait` | 表型表中的目标性状列名。 |
-| `--task_type` | `regression` 或 `classification`，默认 `regression`。 |
-| `--n_classes` | 分类任务必填，且必须至少为 2。 |
+| `--task_type` | `regression` 或 `classification`。**可选** — 当存在 `{prefix}_{trait}_phenotype_info.json` 时自动推断；未找到 info 文件时默认 `regression`。 |
+| `--n_classes` | 仅在自动检测失败或不可用时为分类任务必填，必须至少为 2。 |
 
 推荐训练输入：
 
@@ -527,7 +562,10 @@ TOPSIS 排名输出：
 | `__init__.py` | 导出 `GenomicDataProcessor`。 |
 | `cli.py` | 转换模式 CLI 解析器与分发器，包含 QC、重编码和依赖检查。 |
 | `external.py` | 外部工具发现、路径解析、版本检查和命令执行辅助函数。 |
-| `processor.py` | 主转换处理器：VCF/PLINK 转换、SNP 提取、数值矩阵生成、表型清洗、样本匹配和表型标准化。 |
+| `genotype_matrix.py` | 基因型格式转换纯函数：VCF→PLINK BED、BED→PED/MAP、PED/MAP→数值 CSV 矩阵，以及批量 SNP 目录处理。 |
+| `phenotype.py` | 表型处理纯函数：表型文件转换、基因型-表型样本匹配、Z-score 标准化、标准化参数持久化，以及自动表型类型检测（回归/分类）。 |
+| `validators.py` | 数据校验工具：性状名验证、列名清洗（特殊字符检测/替换）、矩阵加载与摘要统计。 |
+| `processor.py` | 薄编排层（`GenomicDataProcessor`），协调上述子模块完成基因型转换、表型匹配和数据校验。 |
 | `qc.py` | PLINK/Beagle QC 工具：格式转换、基因型过滤、imputation、LD pruning 和 PED/MAP 数值重编码。 |
 
 ### `gpse/train/`
@@ -616,6 +654,16 @@ TOPSIS 排名输出：
 * `rich` & `loguru`（用于美观的 CLI 输出和日志）
 
 ## 📝 最近更新
+
+* **自动表型类型检测**（`2026-06-10`）
+  * 在 `gpse/convert/phenotype.py` 中新增 `detect_phenotype_type()` — 根据值分布自动将性状分类为 `regression` 或 `classification`：
+    * 二元性状（唯一值 ≤2）→ `classification`
+    * 字符串标签 → `classification`
+    * 整数编码且类别数 ≤20、每类样本 ≥5 → `classification`
+    * 连续数值 → `regression`
+  * `gpse convert` 现在会在输出基因型/表型文件的同时，生成 `{prefix}_{trait}_phenotype_info.json`。
+  * `gpse train` 自动读取 `phenotype_info.json` 来推断 `--task_type` 和 `--n_classes`，大多数场景下不再需要手动指定。
+  * 显式传入的 `--task_type` / `--n_classes` 仍会被尊重；若与自动检测结果冲突，将发出警告。
 
 * **线程控制与启动性能**（`2026-06-03`）
   * 在导入 numpy/scipy 之前设置 6 个环境变量，修复 BLAS/MKL 线程池忽略 `--n_jobs` 的问题。

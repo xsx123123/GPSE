@@ -72,11 +72,12 @@ GPSE uses a subcommand architecture: `gpse {convert,train,predict}`.
 Input                        Processing                     Output
 ─────                        ──────────                     ──────
                              Validate trait names            (abort on invalid names)
-samples.vcf            →  VCF → PLINK BED              →  {prefix}_genotype.{csv|parquet|feather}
-phenotype.txt/.csv     →  PED/MAP → numeric (0/1/2)    →  {prefix}_phenotype.csv
-                            SNP filtering                   {prefix}_phenotype_scaler.json
-                            Sample ID matching                 (only with --standardize-phenotype)
-                            Column name cleaning
+samples.vcf            →  VCF → PLINK BED              →  {prefix}_{trait}_genotype.{csv|parquet|feather}
+phenotype.txt/.csv     →  PED/MAP → numeric (0/1/2)    →  {prefix}_{trait}_phenotype.{ext}
+                            SNP filtering                   {prefix}_{trait}_phenotype_info.json
+                            Sample ID matching                 (auto-detected task type & n_classes)
+                            Phenotype type detection        {prefix}_{trait}_scaler.json
+                            Column name cleaning               (only with --standardize-phenotype)
                             Phenotype Z-score (optional)
 ```
 
@@ -101,8 +102,9 @@ gpse convert \
 ```
 
 Output files:
-- `data/train_genotype.parquet` — numeric matrix (rows=samples, columns=SNPs, values=0/1/2). Default format is **Parquet**; use `--out-format csv` or `--out-format feather` to switch. `feather` requires `pyarrow`.
-- `data/train_phenotype.csv` — cleaned, sample-matched phenotype (ID + trait value)
+- `data/train_{trait}_genotype.parquet` — numeric matrix (rows=samples, columns=SNPs, values=0/1/2). Default format is **Parquet**; use `--out-format csv` or `--out-format feather` to switch. `feather` requires `pyarrow`.
+- `data/train_{trait}_phenotype.csv` — cleaned, sample-matched phenotype (ID + trait value)
+- `data/train_{trait}_phenotype_info.json` — auto-detected task type (`regression`/`classification`), `n_classes`, sample count, and class distribution (when applicable)
 
 #### 1.2 VCF + Phenotype with Extra Chromosomes (Horticultural Crops)
 
@@ -157,7 +159,58 @@ gpse convert \
 
 #### 1.6 QC Filtering + LD Pruning + Imputation
 
-Genotype data often contains missing calls, low-quality SNPs, and redundant markers due to linkage disequilibrium (LD). `gpse convert --run-qc` performs three main tasks:
+Genotype data often contains missing calls, low-quality SNPs, and redundant markers due to linkage disequilibrium (LD). `gpse convert --run-qc` performs three main tasks.
+
+**Pipeline flow when `--run-qc --impute` is enabled:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              gpse convert pipeline                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  输入 VCF / BED / PED                                                        │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌─────────────────────────────────────┐                                    │
+│  │ Step 0: 格式统一化                   │  ← format_converter()              │
+│  │  VCF → BED (raw_prefix)              │                                    │
+│  └─────────────────────────────────────┘                                    │
+│       │                                                                      │
+│       ▼ (如果 --run-qc)                                                     │
+│  ┌─────────────────────────────────────┐                                    │
+│  │ Step 1: Imputation (可选)            │  ← impute_genotype_beagle()        │
+│  │  BED → VCF → Beagle → VCF.gz → BED   │   (需 --impute + beagle_jar_path)  │
+│  │  输出: {out}_qc_filled.bed           │                                    │
+│  └─────────────────────────────────────┘                                    │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌─────────────────────────────────────┐                                    │
+│  │ Step 2: QC 过滤                      │  ← PLINK --geno --mind --maf       │
+│  │  按缺失率、MAF 过滤                  │   (参数: snpmaxmiss, samplemaxmiss,│
+│  │  输出: {out}_qc.bed                  │          maf_max)                   │
+│  └─────────────────────────────────────┘                                    │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌─────────────────────────────────────┐                                    │
+│  │ Step 3: LD Pruning                   │  ← PLINK --indep-pairwise          │
+│  │  去除高度连锁的 SNP                  │   (参数: r2_cutoff)                 │
+│  │  输出: {out}_pruned.bed              │                                    │
+│  └─────────────────────────────────────┘                                    │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌─────────────────────────────────────┐                                    │
+│  │ Step 4: 转数值矩阵                   │  ← PLINK --recode compound-genotypes│
+│  │  BED → PED → .geno (0/1/2)          │    → recode_to_numeric()            │
+│  │  最终输出 Parquet/CSV                │                                    │
+│  └─────────────────────────────────────┘                                    │
+│       │                                                                      │
+│       ▼                                                                      │
+│  与 Phenotype 文件做样本匹配，输出最终文件集                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Execution order summary:** Format normalisation → Imputation (fills missing) → QC filtering (drops low-quality) → LD pruning (removes correlated SNPs) → Numeric matrix conversion → Phenotype matching.
+
+**Detail of each stage:**
 
 1. **Imputation (optional)** — fills missing genotypes with Beagle **before** strict filtering.
    - `--impute` triggers Beagle imputation using the JAR specified in `gpse.yaml` or via `--beagle-jar-path`.
@@ -246,7 +299,6 @@ gpse train \
     --geno_file data/train_genotype.csv \
     --pheno_file data/train_phenotype.csv \
     --target_trait Fruit_Weight \
-    --task_type regression \
     --n_splits 5 \
     --n_repeats 10 \
     --trials 50 \
@@ -257,6 +309,13 @@ gpse train \
     --results_dir output_results/
 ```
 
+> **💡 `--task_type` and `--n_classes` are now optional**
+>
+> When `gpse convert` has generated a `{prefix}_{trait}_phenotype_info.json`
+> file, `gpse train` reads it automatically and sets `--task_type` and
+> `--n_classes` for you. You only need to pass them explicitly when you want
+> to override the auto-detected values or when no info file is present.
+
 #### 2.2 One-Stop: Preprocessing + Training
 
 ```bash
@@ -266,7 +325,6 @@ gpse train \
     --vcf_file samples.vcf \
     --raw_pheno_file phenotype.txt \
     --target_trait Fruit_Weight \
-    --task_type regression \
     --n_splits 5 \
     --n_repeats 10 \
     --trials 50 \
@@ -292,13 +350,15 @@ gpse train \
     --geno_file genotype.csv \
     --pheno_file phenotype.csv \
     --target_trait Disease_Resistance \
-    --task_type classification \
-    --n_classes 3 \
     --n_splits 5 \
     --n_repeats 10 \
     --trials 50 \
     --results_dir classification_results/
 ```
+
+> When a `phenotype_info.json` file is available, `--task_type classification`
+> and `--n_classes 3` are inferred automatically. Explicit values override the
+> auto-detection and trigger a warning if they conflict.
 
 ### 3. Analyze Phenotypes
 
@@ -416,11 +476,12 @@ Genotype encoding:
 | Missing or unknown | `3` |
 
 When phenotype/genotype matching is enabled, GPSE writes the recommended
-training inputs:
+training inputs (one set per trait):
 
 ```text
-{out_prefix}_genotype.{csv|parquet|feather}
-{out_prefix}_phenotype.csv
+{out_prefix}_{trait}_genotype.{csv|parquet|feather}
+{out_prefix}_{trait}_phenotype.{csv|parquet|feather}
+{out_prefix}_{trait}_phenotype_info.json
 ```
 
 The matched phenotype file has this structure:
@@ -431,10 +492,31 @@ sample1,12.3
 sample2,9.8
 ```
 
+The `phenotype_info.json` file contains auto-detection metadata:
+
+```json
+{
+  "trait": "Fruit_Weight",
+  "task_type": "regression",
+  "n_classes": null,
+  "reason": "continuous numeric values",
+  "n_samples": 500,
+  "mean": 12.34,
+  "std": 3.56
+}
+```
+
+GPSE automatically detects whether each trait is better treated as **regression**
+(continuous) or **classification** (discrete) by inspecting the phenotype values.
+Binary and integer-encoded traits with ≤20 classes are classified as
+`classification`; all other numeric traits are `regression`. This metadata is
+consumed by `gpse train` so you no longer need to manually pass `--task_type`
+and `--n_classes` in most cases.
+
 If `--standardize-phenotype` is enabled, GPSE also writes:
 
 ```text
-{out_prefix}_phenotype_scaler.json
+{out_prefix}_{trait}_scaler.json
 ```
 
 QC mode (`--run-qc`) writes PLINK-format prefixes:
@@ -463,8 +545,8 @@ prefix.geno
 | `--geno_file` | CSV genotype matrix with an `ID` column. If `ID` is absent, GPSE tries `--cv_id_column`. |
 | `--pheno_file` | CSV phenotype table with the same ID column as the genotype file. |
 | `--target_trait` | Target trait column name in the phenotype table. |
-| `--task_type` | `regression` or `classification`; defaults to `regression`. |
-| `--n_classes` | Required for `classification`, must be at least 2. |
+| `--task_type` | `regression` or `classification`. **Optional** — auto-inferred from `{prefix}_{trait}_phenotype_info.json` when omitted. Defaults to `regression` when no info file is found. |
+| `--n_classes` | Required for `classification` when auto-detection fails or is unavailable. Must be at least 2. |
 
 Recommended training input:
 
@@ -594,7 +676,7 @@ and external tool execution.
 | `cli.py` | CLI parser and dispatcher for conversion modes such as full conversion, QC, recoding, and dependency checks. |
 | `external.py` | External-tool discovery, configured path resolution, version checks, and command execution helpers. |
 | `genotype_matrix.py` | Pure functions for genotype format conversion: VCF→PLINK BED, BED→PED/MAP, PED/MAP→numeric CSV matrix, and batch SNP directory processing. |
-| `phenotype.py` | Pure functions for phenotype file conversion, genotype-phenotype sample matching, z-score standardization, and scaler parameter persistence. |
+| `phenotype.py` | Pure functions for phenotype file conversion, genotype-phenotype sample matching, z-score standardization, scaler parameter persistence, and automatic phenotype type detection (regression vs classification). |
 | `validators.py` | Data validation utilities: trait name validation, column-name sanitization (special character detection/cleaning), and matrix loading with summary statistics. |
 | `processor.py` | Thin orchestrator (`GenomicDataProcessor`) that coordinates genotype conversion, phenotype matching, and data validation by delegating to the specialised sub-modules above. |
 | `qc.py` | PLINK/Beagle QC utilities: format conversion, genotype filtering, imputation, LD pruning, and PED/MAP numeric recoding. |
@@ -690,6 +772,16 @@ live in the corresponding workflow package.
 * `rich` & `loguru` (for beautiful CLI output and logging)
 
 ## 📝 Recent Updates
+
+* **Automatic Phenotype Type Detection** (`2026-06-10`)
+  * Added `detect_phenotype_type()` in `gpse/convert/phenotype.py` — automatically classifies each trait as `regression` or `classification` based on value distribution.
+    * Binary traits (≤2 unique values) → `classification`
+    * String labels → `classification`
+    * Integer-encoded traits with ≤20 classes and ≥5 samples per class → `classification`
+    * Continuous numeric values → `regression`
+  * `gpse convert` now writes `{prefix}_{trait}_phenotype_info.json` alongside genotype/phenotype outputs.
+  * `gpse train` automatically reads `phenotype_info.json` to infer `--task_type` and `--n_classes`, eliminating the need for manual specification in most workflows.
+  * Explicit `--task_type` / `--n_classes` values are still respected; a warning is emitted when they conflict with the auto-detected type.
 
 * **Convert Module Refactor & Trait Name Validation** (`2026-06-08`)
   * Split the monolithic `processor.py` into focused sub-modules under `gpse/convert/`:
