@@ -30,6 +30,55 @@ except ImportError:  # pragma: no cover
     RichHelpFormatter = argparse.HelpFormatter
 
 
+def _try_infer_task_type(geno_file, pheno_file, target_trait, preprocess_prefix,
+                         enable_preprocess):
+    """Try to infer task_type and n_classes from a phenotype_info.json file.
+
+    Returns
+    -------
+    tuple[str | None, int | None, str | None]
+        (task_type, n_classes, info_file_path) — all ``None`` when no info file
+        is found or it cannot be parsed.
+    """
+    import json
+    import re
+
+    candidates = []
+
+    if enable_preprocess and preprocess_prefix and target_trait:
+        safe_trait = re.sub(r'[^\w\-]', '_', target_trait)
+        candidates.append(f"{preprocess_prefix}_{safe_trait}_phenotype_info.json")
+
+    if pheno_file:
+        base = os.path.splitext(pheno_file)[0]
+        candidates.append(f"{base}_info.json")
+        # e.g. .../yield_phenotype.csv -> .../yield_phenotype_info.json
+        candidates.append(base.replace('_phenotype', '_phenotype_info') + '.json')
+
+    if geno_file:
+        base = os.path.splitext(geno_file)[0]
+        # e.g. .../yield_genotype.csv -> .../yield_phenotype_info.json
+        candidates.append(base.replace('_genotype', '_phenotype_info') + '.json')
+
+    seen = set()
+    for path in candidates:
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    info = json.load(f)
+                task_type = info.get('task_type')
+                n_classes = info.get('n_classes')
+                if task_type in ('regression', 'classification'):
+                    return task_type, n_classes, path
+            except Exception:
+                continue
+
+    return None, None, None
+
+
 def main(
     argv: list[str] | None = None,
     *,
@@ -168,6 +217,47 @@ def main(
         return 1
     if not os.path.exists(processed_pheno_file):
         main_logger.error(f"Phenotype file not found: {processed_pheno_file}")
+        return 1
+
+    # ---- Auto-detect task_type from phenotype_info.json ----
+    task_type_explicit = any(
+        arg == '--task_type' or arg.startswith('--task_type=')
+        for arg in raw_args
+    )
+
+    inferred_task, inferred_n_classes, info_path = _try_infer_task_type(
+        processed_geno_file,
+        processed_pheno_file,
+        args.target_trait,
+        args.preprocess_prefix,
+        args.enable_preprocess,
+    )
+
+    if inferred_task:
+        if not task_type_explicit:
+            main_logger.info(
+                f"Auto-detected task type from {os.path.basename(info_path)}: "
+                f"{inferred_task}"
+                + (f" (n_classes={inferred_n_classes})" if inferred_n_classes else "")
+            )
+            args.task_type = inferred_task
+            if inferred_n_classes is not None:
+                args.n_classes = inferred_n_classes
+        elif args.task_type != inferred_task:
+            main_logger.warning(
+                f"User specified --task_type={args.task_type}, but "
+                f"{os.path.basename(info_path)} suggests {inferred_task}. "
+                f"Using user-specified value."
+            )
+
+    if args.task_type == "classification" and args.n_classes is None:
+        main_logger.error(
+            "Classification tasks require the --n_classes argument "
+            "(auto-detection failed)"
+        )
+        return 1
+    if args.task_type == "classification" and args.n_classes < 2:
+        main_logger.error("--n_classes must be >= 2 for classification")
         return 1
 
     _log_stage("Starting model training")

@@ -37,6 +37,8 @@ from gpse.convert.phenotype import (
     match_genotype_phenotype as _match_genotype_phenotype,
     standardize_phenotype as _standardize_phenotype,
     save_scaler_params,
+    detect_phenotype_type,
+    save_phenotype_info,
 )
 from gpse.convert.validators import (
     check_special_chars as _check_special_chars,
@@ -378,6 +380,24 @@ class GenomicDataProcessor:
         else:
             _write_large_csv(geno_filtered, final_geno_file, logger=self.logger)
         self.logger.info("Genotype matrix written successfully.")
+
+        # --- Detect phenotype type ---
+        actual_trait_col = pheno_filtered.columns[1]
+        task_type, n_classes, type_info = detect_phenotype_type(
+            pheno_filtered[actual_trait_col]
+        )
+        info = {
+            "trait": trait,
+            "task_type": task_type,
+            "n_classes": n_classes,
+            **type_info,
+        }
+        info_file = f"{out_prefix}_{safe_trait}_phenotype_info.json"
+        save_phenotype_info(info, info_file, logger=self.logger)
+        self.logger.info(
+            f"  Detected type: {task_type}"
+            + (f", classes: {n_classes}" if n_classes else "")
+        )
 
         self.logger.info(f"Trait '{trait}' completed:")
         self.logger.info(f"  Phenotype: {os.path.basename(final_pheno_file)}")

@@ -239,3 +239,119 @@ def save_scaler_params(scaler_params, scaler_file, *, logger=None):
     with open(scaler_file, 'w') as f:
         json.dump(scaler_params, f, indent=2)
     log.info(f"Phenotype scaler parameters saved to: {scaler_file}")
+
+
+def detect_phenotype_type(series, max_classes=20, min_samples_per_class=5):
+    """Automatically detect whether a phenotype is regression or classification.
+
+    Parameters
+    ----------
+    series : pandas.Series
+        The phenotype column to analyse (after dropping NA values).
+    max_classes : int, default 20
+        Maximum number of unique values allowed for a classification trait.
+    min_samples_per_class : int, default 5
+        Minimum samples required in each class for a valid classification trait.
+
+    Returns
+    -------
+    tuple[str, int | None, dict]
+        (task_type, n_classes, info_dict)
+        * task_type -- ``"regression"`` or ``"classification"``
+        * n_classes -- number of classes (``None`` for regression)
+        * info_dict -- extra metadata (class distribution, reason, stats, ...)
+    """
+    s = series.dropna()
+    n_total = len(s)
+
+    if n_total == 0:
+        return "regression", None, {"error": "all values are NA"}
+
+    # Try numeric conversion
+    numeric_s = pd.to_numeric(s, errors='coerce')
+
+    # Case 1: contains non-numeric (string) labels -> classification
+    if numeric_s.isna().any():
+        n_unique = int(s.nunique())
+        value_counts = s.value_counts().to_dict()
+        # JSON-safe keys
+        value_counts = {str(k): int(v) for k, v in value_counts.items()}
+        return (
+            "classification",
+            n_unique,
+            {
+                "reason": "contains non-numeric values",
+                "n_samples": n_total,
+                "class_distribution": value_counts,
+            },
+        )
+
+    # Case 2: all values are numeric
+    n_unique = int(numeric_s.nunique())
+
+    # Binary (<=2 unique values) -> always classification
+    if n_unique <= 2:
+        value_counts = numeric_s.value_counts().to_dict()
+        value_counts = {str(k): int(v) for k, v in value_counts.items()}
+        return (
+            "classification",
+            n_unique,
+            {
+                "reason": "binary values",
+                "n_samples": n_total,
+                "class_distribution": value_counts,
+            },
+        )
+
+    # Multi-class: unique values <= max_classes AND all integer-like
+    if n_unique <= max_classes:
+        is_integer_like = numeric_s.apply(
+            lambda x: abs(float(x) - round(float(x))) < 1e-10
+        ).all()
+        if is_integer_like:
+            value_counts = numeric_s.value_counts().to_dict()
+            value_counts = {str(k): int(v) for k, v in value_counts.items()}
+            min_count = min(value_counts.values())
+            if min_count >= min_samples_per_class:
+                return (
+                    "classification",
+                    n_unique,
+                    {
+                        "reason": "integer-encoded with sufficient samples per class",
+                        "n_samples": n_total,
+                        "class_distribution": value_counts,
+                    },
+                )
+
+    # Case 3: continuous / too many unique values -> regression
+    return (
+        "regression",
+        None,
+        {
+            "reason": "continuous numeric values",
+            "n_samples": n_total,
+            "n_unique": n_unique,
+            "mean": float(numeric_s.mean()),
+            "std": float(numeric_s.std()),
+            "min": float(numeric_s.min()),
+            "max": float(numeric_s.max()),
+        },
+    )
+
+
+def save_phenotype_info(info, info_file, *, logger=None):
+    """Persist phenotype type-detection metadata to a JSON file.
+
+    Parameters
+    ----------
+    info : dict
+        Detection result (as returned by :func:`detect_phenotype_type`).
+    info_file : str
+        Destination JSON path.
+    logger
+        Logger instance.
+    """
+    log = logger or _default_logger
+    with open(info_file, 'w') as f:
+        json.dump(info, f, indent=2, ensure_ascii=False)
+    log.info(f"Phenotype info saved to: {info_file}")
