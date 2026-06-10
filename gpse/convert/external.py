@@ -147,9 +147,10 @@ def _compress_stdout(lines: list[str]) -> list[str]:
 
     Rules:
       1. ``--vcf: Nk variants complete.``  — keep every 10 k plus the first.
-      2. Lines with many percentages + "done"  — clean and keep prefix.
-      3. Standalone ``N%`` fragments       — drop entirely.
-      4. Lines with many inline percentages — strip the percentage run, keep the prefix.
+      2. Glued-together VCF progress lines  — drop entirely.
+      3. Lines with many percentages + "done"  — clean and keep prefix.
+      4. Standalone ``N%`` fragments       — drop entirely.
+      5. Lines with many inline percentages — strip the percentage run, keep the prefix.
     """
     out: list[str] = []
     vcf_seen = 0
@@ -168,21 +169,25 @@ def _compress_stdout(lines: list[str]) -> list[str]:
                 out.append(line)
             continue
 
-        # 2. Strip inline progress-bar completion with "done" (with or without space, with or without dot)
+        # 2. Drop glued-together VCF progress lines (multiple --vcf: messages in one line)
+        if "--vcf:" in line:
+            continue
+
+        # 3. Strip inline progress-bar completion with "done" (with or without space, with or without dot)
         if re.search(r"(?:\d+%){3,}.*done\.?$", line):
             cleaned = re.sub(r"\s*(?:\d+%){3,}.*done\.?$", "", line).strip()
             if cleaned:
                 out.append(cleaned)
             continue
 
-        # 3. Drop \r-split progress fragments (e.g. standalone "1%", "2%" ...).
+        # 4. Drop \r-split progress fragments (e.g. standalone "1%", "2%" ...).
         if re.fullmatch(r"\d+%", line):
             continue
 
-        # 4. Strip many inline percentages (PLINK progress bars without "done").
+        # 5. Strip many inline percentages (PLINK progress bars without "done").
         #    Keep the meaningful prefix.
-        if re.search(r"(?:\d+%){5,}", line):
-            cleaned = re.sub(r"\s*(?:\d+%){5,}.*", "", line).strip()
+        if re.search(r"(?:\d+%){3,}", line):
+            cleaned = re.sub(r"\s*(?:\d+%){3,}.*", "", line).strip()
             if cleaned:
                 out.append(cleaned)
             continue
