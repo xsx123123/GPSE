@@ -19,9 +19,9 @@ import os
 from typing import Dict, Tuple, Optional, List
 
 try:
-    from gpse.convert.external import ensure_existing_file, resolve_configured_tool, run_command
+    from gpse.convert.external import ensure_existing_file, resolve_configured_tool, run_command, ensure_log_dir
 except ImportError:  # pragma: no cover - allows direct script execution
-    from external import ensure_existing_file, resolve_configured_tool, run_command
+    from external import ensure_existing_file, resolve_configured_tool, run_command, ensure_log_dir
 
 try:
     from gpse.utils.log_utils import logger as gpse_logger
@@ -130,29 +130,30 @@ def format_converter(user_params: Dict, input_prefix: str, output_prefix: str) -
     config_ctx = _config_context(user_params)
     plink_path = _check_tool_path(user_params.get('plink_path', 'plink'), **config_ctx)
     allow_extra_chr = user_params.get('allow_extra_chr', False)
+    log_dir = ensure_log_dir(output_prefix)
     
     # Infer input format from available files.
     if os.path.exists(input_prefix + '.vcf') or os.path.exists(input_prefix + '.vcf.gz'):
-        logger.info("Detected VCF format. Converting to BED...")
+        logger.info("[Step 1/5] Format conversion: VCF → PLINK BED")
         vcf_file = input_prefix + '.vcf' if os.path.exists(input_prefix + '.vcf') else input_prefix + '.vcf.gz'
         cmd = [plink_path, '--vcf', vcf_file, '--make-bed', '--out', output_prefix]
         # Preserve VCF IDs and allow non-standard chromosome names.
         cmd.extend(['--const-fid'])
         if allow_extra_chr:
             cmd.append('--allow-extra-chr')
-        _run_command(cmd, output_prefix + '.log')
+        _run_command(cmd, os.path.join(log_dir, f"{os.path.basename(output_prefix)}_format.log"))
         return '--bfile'
         
     elif os.path.exists(input_prefix + '.ped') and os.path.exists(input_prefix + '.map'):
-        logger.info("Detected PED/MAP format. Converting to BED...")
+        logger.info("[Step 1/5] Format conversion: PED/MAP → PLINK BED")
         cmd = [plink_path, '--file', input_prefix, '--make-bed', '--out', output_prefix]
         if allow_extra_chr:
             cmd.append('--allow-extra-chr')
-        _run_command(cmd, output_prefix + '.log')
+        _run_command(cmd, os.path.join(log_dir, f"{os.path.basename(output_prefix)}_format.log"))
         return '--bfile'
         
     elif os.path.exists(input_prefix + '.bed') and os.path.exists(input_prefix + '.bim') and os.path.exists(input_prefix + '.fam'):
-        logger.info("Detected BED/BIM/FAM format.")
+        logger.info("[Step 1/5] Format conversion: BED/BIM/FAM already in PLINK binary format")
         return '--bfile'
     
     else:
@@ -214,6 +215,7 @@ def impute_genotype_beagle(user_params: Dict, input_prefix: str, output_prefix: 
         **config_ctx,
     )
     allow_extra_chr = user_params.get('allow_extra_chr', False)
+    log_dir = ensure_log_dir(output_prefix)
     
     # 0. Pre-filter: Beagle fails if any variant has a missing allele (REF/ALT is '0' in bim)
     # We must exclude these variants before converting to VCF.
@@ -230,6 +232,7 @@ def impute_genotype_beagle(user_params: Dict, input_prefix: str, output_prefix: 
     
     clean_input_prefix = input_prefix
     if exclude_list:
+        logger.info("[Step 2/5] Imputation: pre-filtering variants with missing alleles")
         exclude_file = output_prefix + '_bad_alleles_for_beagle.txt'
         with open(exclude_file, 'w') as f:
             f.write('\n'.join(exclude_list))
@@ -246,30 +249,28 @@ def impute_genotype_beagle(user_params: Dict, input_prefix: str, output_prefix: 
         ]
         if allow_extra_chr:
             cmd_clean.append('--allow-extra-chr')
-        _run_command(cmd_clean, output_prefix + '.log')
+        _run_command(cmd_clean, os.path.join(log_dir, "impute_prefilter.log"))
 
     # 1. PLINK BED -> VCF
-    logger.info("Converting BED to VCF for Beagle...")
+    logger.info("[Step 2/5] Imputation: converting BED → VCF for Beagle")
     vcf_temp = clean_input_prefix + '_temp_for_beagle'
     cmd_to_vcf = [plink_path, '--bfile', clean_input_prefix, '--recode', 'vcf', '--out', vcf_temp]
     if allow_extra_chr:
         cmd_to_vcf.append('--allow-extra-chr')
-    _run_command(cmd_to_vcf, output_prefix + '.log')
+    _run_command(cmd_to_vcf, os.path.join(log_dir, "impute_bed_to_vcf.log"))
     
     # 2. Run Beagle
-    # Beagle output is usually prefix.vcf.gz
-    logger.info("Running Beagle imputation...")
+    logger.info("[Step 2/5] Imputation: running Beagle genotype imputation")
     out_beagle = output_prefix + '_imputed'
-    # Beagle 5.x syntax: gt=input.vcf out=output_prefix
     cmd_beagle = [java_path, '-jar', beagle_jar, f'gt={vcf_temp}.vcf', f'out={out_beagle}']
     n_threads = user_params.get('threads')
     if n_threads is not None and n_threads > 0:
         cmd_beagle.append(f'nthreads={n_threads}')
         logger.info(f"Beagle imputation using {n_threads} thread(s)")
-    _run_command(cmd_beagle, output_prefix + '.log')
+    _run_command(cmd_beagle, os.path.join(log_dir, "impute_beagle.log"))
 
     # 3. VCF (Imputed) -> PLINK BED
-    logger.info("Converting Imputed VCF back to BED...")
+    logger.info("[Step 2/5] Imputation: converting imputed VCF → BED")
     imputed_vcf = out_beagle + '.vcf.gz'
     if not os.path.exists(imputed_vcf):
          # Fall back to a plain VCF suffix.
@@ -280,7 +281,7 @@ def impute_genotype_beagle(user_params: Dict, input_prefix: str, output_prefix: 
     cmd_to_bed = [plink_path, '--vcf', imputed_vcf, '--make-bed', '--out', output_prefix, '--const-fid']
     if allow_extra_chr:
         cmd_to_bed.append('--allow-extra-chr')
-    _run_command(cmd_to_bed, output_prefix + '.log')
+    _run_command(cmd_to_bed, os.path.join(log_dir, "impute_vcf_to_bed.log"))
 
     # Clean temporary files.
     try:
@@ -295,11 +296,18 @@ def impute_genotype_beagle(user_params: Dict, input_prefix: str, output_prefix: 
         pass
 
 
-def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str, 
+def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
                      run_imputation: bool = False) -> Tuple[str, str]:
     """
     Run genotype QC filters and LD pruning.
-    
+
+    Pipeline steps (logged with prefixes):
+      1. Format conversion (VCF/PED → PLINK BED)
+      2. Imputation / missingness filling (optional)
+      3. QC filtering (--geno, --mind, --maf)
+      4. LD pruning: calculate independent SNPs
+      5. LD pruning: extract pruned set
+
     Args:
         user_params: User parameter dictionary.
         input_prefix: Input file prefix.
@@ -309,12 +317,14 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
     Returns:
         Tuple of ``(qc_filled_prefix, pruned_prefix)``.
     """
-    # 0. Normalize input format to PLINK BED.
+    log_dir = ensure_log_dir(output_prefix)
+
+    # Step 1. Normalize input format to PLINK BED.
     raw_prefix = output_prefix + "_raw"
     current_flag = format_converter(user_params, input_prefix, raw_prefix)
     if current_flag != '--bfile':
         raise ValueError(f"QC pipeline requires PLINK bfile input after conversion, got: {current_flag}")
-    
+
     if all(os.path.exists(raw_prefix + suffix) for suffix in ('.bed', '.bim', '.fam')):
         bed_prefix = raw_prefix
     else:
@@ -328,56 +338,54 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
     plink_path = _check_tool_path(user_params.get('plink_path', 'plink'), **config_ctx)
     allow_extra_chr = user_params.get('allow_extra_chr', False)
 
-    # 1. Handle Imputation / Missingness Filling FIRST if requested
+    # Step 2. Handle Imputation / Missingness Filling FIRST if requested
     # This avoids "All people removed" errors when initial missingness is high.
     qc_filled_prefix = output_prefix + '_qc_filled'
-    
+
     if run_imputation and user_params.get('beagle_jar_path'):
-        logger.info("Running Beagle imputation (pre-filtering)...")
         impute_genotype_beagle(user_params, bed_prefix, qc_filled_prefix)
     elif run_imputation:
-        logger.warning("Beagle imputation requested but beagle_jar_path is not configured. Falling back to PLINK filling.")
-        logger.info("Running simple PLINK filling...")
+        logger.warning("[Step 2/5] Beagle imputation requested but beagle_jar_path is not configured. Falling back to PLINK filling.")
+        logger.info("[Step 2/5] Running simple PLINK filling...")
         cmd_fill = [
-            plink_path, 
-            '--bfile', bed_prefix, 
+            plink_path,
+            '--bfile', bed_prefix,
             '--out', qc_filled_prefix,
-            '--make-bed', 
+            '--make-bed',
             '--fill-missing-a2'
         ]
         if allow_extra_chr:
             cmd_fill.append('--allow-extra-chr')
-        _run_command(cmd_fill, output_prefix + '_qc.log')
+        _run_command(cmd_fill, os.path.join(log_dir, "plink_filling.log"))
     else:
         # No imputation requested, we'll use bed_prefix for the next step.
         qc_filled_prefix = bed_prefix
 
-    # 2. Basic QC statistics and filtering (Strict).
+    # Step 3. Basic QC statistics and filtering (Strict).
     # If imputed, this will filter low MAF variants.
     # If not imputed, this will filter based on missingness and MAF.
     qc_prefix = output_prefix + '_qc'
-    logger.info("Running QC filtering (missingness, MAF)...")
+    logger.info("[Step 3/5] QC filtering: applying --geno, --mind, --maf thresholds")
     cmd_qc = [
-        plink_path, 
+        plink_path,
         '--bfile', qc_filled_prefix,
         '--out', qc_prefix,
         '--make-bed',
         '--geno', str(snp_miss),
         '--mind', str(sample_miss),
         '--maf', str(maf),
-        '--freq', 
+        '--freq',
         '--missing'
     ]
     if allow_extra_chr:
         cmd_qc.append('--allow-extra-chr')
-    _run_command(cmd_qc, output_prefix + '_qc.log')
+    _run_command(cmd_qc, os.path.join(log_dir, "qc_filtering.log"))
 
     # Update qc_filled_prefix to point to the filtered result for LD pruning.
     qc_final_prefix = qc_prefix
 
-    # 3. LD pruning.
-    # First calculate the list of SNPs to keep (.prune.in).
-    logger.info("Calculating LD for pruning...")
+    # Step 4. LD pruning: calculate independent SNPs.
+    logger.info("[Step 4/5] LD pruning: calculating independent SNPs (--indep-pairwise)")
     cmd_indep = [
         plink_path,
         '--bfile', qc_final_prefix,
@@ -386,11 +394,11 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
     ]
     if allow_extra_chr:
         cmd_indep.append('--allow-extra-chr')
-    _run_command(cmd_indep, output_prefix + '_qc.log')
+    _run_command(cmd_indep, os.path.join(log_dir, "ld_prune_indep.log"))
 
-    # Then extract pruned SNPs.
+    # Step 5. LD pruning: extract pruned SNPs.
     pruned_prefix = output_prefix + '_pruned'
-    logger.info("Extracting pruned SNPs...")
+    logger.info("[Step 5/5] LD pruning: extracting pruned SNPs")
     cmd_extract = [
         plink_path,
         '--bfile', qc_final_prefix,
@@ -400,6 +408,11 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
     ]
     if allow_extra_chr:
         cmd_extract.append('--allow-extra-chr')
-    _run_command(cmd_extract, output_prefix + '_qc.log')
+    _run_command(cmd_extract, os.path.join(log_dir, "ld_prune_extract.log"))
+
+    logger.info("QC pipeline completed. Outputs:")
+    logger.info(f"  QC-filtered: {qc_final_prefix}.bed/bim/fam")
+    logger.info(f"  LD-pruned:   {pruned_prefix}.bed/bim/fam")
+    logger.info(f"  Logs:        {log_dir}/")
 
     return qc_final_prefix, pruned_prefix

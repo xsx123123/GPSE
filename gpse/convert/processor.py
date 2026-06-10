@@ -440,16 +440,17 @@ class GenomicDataProcessor:
         pheno_file = kwargs.get('pheno', '')
         allow_extra_chr = kwargs.get('allow_extra_chr', False)
 
-        self.logger.info(f"Output directory : {abs_out_dir}")
-        self.logger.info(f"Output prefix    : {base_name}")
-        self.logger.info(f"Output format    : {out_format}")
-        self.logger.info(f"Threads          : {threads}")
+        self.logger.info(f"[Stage 1/4] Input validation & configuration")
+        self.logger.info(f"  Output directory : {abs_out_dir}")
+        self.logger.info(f"  Output prefix    : {base_name}")
+        self.logger.info(f"  Output format    : {out_format}")
+        self.logger.info(f"  Threads          : {threads}")
         if vcf_file:
-            self.logger.info(f"VCF file         : {vcf_file}")
+            self.logger.info(f"  VCF file         : {vcf_file}")
         if pheno_file:
-            self.logger.info(f"Phenotype file   : {pheno_file}")
+            self.logger.info(f"  Phenotype file   : {pheno_file}")
         if allow_extra_chr:
-            self.logger.info(f"Allow extra chr  : {allow_extra_chr}")
+            self.logger.info(f"  Allow extra chr  : {allow_extra_chr}")
 
         try:
             # ── Step 0: Early trait name validation ──
@@ -487,7 +488,8 @@ class GenomicDataProcessor:
                     self.logger.error("Aborting due to insufficient sample overlap.")
                     return 1
 
-            # ── Step 1: SNP extraction / matrix conversion ──
+            # ── Stage 2: Genotype format conversion & optional QC ──
+            self.logger.info("[Stage 2/4] Genotype format conversion & optional QC/LD pruning")
             geno_matrix_file = None
 
             if kwargs.get('matrix_file'):
@@ -615,13 +617,13 @@ class GenomicDataProcessor:
                     if not os.path.exists(geno_matrix_file):
                         raise FileNotFoundError(f"Genotype matrix file not found: {geno_matrix_file}")
 
-            # ── Step 2: phenotype/genotype matching, cleanup, standardization ──
+            # ── Stage 3: phenotype/genotype matching, cleanup, standardization ──
             final_pheno_file = None
             final_geno_file = None
             scaler_params = None
 
             if not kwargs.get('skip_match') and kwargs.get('pheno') and geno_matrix_file:
-                self.logger.info("\nStarting integrated data processing: matching, cleanup, and standardization")
+                self.logger.info("[Stage 3/4] Phenotype/genotype matching, cleanup, and standardization")
                 self.logger.info("Expected output file structure (one set per trait):")
                 self.logger.info(f"  {{prefix}}_{{trait}}_genotype.{{ext}}   — numeric genotype matrix (ext = csv/parquet/feather)")
                 self.logger.info(f"  {{prefix}}_{{trait}}_phenotype.{{ext}}  — matched phenotype data (same ext as genotype)")
@@ -709,7 +711,7 @@ class GenomicDataProcessor:
                 elif not geno_matrix_file:
                     self.logger.warning("No genotype matrix available; skipping phenotype/genotype matching")
 
-            self.logger.info("\nProcessing workflow completed")
+            self.logger.info("[Stage 4/4] Processing workflow completed")
 
         except ValueError as e:
             self.logger.error(str(e))

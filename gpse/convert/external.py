@@ -20,6 +20,17 @@ from gpse.utils.configuration import load_software_config
 from gpse.utils.dependency_checker import check_all_external_tools, check_external_tool
 
 
+def ensure_log_dir(output_prefix: str) -> str:
+    """Return a dedicated ``log/`` subdirectory next to the output prefix.
+
+    Creates the directory if it does not exist.
+    """
+    base_dir = os.path.dirname(output_prefix) or "."
+    log_dir = os.path.join(base_dir, "log")
+    os.makedirs(log_dir, exist_ok=True)
+    return log_dir
+
+
 def _load_external_tools(
     config_path: Optional[str] = None,
     *,

@@ -12,7 +12,7 @@ import os
 import glob
 from datetime import datetime
 
-from gpse.convert.external import resolve_configured_tool, run_command
+from gpse.convert.external import resolve_configured_tool, run_command, ensure_log_dir
 
 try:
     from gpse.utils.log_utils import logger as _default_logger
@@ -40,14 +40,23 @@ def _resolve_plink(plink_path, config_path=None, auto_project_config=False):
 
 
 def _timestamp_plink_log(out_prefix, logger=None):
-    """Rename PLINK's auto-generated ``<prefix>.log`` to include a timestamp."""
+    """Move PLINK's auto-generated ``<prefix>.log`` into the ``log/`` sub-directory.
+
+    If a log with the same destination name already exists, a timestamp is
+    appended to avoid collisions.
+    """
     log_path = f"{out_prefix}.log"
-    if os.path.exists(log_path):
+    if not os.path.exists(log_path):
+        return
+    log_dir = ensure_log_dir(out_prefix)
+    base_name = os.path.basename(out_prefix)
+    dest = os.path.join(log_dir, f"{base_name}.log")
+    if os.path.exists(dest):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        new_log_path = f"{out_prefix}_{timestamp}.log"
-        os.rename(log_path, new_log_path)
-        if logger is not None:
-            logger.info(f"PLINK log saved to: {new_log_path}")
+        dest = os.path.join(log_dir, f"{base_name}_{timestamp}.log")
+    os.rename(log_path, dest)
+    if logger is not None:
+        logger.info(f"PLINK log moved to: {dest}")
 
 
 # ---------------------------------------------------------------------------
