@@ -19,9 +19,9 @@ import os
 from typing import Dict, Tuple, Optional, List
 
 try:
-    from gpse.convert.external import ensure_existing_file, resolve_configured_tool, run_command, ensure_log_dir
+    from gpse.convert.external import ensure_existing_file, resolve_configured_tool, run_command, ensure_log_dir, _log_bfile_stats
 except ImportError:  # pragma: no cover - allows direct script execution
-    from external import ensure_existing_file, resolve_configured_tool, run_command, ensure_log_dir
+    from external import ensure_existing_file, resolve_configured_tool, run_command, ensure_log_dir, _log_bfile_stats
 
 try:
     from gpse.utils.log_utils import logger as gpse_logger
@@ -282,6 +282,7 @@ def impute_genotype_beagle(user_params: Dict, input_prefix: str, output_prefix: 
     if allow_extra_chr:
         cmd_to_bed.append('--allow-extra-chr')
     _run_command(cmd_to_bed, os.path.join(log_dir, "impute_vcf_to_bed.log"))
+    _log_bfile_stats(output_prefix, "Beagle imputation", logger)
 
     # Clean temporary files.
     try:

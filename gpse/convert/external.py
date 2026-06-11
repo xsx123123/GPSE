@@ -222,6 +222,44 @@ def _is_plink_cmd(cmd_args: list[str]) -> bool:
     return "plink" in os.path.basename(cmd_args[0]).lower()
 
 
+def _extract_plink_out_prefix(cmd_args: list[str]) -> str | None:
+    """Extract the --out prefix from a PLINK command line."""
+    try:
+        out_idx = cmd_args.index("--out")
+        return cmd_args[out_idx + 1]
+    except (ValueError, IndexError):
+        return None
+
+
+def _log_bfile_stats(prefix: str, label: str, logger) -> None:
+    """Log variant and sample counts for a PLINK binary prefix.
+
+    Numbers are highlighted with ANSI bold-cyan so the Rich sink renders
+    them prominently.
+    """
+    if not prefix:
+        return
+    bim_path = prefix + ".bim"
+    fam_path = prefix + ".fam"
+    if not os.path.isfile(bim_path) or not os.path.isfile(fam_path):
+        return
+
+    try:
+        with open(bim_path, "r") as f:
+            n_variants = sum(1 for _ in f)
+        with open(fam_path, "r") as f:
+            n_samples = sum(1 for _ in f)
+    except OSError:
+        return
+
+    cyan = "\033[1;36m"
+    reset = "\033[0m"
+    logger.info(
+        f"{label} — Variants: {cyan}{n_variants:,}{reset}, "
+        f"Samples: {cyan}{n_samples:,}{reset}"
+    )
+
+
 def _plink_chr_error_hint(cmd_args: list[str], logger) -> None:
     """When a PLINK command fails, check its log for chromosome-name errors
     and suggest ``--allow-extra-chr`` if applicable."""
@@ -316,6 +354,10 @@ def run_command(
                 _plink_qc_error_hint(exc, logger)
                 _beagle_qc_error_hint(exc, logger)
             raise
+        if logger is not None and _is_plink_cmd(cmd_args):
+            out_prefix = _extract_plink_out_prefix(cmd_args)
+            if out_prefix:
+                _log_bfile_stats(out_prefix, "PLINK", logger)
     else:
         # When a logger is available but no dedicated log file is requested,
         # capture the subprocess output and stream it through the logger so
@@ -350,5 +392,9 @@ def run_command(
                 raw_err_lines = re.split(r'[\r\n]+', stderr_text.strip())
                 for line in _compress_stdout(raw_err_lines):
                     logger.warning(f"[stderr] {line}")
+            if _is_plink_cmd(cmd_args):
+                out_prefix = _extract_plink_out_prefix(cmd_args)
+                if out_prefix:
+                    _log_bfile_stats(out_prefix, "PLINK", logger)
         else:
             subprocess.run(cmd_args, check=True)
