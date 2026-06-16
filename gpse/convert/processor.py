@@ -558,6 +558,8 @@ class GenomicDataProcessor:
                             "samplemaxmiss": kwargs.get('samplemaxmiss', 0.1),
                             "maf_max": kwargs.get('maf', 0.05),
                             "r2_cutoff": kwargs.get('r2_cutoff', 0.2),
+                            "ld_window": kwargs.get('ld_window', 50),
+                            "ld_step": kwargs.get('ld_step', 10),
                             "beagle_jar_path": kwargs.get('beagle_jar_path'),
                             "allow_extra_chr": self.allow_extra_chr,
                             "threads": kwargs.get('threads', 10),

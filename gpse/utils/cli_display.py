@@ -270,6 +270,8 @@ def _build_convert_parser(formatter_class=argparse.HelpFormatter,
     qc.add_argument("--samplemaxmiss", type=float, default=0.1, help="PLINK --mind threshold.")
     qc.add_argument("--maf", type=float, default=0.05, help="PLINK --maf threshold.")
     qc.add_argument("--r2-cutoff", type=float, default=0.2, help="LD pruning r2 cutoff.")
+    qc.add_argument("--ld-window", type=int, default=50, help="LD pruning window size in kb (default: 50).")
+    qc.add_argument("--ld-step", type=int, default=10, help="LD pruning step size in SNPs (default: 10).")
     qc.add_argument("--impute", action="store_true", help="Use Beagle imputation before pruning.")
 
     return parser

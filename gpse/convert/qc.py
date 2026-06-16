@@ -335,6 +335,8 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
     sample_miss = user_params['samplemaxmiss']
     maf = user_params['maf_max']
     r2 = user_params['r2_cutoff']
+    ld_window = user_params.get('ld_window', 50)
+    ld_step = user_params.get('ld_step', 10)
     config_ctx = _config_context(user_params)
     plink_path = _check_tool_path(user_params.get('plink_path', 'plink'), **config_ctx)
     allow_extra_chr = user_params.get('allow_extra_chr', False)
@@ -386,12 +388,15 @@ def analyze_and_prune(user_params: Dict, input_prefix: str, output_prefix: str,
     qc_final_prefix = qc_prefix
 
     # Step 4. LD pruning: calculate independent SNPs.
-    logger.info("[Step 4/5] LD pruning: calculating independent SNPs (--indep-pairwise)")
+    logger.info(
+        f"[Step 4/5] LD pruning: calculating independent SNPs "
+        f"(--indep-pairwise {ld_window} {ld_step} {r2})"
+    )
     cmd_indep = [
         plink_path,
         '--bfile', qc_final_prefix,
         '--out', qc_final_prefix, # writes .prune.in
-        '--indep-pairwise', '50', '10', str(r2)
+        '--indep-pairwise', str(ld_window), str(ld_step), str(r2)
     ]
     if allow_extra_chr:
         cmd_indep.append('--allow-extra-chr')

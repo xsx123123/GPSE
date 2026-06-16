@@ -103,6 +103,8 @@ def _run_pipeline(args: argparse.Namespace) -> int:
             samplemaxmiss=args.samplemaxmiss,
             maf=args.maf,
             r2_cutoff=args.r2_cutoff,
+            ld_window=args.ld_window,
+            ld_step=args.ld_step,
             impute=args.impute,
             java_path=args.java_path,
             beagle_jar_path=_get_beagle_jar_path(args),
@@ -122,6 +124,8 @@ def _run_qc(args: argparse.Namespace) -> int:
         "samplemaxmiss": args.samplemaxmiss,
         "maf_max": args.maf,
         "r2_cutoff": args.r2_cutoff,
+        "ld_window": args.ld_window,
+        "ld_step": args.ld_step,
         "allow_extra_chr": getattr(args, "allow_extra_chr", False),
         "threads": getattr(args, "threads", 10),
     }
