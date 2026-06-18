@@ -84,16 +84,6 @@ def validate_parallelism(
         raise ValueError(message)
 
     requested = n_jobs * max_workers
-    _log(
-        logger,
-        "info",
-        (
-            "Parallelism check: "
-            f"n_jobs={n_jobs}, max_workers={max_workers}, "
-            f"requested_threads={requested}, available_cores={available}"
-        ),
-    )
-
     if requested > available:
         message = (
             f"Requested parallelism n_jobs * max_workers = {requested}, "
@@ -103,5 +93,9 @@ def validate_parallelism(
         _log(logger, "error", message)
         raise ValueError(message)
 
-    _log(logger, "info", "Parallelism check passed")
+    _log(
+        logger,
+        "info",
+        f"Parallelism check passed: n_jobs={n_jobs}, max_workers={max_workers}, cores={available}",
+    )
     return n_jobs, max_workers

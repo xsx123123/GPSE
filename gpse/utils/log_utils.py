@@ -5,7 +5,9 @@ Loguru-based logger initialization with Rich-styled console output.
 """
 
 import datetime
+import re
 import sys
+import textwrap
 from pathlib import Path
 
 
@@ -42,6 +44,21 @@ _LEVEL_STYLES = {
     "ERROR": ("bold red", "✗"),
     "CRITICAL": ("bold red", "💥"),
 }
+_PATH_RE = re.compile(r"(?P<path>(?:~|/)[^\s,;:|]+(?:/[^\s,;:|]+)+)")
+
+
+def _compact_path(path: str, max_parts: int = 3) -> str:
+    parts = [part for part in path.split("/") if part]
+    if path.startswith("~"):
+        parts = ["~"] + [part for part in path[2:].split("/") if part]
+    if len(parts) <= max_parts:
+        return path
+    prefix = "~/..." if path.startswith("~") else "/..."
+    return f"{prefix}/{'/'.join(parts[-max_parts:])}"
+
+
+def _compact_log_message(message: str) -> str:
+    return _PATH_RE.sub(lambda match: _compact_path(match.group("path")), message)
 
 
 def _make_rich_sink(more_info: bool = False):
@@ -52,20 +69,32 @@ def _make_rich_sink(more_info: bool = False):
         record = message.record
         level = record["level"].name
         time = record["time"].strftime("%H:%M:%S")
-        msg = str(message).strip()
+        msg = _compact_log_message(str(message).strip())
 
         style, icon = _LEVEL_STYLES.get(level, ("white", ""))
-
-        text = Text()
-        text.append(f"[{time}] ", style="dim")
         level_str = f"{icon} {level}" if icon else level
-        text.append(f"{level_str: <8} ", style=style)
+        info_str = f"[{record['name']}:{record['line']}] " if more_info else ""
+        prefix_width = 11 + 9 + len(info_str)
+        wrap_width = max(40, console.width - prefix_width)
+        wrapped_lines = []
+        for line in msg.splitlines() or [""]:
+            wrapped_lines.extend(
+                textwrap.wrap(
+                    line,
+                    width=wrap_width,
+                    break_long_words=False,
+                    break_on_hyphens=False,
+                ) or [""]
+            )
 
-        if more_info:
-            text.append(f"[{record['name']}:{record['line']}] ", style="cyan dim")
-
-        text.append(Text.from_ansi(msg))
-        console.print(text, end="\n", soft_wrap=True)
+        for idx, line in enumerate(wrapped_lines):
+            text = Text()
+            text.append(f"[{time}] " if idx == 0 else " " * 11, style="dim")
+            text.append(f"{level_str: <8} ", style=style)
+            if more_info:
+                text.append(info_str, style="cyan dim")
+            text.append(Text.from_ansi(line))
+            console.print(text, end="\n", soft_wrap=True)
 
     return sink
 
