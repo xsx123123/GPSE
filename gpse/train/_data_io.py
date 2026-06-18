@@ -132,6 +132,12 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
     X = geno_data.copy()
     y = pheno_data[target_trait].copy()
 
+    # Step 7b: For regression, coerce the target to numeric so that string
+    # placeholders like "--" or "" become NaN instead of crashing later stats.
+    if self.task_type == "regression" and y.dtype == object:
+        main_logger.info("Coercing phenotype target to numeric (non-numeric values -> NaN)...")
+        y = pd.to_numeric(y, errors="coerce")
+
     # Step 8: Standardize feature column names
     X.columns = [f"feature_{i}" for i in range(X.shape[1])]
 
