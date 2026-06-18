@@ -100,28 +100,6 @@ def _build_parser(
         help="Maximum number of Optuna optimization trials per model (default: 100)",
     )
     train_group.add_argument(
-        "--n_jobs",
-        type=int,
-        default=1,
-        help=(
-            "Number of parallel workers (threads) used by each individual model internally "
-            "(e.g., n_jobs for sklearn, nthread for XGBoost). Recommended: 1 when running "
-            "multiple models in parallel to avoid oversubscription (default: 1)"
-        ),
-    )
-    train_group.add_argument(
-        "--max_workers",
-        type=int,
-        default=1,
-        help="Maximum number of models to train in parallel (default: 1)",
-    )
-    train_group.add_argument(
-        "--repeat_workers",
-        type=int,
-        default=1,
-        help="Maximum number of repeats to run in parallel within each model (default: 1)",
-    )
-    train_group.add_argument(
         "--test_size",
         type=float,
         default=0.2,
@@ -176,6 +154,29 @@ def _build_parser(
         action="store_true",
         default=True,
         help="Use the identical test set across all repeats for reproducibility (default: True)",
+    )
+
+    performance_group = parser.add_argument_group("performance arguments")
+    performance_group.add_argument(
+        "--n_jobs",
+        type=int,
+        default=1,
+        help=(
+            "Threads used inside each model training task. Recommended: 1 when "
+            "using --max_workers or --repeat_workers to avoid oversubscription (default: 1)"
+        ),
+    )
+    performance_group.add_argument(
+        "--max_workers",
+        type=int,
+        default=1,
+        help="Model-level parallelism: maximum number of models to train at the same time (default: 1)",
+    )
+    performance_group.add_argument(
+        "--repeat_workers",
+        type=int,
+        default=1,
+        help="Repeat-level parallelism: maximum number of repeats per model to run at the same time (default: 1)",
     )
 
     task_group = parser.add_argument_group("task configuration")
