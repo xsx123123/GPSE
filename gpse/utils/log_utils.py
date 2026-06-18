@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Loguru-based logger initialization with Rich-styled console output.
+Loguru-based logger initialization with RichHandler console output.
 """
 
 import datetime
-import re
+import io
 import sys
-import textwrap
 from pathlib import Path
 
 
@@ -24,10 +23,11 @@ def _ensure_loguru() -> None:
         raise ImportError("loguru is required for logging. Install it with: pip install loguru")
 
 
-# ── Rich helpers for pretty console output ──────────────────────────────────
 try:
     from rich.console import Console
+    from rich.logging import RichHandler
     from rich.panel import Panel
+    from rich.table import Table
     from rich.text import Text
 
     _RICH_AVAILABLE = True
@@ -35,69 +35,64 @@ except ImportError:
     _RICH_AVAILABLE = False
 
 _CONSOLE = Console(stderr=True) if _RICH_AVAILABLE else None
-
-_LEVEL_STYLES = {
-    "DEBUG": ("dim", ""),
-    "INFO": ("green", ""),
-    "SUCCESS": ("bold green", "✓"),
-    "WARNING": ("bold yellow", "⚠"),
-    "ERROR": ("bold red", "✗"),
-    "CRITICAL": ("bold red", "💥"),
-}
-_PATH_RE = re.compile(r"(?P<path>(?:~|/)[^\s,;:|]+(?:/[^\s,;:|]+)+)")
+_ANALYSIS_LOGGER = None
+_ANALYSIS_LOG_FILE_PATH = None
 
 
-def _compact_path(path: str, max_parts: int = 3) -> str:
-    parts = [part for part in path.split("/") if part]
-    if path.startswith("~"):
-        parts = ["~"] + [part for part in path[2:].split("/") if part]
-    if len(parts) <= max_parts:
-        return path
-    prefix = "~/..." if path.startswith("~") else "/..."
-    return f"{prefix}/{'/'.join(parts[-max_parts:])}"
+def _add_console_handler(
+    log_level: str,
+    more_info: bool = False,
+    style: str = "default",
+) -> None:
+    if not _RICH_AVAILABLE:
+        fmt = (
+            "<green>{time:HH:mm:ss}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+            "<level>{message}</level>"
+        )
+        logger.add(sys.stderr, format=fmt, level=log_level, colorize=True, enqueue=True)
+        return
 
+    if style == "minimal":
+        handler = RichHandler(
+            show_time=False,
+            show_path=False,
+            markup=True,
+            rich_tracebacks=True,
+        )
+        fmt = "{message}"
+    elif style == "detailed" or more_info:
+        handler = RichHandler(
+            show_time=True,
+            omit_repeated_times=False,
+            show_path=True,
+            markup=True,
+            rich_tracebacks=True,
+            log_time_format="[%X]",
+        )
+        fmt = "{name}:{function}:{line} - {message}"
+    elif style == "plain":
+        fmt = (
+            "<green>{time:HH:mm:ss}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+            "<level>{message}</level>"
+        )
+        logger.add(sys.stderr, format=fmt, level=log_level, colorize=True, enqueue=True)
+        return
+    else:
+        handler = RichHandler(
+            show_time=True,
+            omit_repeated_times=False,
+            show_path=False,
+            markup=True,
+            rich_tracebacks=True,
+            log_time_format="[%X]",
+        )
+        fmt = "{message}"
 
-def _compact_log_message(message: str) -> str:
-    return _PATH_RE.sub(lambda match: _compact_path(match.group("path")), message)
-
-
-def _make_rich_sink(more_info: bool = False):
-    """Return a loguru sink that prints via Rich in a clean, modern format."""
-    console = _CONSOLE or Console(stderr=True)
-
-    def sink(message):
-        record = message.record
-        level = record["level"].name
-        time = record["time"].strftime("%H:%M:%S")
-        msg = _compact_log_message(str(message).strip())
-
-        style, icon = _LEVEL_STYLES.get(level, ("white", ""))
-        level_str = f"{icon} {level}" if icon else level
-        info_str = f"[{record['name']}:{record['line']}] " if more_info else ""
-        prefix_width = 11 + 9 + len(info_str)
-        wrap_width = max(40, console.width - prefix_width)
-        wrapped_lines = []
-        for line in msg.splitlines() or [""]:
-            wrapped_lines.extend(
-                textwrap.wrap(
-                    line,
-                    width=wrap_width,
-                    break_long_words=False,
-                    break_on_hyphens=False,
-                ) or [""]
-            )
-
-        for idx, line in enumerate(wrapped_lines):
-            text = Text()
-            text.append(f"[{time}] " if idx == 0 else " " * 11, style="dim")
-            text.append(f"{level_str: <8} ", style=style)
-            if more_info:
-                text.append(info_str, style="cyan dim")
-            text.append(Text.from_ansi(line))
-            console.print(text, end="\n", soft_wrap=True)
-
-    return sink
-
+    logger.add(handler, format=fmt, level=log_level, enqueue=True)
 
 def _print_run_header(
     sw: dict,
@@ -165,27 +160,7 @@ def setup_subprocess_logging(
     # default stderr handler #0 exists).  Remove it and set up our own sinks.
     logger.remove()
 
-    # Console — plain format (Rich may not be fully initialised in children)
-    fmt = (
-        "<green>{time:HH:mm:ss}</green> | "
-        "<level>{level: <8}</level> | "
-        "<cyan>[{extra[worker]}]</cyan> | "
-        "<level>{message}</level>"
-    )
-    try:
-        from rich.console import Console
-        _rich = True
-    except ImportError:
-        _rich = False
-
-    if _rich:
-        logger.add(
-            _make_rich_sink(more_info=False),
-            level=log_level,
-            format="{message}",
-        )
-    else:
-        logger.add(sys.stderr, format=fmt, level=log_level, colorize=True)
+    _add_console_handler(log_level, style="default")
 
     # Per-worker file — DEBUG level, enqueue for safety
     file_fmt = (
@@ -247,7 +222,54 @@ def collect_subprocess_logs(log_dir: Path, main_logger) -> None:
     main_logger.info(f"Subprocess log collection complete ({len(worker_logs)} files)")
 
 
-def log_config_panel(config_dict: dict, title: str = "GPSE Configuration"):
+def log_header(title: str) -> None:
+    logger.info("")
+    logger.info(f"[bold cyan]{'=' * 10} {title.upper()} {'=' * 10}[/bold cyan]")
+
+
+def log_section(title: str) -> None:
+    logger.info(f"\n[bold blue]─── {title} ───[/bold blue]")
+
+
+def log_success(msg: str) -> None:
+    logger.info(f"[bold green]✔ {msg}[/bold green]")
+
+
+def log_warning(msg: str) -> None:
+    logger.warning(f"[bold yellow]⚠ {msg}[/bold yellow]")
+
+
+def log_error(msg: str) -> None:
+    logger.error(f"[bold red]✘ {msg}[/bold red]")
+
+
+def log_info(msg: str) -> None:
+    logger.info(msg)
+
+
+def log_step(step: int, total: int, msg: str) -> None:
+    logger.info(f"[bold magenta][Step {step}/{total}][/bold magenta] {msg}")
+
+
+def log_config(config_dict: dict, title: str = "Configuration") -> None:
+    if not _RICH_AVAILABLE:
+        for k, v in config_dict.items():
+            logger.info(f"{title} - {k}: {v}")
+        return
+
+    table = Table(title=title, show_header=True, header_style="bold magenta", box=None)
+    table.add_column("Parameter", style="dim")
+    table.add_column("Value", style="bold")
+
+    for k, v in config_dict.items():
+        table.add_row(str(k), str(v))
+
+    console = Console(file=io.StringIO(), force_terminal=True, width=80)
+    console.print(table)
+    logger.info("\n" + console.file.getvalue())
+
+
+def log_config_panel(config_dict: dict, title: str = "GPSE Configuration") -> None:
     """
     Print a Rich panel for configuration and write plain text to the log file.
     """
@@ -302,6 +324,7 @@ def logger_init(
     logger_name: str = None,
     log_level: str = "INFO",
     more_info: bool = False,
+    style: str = "default",
 ) -> "logger":
     """
     Configure Loguru logger with Rich-styled console output.
@@ -314,32 +337,28 @@ def logger_init(
 
     log_level = log_level or cfg_logs.get("log_level", "INFO")
     more_info = more_info if more_info is not None else cfg_logs.get("more_info", False)
+    style = style or cfg_logs.get("style", "default")
 
     logger.remove()
 
-    # Console handler — Rich styled (or plain fallback)
-    if _RICH_AVAILABLE:
-        logger.add(
-            _make_rich_sink(more_info=more_info),
-            level=log_level,
-            format="{message}",   # Let the Rich sink handle all formatting
-        )
-    else:
-        fmt = (
-            "<green>{time:HH:mm:ss}</green> | "
-            "<level>{level: <8}</level> | "
-            "<level>{message}</level>"
-        )
-        logger.add(sys.stderr, format=fmt, level=log_level, colorize=True)
+    _add_console_handler(log_level, more_info=more_info, style=style)
 
     # File handler — plain text, no colours, enqueue for multi-process safety
     if logger_name:
         file_fmt = (
-            "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}"
-            + (" | {name}:{line}" if more_info else "")
+            "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
+            "{name}:{function}:{line} | {message}"
         )
         Path(logger_name).parent.mkdir(parents=True, exist_ok=True)
-        logger.add(logger_name, format=file_fmt, level=log_level, colorize=False, enqueue=True)
+        logger.add(
+            logger_name,
+            format=file_fmt,
+            level="DEBUG",
+            colorize=False,
+            enqueue=True,
+            backtrace=True,
+            diagnose=False,
+        )
 
     # Print project config info as the first log messages
     project_configs = get_loaded_project_configs()
@@ -356,6 +375,7 @@ def logger_generator(
     output_dir: str,
     log_level: str = "INFO",
     more_info: bool = False,
+    style: str = "default",
 ) -> tuple:
     """
     Create a logger, print software metadata via Rich, and return ``(logger, output_dir)``.
@@ -385,7 +405,12 @@ def logger_generator(
     _print_run_header(sw, logger_name, output_dir, project_configs=project_configs)
 
     # Init logger (also prints project config info)
-    logger = logger_init(logger_name, log_level=log_level, more_info=more_info)
+    logger = logger_init(
+        logger_name,
+        log_level=log_level,
+        more_info=more_info,
+        style=style,
+    )
 
     # Also persist metadata to the log file
     logger.info(f"GPSE Author : {sw.get('author', 'unknown')}")
@@ -397,3 +422,71 @@ def logger_generator(
     logger.debug(f"Default Full config : {default}")
 
     return logger, output_dir
+
+
+def setup_analysis_logging(
+    log_dir="logs",
+    log_file_prefix="analysis",
+    max_file_size="100 MB",
+    console_level="INFO",
+    file_level="DEBUG",
+    style="default",
+):
+    """
+    Setup logging for analysis scripts with RichHandler console output.
+    """
+    _ensure_loguru()
+
+    log_dir_path = Path(log_dir)
+    log_dir_path.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_file_path = log_dir_path / f"{log_file_prefix}_{timestamp}.log"
+
+    logger.remove()
+    logger.add(
+        log_file_path,
+        rotation=max_file_size,
+        format=(
+            "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
+            "{name}:{function}:{line} | {message}"
+        ),
+        level=file_level,
+        backtrace=True,
+        diagnose=False,
+        enqueue=True,
+    )
+    _add_console_handler(console_level, style=style)
+
+    logger.info(
+        f"[bold green]{log_file_prefix.capitalize()} Script Initialized[/bold green] "
+        f"(Style: {style})"
+    )
+    logger.info(f"Log file: {log_file_path}")
+
+    return logger, log_file_path
+
+
+def get_logger():
+    return logger
+
+
+def initialize_analysis_logger(**kwargs):
+    global _ANALYSIS_LOGGER, _ANALYSIS_LOG_FILE_PATH
+
+    if _ANALYSIS_LOGGER is None:
+        _ANALYSIS_LOGGER, _ANALYSIS_LOG_FILE_PATH = setup_analysis_logging(**kwargs)
+
+    return _ANALYSIS_LOGGER, _ANALYSIS_LOG_FILE_PATH
+
+
+def get_analysis_logger():
+    global _ANALYSIS_LOGGER
+
+    if _ANALYSIS_LOGGER is None:
+        _ANALYSIS_LOGGER, _ = initialize_analysis_logger()
+
+    return _ANALYSIS_LOGGER
+
+
+def get_analysis_log_file_path():
+    return _ANALYSIS_LOG_FILE_PATH
