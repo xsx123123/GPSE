@@ -72,6 +72,13 @@ def _build_parser(
         type=str,
         help="Name of the target trait (column name in the phenotype file)",
     )
+    req_group.add_argument(
+        "--task_type",
+        type=str,
+        required=True,
+        choices=["regression", "classification"],
+        help="Task type: regression or classification (required)",
+    )
 
     train_group = parser.add_argument_group("training arguments")
     train_group.add_argument(
@@ -153,13 +160,6 @@ def _build_parser(
     )
 
     task_group = parser.add_argument_group("task configuration")
-    task_group.add_argument(
-        "--task_type",
-        type=str,
-        required=True,
-        choices=["regression", "classification"],
-        help="Task type: regression or classification (required)",
-    )
     task_group.add_argument(
         "--n_classes",
         type=int,
