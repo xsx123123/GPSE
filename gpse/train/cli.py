@@ -30,6 +30,88 @@ except ImportError:  # pragma: no cover
     RichHelpFormatter = argparse.HelpFormatter
 
 
+def _log_config(args) -> None:
+    """Pretty-print the active GPSE configuration, grouped and filtered.
+
+    Skips flags the user didn't touch (``version``/``help``), drops ``None``
+    values for optional inputs, and only shows preprocessing/convert-related
+    args when the user is actually in that mode.
+    """
+    def _show(group: str, items: list[tuple[str, object]]) -> None:
+        rows = [(k, v) for k, v in items if v is not None]
+        if not rows:
+            return
+        main_logger.info(f"[{group}]")
+        width = max(len(k) for k, _ in rows)
+        for k, v in rows:
+            main_logger.info(f"  {k.ljust(width)} : {v}")
+
+    ns = vars(args)
+
+    _show("Data", [
+        ("geno_file", ns.get("geno_file")),
+        ("pheno_file", ns.get("pheno_file")),
+        ("target_trait", ns.get("target_trait")),
+        ("task_type", ns.get("task_type")),
+        ("n_classes", ns.get("n_classes")),
+        ("standardize_phenotype", ns.get("standardize_phenotype")),
+    ])
+
+    _show("Training", [
+        ("models", ns.get("models")),
+        ("trials", ns.get("trials")),
+        ("test_size", ns.get("test_size")),
+        ("n_splits", ns.get("n_splits")),
+        ("n_repeats", ns.get("n_repeats")),
+        ("patience", ns.get("patience")),
+        ("use_default_params", ns.get("use_default_params")),
+        ("random_seed", ns.get("random_seed")),
+        ("cv_folds", ns.get("cv_folds")),
+        ("use_same_test_set", ns.get("use_same_test_set")),
+        ("use_stacking", ns.get("use_stacking")),
+        ("top_n_models", ns.get("top_n_models")),
+    ])
+
+    _show("CV", [
+        ("cv_file", ns.get("cv_file")),
+        ("force_new_cv", ns.get("force_new_cv")),
+        ("cv_id_column", ns.get("cv_id_column")),
+    ])
+
+    _show("Parallelism", [
+        ("n_jobs", ns.get("n_jobs")),
+        ("max_workers", ns.get("max_workers")),
+    ])
+
+    _show("Output", [
+        ("results_dir", ns.get("results_dir")),
+        ("save_models", ns.get("save_models")),
+        ("save_representative", ns.get("save_representative")),
+        ("log_level", ns.get("log_level")),
+    ])
+
+    if ns.get("enable_preprocess") or ns.get("preprocess_only"):
+        _show("Preprocess", [
+            ("preprocess_only", ns.get("preprocess_only")),
+            ("preprocess_prefix", ns.get("preprocess_prefix")),
+            ("vcf_file", ns.get("vcf_file")),
+            ("bfile", ns.get("bfile")),
+            ("ped_file", ns.get("ped_file")),
+            ("map_file", ns.get("map_file")),
+            ("plink_path", ns.get("plink_path")),
+            ("plink_out", ns.get("plink_out")),
+            ("extract_file", ns.get("extract_file")),
+            ("snp_dir", ns.get("snp_dir")),
+            ("direct_convert", ns.get("direct_convert")),
+            ("matrix_file", ns.get("matrix_file")),
+            ("raw_pheno_file", ns.get("raw_pheno_file")),
+            ("skip_matrix_conversion", ns.get("skip_matrix_conversion")),
+            ("skip_phenotype_match", ns.get("skip_phenotype_match")),
+            ("skip_data_clean", ns.get("skip_data_clean")),
+            ("load_matrix_info", ns.get("load_matrix_info")),
+        ])
+
+
 def _try_infer_task_type(geno_file, pheno_file, target_trait, preprocess_prefix,
                          enable_preprocess):
     """Try to infer task_type and n_classes from a phenotype_info.json file.
@@ -145,9 +227,7 @@ def main(
             main_logger.error("--target_trait is required for training")
             return 1
 
-    main_logger.info("GPSE configuration:")
-    for arg, value in vars(args).items():
-        main_logger.info(f"  {arg}: {value}")
+    _log_config(args)
 
     processed_geno_file = args.geno_file
     processed_pheno_file = args.pheno_file
