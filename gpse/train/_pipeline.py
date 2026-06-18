@@ -59,7 +59,9 @@ def run_all_models(
     """
     X, y, pheno_data = self.load_data(geno_file, pheno_file, target_trait)
 
+    main_logger.info("Preparing cross-validation folds...")
     cv_pheno_data = self.prepare_cv_folds(pheno_data, target_trait)
+    main_logger.info("Cross-validation folds ready")
 
     if models is None:
         models = self.available_models
@@ -68,7 +70,10 @@ def run_all_models(
 
     all_model_results = {}
 
-    for model_name in models:
+    for i, model_name in enumerate(models, start=1):
+        main_logger.info(
+            f"[{i}/{len(models)}] Starting training for model: {model_name}"
+        )
         try:
             model_summary = self.run_model_multiple_repeats(
                 model_name, X, y, cv_pheno_data, use_same_test_set

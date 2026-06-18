@@ -43,6 +43,7 @@ def prepare_cv_folds(self, pheno_data: pd.DataFrame, target_trait: str) -> pd.Da
     if cv_file_path.exists() and not self.force_new_cv:
         main_logger.info(f"Loading existing CV fold file: {cv_file_path}")
         cv_pheno_data = pd.read_csv(cv_file_path, index_col=0)
+        main_logger.info(f"Loaded CV folds from: {cv_file_path}")
     else:
         main_logger.info(f"Generating new CV folds and saving to: {cv_file_path}")
         pheno_data_copy = pheno_data.copy()
@@ -53,6 +54,7 @@ def prepare_cv_folds(self, pheno_data: pd.DataFrame, target_trait: str) -> pd.Da
         cv_pheno_data = prepare_cv_data(
             pheno_data_copy, str(cv_file_path), self.n_repeats, self.n_splits
         )
+        main_logger.info(f"Saved new CV folds to: {cv_file_path}")
 
     return cv_pheno_data
 
