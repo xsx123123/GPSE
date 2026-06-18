@@ -6,7 +6,9 @@ Loguru-based logger initialization with RichHandler console output.
 
 import datetime
 import io
+import logging
 import sys
+import warnings
 from pathlib import Path
 
 
@@ -21,6 +23,50 @@ except ImportError:
 def _ensure_loguru() -> None:
     if not _LOGURU_AVAILABLE:
         raise ImportError("loguru is required for logging. Install it with: pip install loguru")
+
+
+def _capture_warnings() -> None:
+    """Redirect Python :mod:`warnings` output to the Loguru logger."""
+    if not _LOGURU_AVAILABLE:
+        return
+
+    def _showwarning(message, category, filename, lineno, file=None, line=None):
+        logger.warning(
+            f"{category.__name__}: {message} ({filename}:{lineno})"
+        )
+
+    warnings.showwarning = _showwarning
+
+
+class _InterceptHandler(logging.Handler):
+    """Send records from the standard :mod:`logging` module to Loguru."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+        frame, depth = sys._getframe(6), 6
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+        logger.opt(depth=depth, exception=record.exc_info).log(
+            level, record.getMessage()
+        )
+
+
+def _capture_std_logging() -> None:
+    """Redirect standard-library logging (e.g., Optuna) to the Loguru logger."""
+    if not _LOGURU_AVAILABLE:
+        return
+
+    # Replace the root logger configuration so all std-logging records flow
+    # through Loguru. Existing handlers are cleared to avoid duplicate output.
+    logging.basicConfig(
+        handlers=[_InterceptHandler()],
+        level=logging.DEBUG,
+        force=True,
+    )
 
 
 try:
@@ -342,6 +388,8 @@ def logger_init(
     logger.remove()
 
     _add_console_handler(log_level, more_info=more_info, style=style)
+    _capture_warnings()
+    _capture_std_logging()
 
     # File handler — plain text, no colours, enqueue for multi-process safety
     if logger_name:
@@ -456,6 +504,8 @@ def setup_analysis_logging(
         enqueue=True,
     )
     _add_console_handler(console_level, style=style)
+    _capture_warnings()
+    _capture_std_logging()
 
     logger.info(
         f"[bold green]{log_file_prefix.capitalize()} Script Initialized[/bold green] "
