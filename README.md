@@ -78,7 +78,7 @@ phenotype.txt/.csv     →  PED/MAP → numeric (0/1/2)    →  {prefix}_{trait}
                             Sample ID matching                 (auto-detected task type & n_classes)
                             Phenotype type detection        {prefix}_{trait}_scaler.json
                             Column name cleaning               (only with --standardize-phenotype)
-                            Phenotype Z-score (optional)
+                            Phenotype-only Z-score (optional)  (does not standardize genotype)
 ```
 
 Genotype encoding: `00→0` (homozygous ref), `01/10→1` (heterozygous), `11→2` (homozygous alt), missing→`3`.
@@ -128,6 +128,14 @@ gpse convert \
     --standardize-phenotype \
     --out-prefix data/train
 ```
+
+> **Note:** `--standardize-phenotype` performs a **z-score standardization on the phenotype/trait values only**. It does **not** standardize the genotype matrix. Genotype data is kept in its original 0/1/2 additive encoding.
+>
+> The standardized phenotype column is computed as:
+> ```
+> y_scaled = (y - mean) / std
+> ```
+> where `mean` and `std` are calculated from the matched phenotype column.
 
 Additional output: `data/train_phenotype_scaler.json` (mean/std for inverse transform during prediction).
 

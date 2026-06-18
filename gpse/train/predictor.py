@@ -27,6 +27,7 @@ import datetime
 from gpse.config import ModelConstants
 from gpse.models.regression_model_optimizer import RegressionModelOptimizer
 from gpse.tasks.classification import GenomicClassifier
+from gpse.utils.log_utils import logger_init
 
 
 class _LazyMainLogger:
