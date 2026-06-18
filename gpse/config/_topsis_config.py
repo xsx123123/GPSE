@@ -166,8 +166,9 @@ def log_environment_settings(self) -> None:
     main_logger.info(f"- Logs directory: {self.logs_dir}")
     main_logger.info(f"- Random seed: {self.random_seed}")
     main_logger.info(f"- Threads per model: {self.n_threads}")
-    main_logger.info(f"- Parallel jobs: {self.max_parallel_jobs}")
-    main_logger.info(f"- CV folds: {self.n_splits}")
+    main_logger.info(f"- Model workers: {self.max_parallel_jobs}")
+    main_logger.info(f"- Repeat workers: {self.repeat_workers}")
+    main_logger.info(f"- Train folds: {self.n_splits}")
     main_logger.info(f"- Repeats: {self.n_repeats}")
     main_logger.info(f"- Use default params: {self.use_default_params}")
 

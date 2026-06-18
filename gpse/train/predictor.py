@@ -108,6 +108,7 @@ class GenomicPredictorV2:
         n_trials: int = 100,
         n_threads: int = 1,
         max_parallel_jobs: int = 1,
+        repeat_workers: int = 1,
         test_size: float = 0.2,
         n_splits: int = 5,
         n_repeats: int = 100,
@@ -136,7 +137,9 @@ class GenomicPredictorV2:
         n_threads : int
             Threads per model (usually 1).
         max_parallel_jobs : int
-            Maximum parallel jobs (multi-process).
+            Maximum models trained in parallel.
+        repeat_workers : int
+            Maximum repeats trained in parallel within each model.
         test_size : float
             Test set proportion.
         n_splits : int
@@ -169,6 +172,7 @@ class GenomicPredictorV2:
         self.n_trials = n_trials
         self.n_threads = n_threads
         self.max_parallel_jobs = max_parallel_jobs
+        self.repeat_workers = repeat_workers
         self.test_size = test_size
         self.n_splits = n_splits
         self.n_repeats = n_repeats

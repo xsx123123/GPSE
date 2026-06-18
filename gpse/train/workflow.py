@@ -113,7 +113,13 @@ def _build_parser(
         "--max_workers",
         type=int,
         default=1,
-        help="Maximum number of parallel training processes via ProcessPoolExecutor (default: 1)",
+        help="Maximum number of models to train in parallel (default: 1)",
+    )
+    train_group.add_argument(
+        "--repeat_workers",
+        type=int,
+        default=1,
+        help="Maximum number of repeats to run in parallel within each model (default: 1)",
     )
     train_group.add_argument(
         "--test_size",
@@ -121,7 +127,20 @@ def _build_parser(
         default=0.2,
         help="Proportion of the dataset to include in the test split (default: 0.2)",
     )
-    train_group.add_argument("--n_splits", type=int, default=5, help="Number of cross-validation folds (default: 5)")
+    train_group.add_argument(
+        "--train_folds",
+        dest="n_splits",
+        metavar="TRAIN_FOLDS",
+        type=int,
+        default=5,
+        help="Number of folds for repeated train/validation evaluation (default: 5)",
+    )
+    train_group.add_argument(
+        "--n_splits",
+        dest="n_splits",
+        type=int,
+        help=argparse.SUPPRESS,
+    )
     train_group.add_argument(
         "--n_repeats",
         type=int,
@@ -207,7 +226,7 @@ def _build_parser(
         "--cv_folds",
         type=int,
         default=5,
-        help="Number of CV folds used internally by Stacking to generate meta-features (default: 5)",
+        help="Number of internal folds used by Stacking to generate meta-features (default: 5)",
     )
 
     pre_group = parser.add_argument_group("data preprocessing options")

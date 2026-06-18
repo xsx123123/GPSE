@@ -101,8 +101,8 @@ def _log_config(args) -> None:
         text,
         "Strategy",
         (
-            f"Splits={ns.get('n_splits')}, Repeats={ns.get('n_repeats')}, "
-            f"CV_Folds={ns.get('cv_folds')}, Test_Size={ns.get('test_size')}"
+            f"Train_Folds={ns.get('n_splits')}, Repeats={ns.get('n_repeats')}, "
+            f"Stacking_CV={ns.get('cv_folds')}, Test_Size={ns.get('test_size')}"
         ),
     )
     _append_config_line(
@@ -125,7 +125,10 @@ def _log_config(args) -> None:
     _append_config_line(
         text,
         "Threads",
-        f"n_jobs={ns.get('n_jobs')}, max_workers={ns.get('max_workers')}",
+        (
+            f"n_jobs={ns.get('n_jobs')}, model_workers={ns.get('max_workers')}, "
+            f"repeat_workers={ns.get('repeat_workers')}"
+        ),
     )
     _append_config_line(text, "Output Dir", _short_path(ns.get("results_dir")))
 
@@ -171,9 +174,10 @@ def main(
     _configure_logging(args.log_level)
 
     try:
-        args.n_jobs, args.max_workers = validate_parallelism(
+        args.n_jobs, args.max_workers, args.repeat_workers = validate_parallelism(
             args.n_jobs,
             args.max_workers,
+            args.repeat_workers,
             logger=main_logger,
         )
     except ValueError:
@@ -299,6 +303,7 @@ def main(
         n_trials=args.trials,
         n_threads=args.n_jobs,
         max_parallel_jobs=args.max_workers,
+        repeat_workers=args.repeat_workers,
         test_size=args.test_size,
         n_splits=args.n_splits,
         n_repeats=args.n_repeats,

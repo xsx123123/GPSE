@@ -241,13 +241,14 @@ gpse train \
     --geno_file data/train_genotype.csv \
     --pheno_file data/train_phenotype.csv \
     --target_trait Fruit_Weight \
-    --n_splits 5 \
+    --train_folds 5 \
     --n_repeats 10 \
     --trials 50 \
     --use_stacking \
     --top_n_models 5 \
-    --n_jobs 2 \
+    --n_jobs 1 \
     --max_workers 4 \
+    --repeat_workers 1 \
     --results_dir output_results/
 ```
 
@@ -266,7 +267,7 @@ gpse train \
     --vcf_file samples.vcf \
     --raw_pheno_file phenotype.txt \
     --target_trait Fruit_Weight \
-    --n_splits 5 \
+    --train_folds 5 \
     --n_repeats 10 \
     --trials 50 \
     --use_stacking \
@@ -291,7 +292,7 @@ gpse train \
     --geno_file genotype.csv \
     --pheno_file phenotype.csv \
     --target_trait Disease_Resistance \
-    --n_splits 5 \
+    --train_folds 5 \
     --n_repeats 10 \
     --trials 50 \
     --results_dir classification_results/
@@ -465,7 +466,7 @@ gpse train \
 如果未提供 `--cv_file`，GPSE 会自动生成：
 
 ```text
-{results_dir}/cv_folds/{target_trait}_cv_{n_repeats}x{n_splits}.csv
+{results_dir}/cv_folds/{target_trait}_cv_{n_repeats}x{train_folds}.csv
 ```
 
 CV 文件包含样本 ID 作为索引，以及每个 repeat 对应的折分配列：
@@ -476,7 +477,7 @@ sample1,12.3,0,3
 sample2,9.8,1,4
 ```
 
-折编号范围为 `0` 到 `n_splits - 1`。
+折编号范围为 `0` 到 `train_folds - 1`。
 
 ### `gpse train` 输出
 
@@ -486,7 +487,7 @@ sample2,9.8,1,4
 
 ```text
 {results_dir}/model_comparison.csv
-{results_dir}/cv_folds/{target_trait}_cv_{n_repeats}x{n_splits}.csv
+{results_dir}/cv_folds/{target_trait}_cv_{n_repeats}x{train_folds}.csv
 {results_dir}/{model_name}/summary_results.json
 {results_dir}/{model_name}/repeat_{i}/repeat_results.json
 {results_dir}/{model_name}/repeat_{i}/all_predictions.json

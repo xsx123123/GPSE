@@ -40,10 +40,11 @@ def get_available_cpu_cores(logger: Any | None = None) -> int:
 def validate_parallelism(
     n_jobs: int,
     max_workers: int,
+    repeat_workers: int = 1,
     *,
     logger: Any | None = None,
     available_cores: int | None = None,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     """Validate GPSE process/thread parallelism.
 
     Parameters
@@ -51,7 +52,9 @@ def validate_parallelism(
     n_jobs
         Number of threads used inside each training worker.
     max_workers
-        Number of parallel training worker processes.
+        Number of models trained in parallel.
+    repeat_workers
+        Number of repeats trained in parallel within each model.
     logger
         Optional logger initialized by ``gpse.utils.log_utils``.
     available_cores
@@ -59,8 +62,8 @@ def validate_parallelism(
 
     Returns
     -------
-    tuple[int, int]
-        The validated ``(n_jobs, max_workers)`` pair.
+        tuple[int, int, int]
+        The validated ``(n_jobs, max_workers, repeat_workers)`` tuple.
 
     Raises
     ------
@@ -76,6 +79,10 @@ def validate_parallelism(
         message = f"--max_workers must be >= 1, got {max_workers}"
         _log(logger, "error", message)
         raise ValueError(message)
+    if repeat_workers < 1:
+        message = f"--repeat_workers must be >= 1, got {repeat_workers}"
+        _log(logger, "error", message)
+        raise ValueError(message)
 
     available = available_cores if available_cores is not None else get_available_cpu_cores(logger)
     if available < 1:
@@ -83,12 +90,12 @@ def validate_parallelism(
         _log(logger, "error", message)
         raise ValueError(message)
 
-    requested = n_jobs * max_workers
+    requested = n_jobs * max_workers * repeat_workers
     if requested > available:
         message = (
-            f"Requested parallelism n_jobs * max_workers = {requested}, "
-            f"but only {available} CPU core(s) are available. "
-            "Please reduce --n_jobs or --max_workers."
+            "Requested parallelism n_jobs * max_workers * repeat_workers = "
+            f"{requested}, but only {available} CPU core(s) are available. "
+            "Please reduce --n_jobs, --max_workers, or --repeat_workers."
         )
         _log(logger, "error", message)
         raise ValueError(message)
@@ -96,6 +103,9 @@ def validate_parallelism(
     _log(
         logger,
         "info",
-        f"Parallelism check passed: n_jobs={n_jobs}, max_workers={max_workers}, cores={available}",
+        (
+            f"Parallelism check passed: n_jobs={n_jobs}, model_workers={max_workers}, "
+            f"repeat_workers={repeat_workers}, cores={available}"
+        ),
     )
-    return n_jobs, max_workers
+    return n_jobs, max_workers, repeat_workers

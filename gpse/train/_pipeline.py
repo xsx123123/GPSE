@@ -7,7 +7,10 @@ Main Pipeline Module
 Runs all or specified models and optionally performs Stacking ensemble.
 """
 
+import os
 import traceback
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional, List
@@ -15,8 +18,18 @@ from sklearn.model_selection import train_test_split
 
 from loguru import logger as main_logger
 
+from gpse.config import ModelConstants
 from gpse.utils.genomic_utils import create_comparison_table, call_topsis_evaluator
 from gpse.train.stacking import StackingEnsemble
+
+
+def _init_model_worker_threads(n_threads: int) -> None:
+    for env_var in ModelConstants.thread_env_vars:
+        os.environ[env_var] = str(n_threads)
+
+
+def _run_model_task(predictor, model_name, X, y, cv_pheno_data, use_same_test_set):
+    return predictor.run_model_multiple_repeats(model_name, X, y, cv_pheno_data, use_same_test_set)
 
 
 def run_all_models(
@@ -69,19 +82,48 @@ def run_all_models(
     main_logger.info(f"Will run the following models: {', '.join(models)}")
 
     all_model_results = {}
+    model_workers = min(self.max_parallel_jobs, len(models))
 
-    for i, model_name in enumerate(models, start=1):
-        main_logger.info(
-            f"[{i}/{len(models)}] Starting training for model: {model_name}"
-        )
-        try:
-            model_summary = self.run_model_multiple_repeats(
-                model_name, X, y, cv_pheno_data, use_same_test_set
+    if model_workers > 1:
+        main_logger.info(f"Using {model_workers} parallel model workers")
+        with ProcessPoolExecutor(
+            max_workers=model_workers,
+            initializer=_init_model_worker_threads,
+            initargs=(self.n_threads,),
+        ) as executor:
+            futures = {
+                executor.submit(
+                    _run_model_task,
+                    self,
+                    model_name,
+                    X,
+                    y,
+                    cv_pheno_data,
+                    use_same_test_set,
+                ): (idx, model_name)
+                for idx, model_name in enumerate(models, start=1)
+            }
+            for future in as_completed(futures):
+                idx, model_name = futures[future]
+                try:
+                    all_model_results[model_name] = future.result()
+                    main_logger.info(f"[{idx}/{len(models)}] Completed model: {model_name}")
+                except Exception as e:
+                    main_logger.error(f"Model {model_name} execution failed: {str(e)}")
+                    main_logger.error(traceback.format_exc())
+    else:
+        for i, model_name in enumerate(models, start=1):
+            main_logger.info(
+                f"[{i}/{len(models)}] Starting training for model: {model_name}"
             )
-            all_model_results[model_name] = model_summary
-        except Exception as e:
-            main_logger.error(f"Model {model_name} execution failed: {str(e)}")
-            main_logger.error(traceback.format_exc())
+            try:
+                model_summary = self.run_model_multiple_repeats(
+                    model_name, X, y, cv_pheno_data, use_same_test_set
+                )
+                all_model_results[model_name] = model_summary
+            except Exception as e:
+                main_logger.error(f"Model {model_name} execution failed: {str(e)}")
+                main_logger.error(traceback.format_exc())
 
     main_logger.info("=" * 50)
     main_logger.info("Model performance comparison before ensemble:")

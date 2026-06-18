@@ -233,11 +233,11 @@ def run_model_multiple_repeats(
 
     all_repeat_results = []
 
-    if self.max_parallel_jobs > 1:
-        main_logger.info(f"Using {self.max_parallel_jobs} parallel tasks for training")
+    if self.repeat_workers > 1:
+        main_logger.info(f"Using {self.repeat_workers} parallel repeat workers")
 
         with ProcessPoolExecutor(
-            max_workers=self.max_parallel_jobs,
+            max_workers=self.repeat_workers,
             mp_context=mp.get_context("spawn"),
             initializer=_init_worker_threads,
             initargs=(self.n_threads,),

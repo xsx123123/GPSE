@@ -127,7 +127,7 @@ CLI (cli.py)
 
 - **CLI 顶层** (`gpse/cli.py` L15-28)：在导入 numpy/scipy 之前，通过预解析 `--n_jobs` 设置 6 个环境变量：`OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `NUMEXPR_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS`, `BLIS_NUM_THREADS`。
 - **运行时**：`model.fit()` 调用被 `threadpoolctl.threadpool_limits()` 包裹。
-- **并行策略**：`n_jobs` = 单模型线程数（通常 1）；`max_workers` = 多进程并行数（ProcessPoolExecutor）。
+- **并行策略**：`n_jobs` = 单模型线程数（通常 1）；`max_workers` = 模型级并行数；`repeat_workers` = 单模型内部 repeat 级并行数。
 
 **AI 协作提示**：若新增涉及 numpy/scipy 的模块，确保在模块导入前完成线程环境变量设置；不要直接使用 `os.cpu_count()` 作为默认线程数。
 

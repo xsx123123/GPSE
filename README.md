@@ -352,13 +352,14 @@ gpse train \
     --geno_file data/train_genotype.csv \
     --pheno_file data/train_phenotype.csv \
     --target_trait Fruit_Weight \
-    --n_splits 5 \
+    --train_folds 5 \
     --n_repeats 10 \
     --trials 50 \
     --use_stacking \
     --top_n_models 5 \
-    --n_jobs 2 \
+    --n_jobs 1 \
     --max_workers 4 \
+    --repeat_workers 1 \
     --results_dir output_results/
 ```
 
@@ -378,7 +379,7 @@ gpse train \
     --vcf_file samples.vcf \
     --raw_pheno_file phenotype.txt \
     --target_trait Fruit_Weight \
-    --n_splits 5 \
+    --train_folds 5 \
     --n_repeats 10 \
     --trials 50 \
     --use_stacking \
@@ -403,7 +404,7 @@ gpse train \
     --geno_file genotype.csv \
     --pheno_file phenotype.csv \
     --target_trait Disease_Resistance \
-    --n_splits 5 \
+    --train_folds 5 \
     --n_repeats 10 \
     --trials 50 \
     --results_dir classification_results/
@@ -625,7 +626,7 @@ encodes them to continuous integer classes and saves the encoder to:
 If `--cv_file` is omitted, GPSE creates:
 
 ```text
-{results_dir}/cv_folds/{target_trait}_cv_{n_repeats}x{n_splits}.csv
+{results_dir}/cv_folds/{target_trait}_cv_{n_repeats}x{train_folds}.csv
 ```
 
 The CV file contains sample IDs as the index and one fold-assignment column per
@@ -637,7 +638,7 @@ sample1,12.3,0,3
 sample2,9.8,1,4
 ```
 
-Fold values range from `0` to `n_splits - 1`.
+Fold values range from `0` to `train_folds - 1`.
 
 ### `gpse train` Outputs
 
@@ -647,7 +648,7 @@ Main outputs:
 
 ```text
 {results_dir}/model_comparison.csv
-{results_dir}/cv_folds/{target_trait}_cv_{n_repeats}x{n_splits}.csv
+{results_dir}/cv_folds/{target_trait}_cv_{n_repeats}x{train_folds}.csv
 {results_dir}/{model_name}/summary_results.json
 {results_dir}/{model_name}/repeat_{i}/repeat_results.json
 {results_dir}/{model_name}/repeat_{i}/all_predictions.json
