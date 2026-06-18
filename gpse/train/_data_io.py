@@ -107,6 +107,7 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
     main_logger.info(f"Genotype samples: {len(geno_ids)}, Phenotype samples: {len(pheno_ids)}")
     main_logger.info(f"Common samples: {len(common_ids)}")
 
+    main_logger.info("Filtering common samples and aligning index...")
     # Step 5: Retain only common samples
     geno_data = geno_data[geno_data[id_col].isin(common_ids)]
     pheno_data = pheno_data[pheno_data[id_col].isin(common_ids)]
@@ -134,6 +135,7 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
     # Step 8: Standardize feature column names
     X.columns = [f"feature_{i}" for i in range(X.shape[1])]
 
+    main_logger.info("Validating final data quality...")
     # Step 9: Validate final data quality
     if X.shape[0] != y.shape[0]:
         error_msg = (
@@ -143,8 +145,10 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
         main_logger.error(error_msg)
         raise ValueError(error_msg)
 
-    if X.isnull().sum().sum() > 0:
-        null_count = X.isnull().sum().sum()
+    # Single-pass null scan on the underlying numpy array (much faster than
+    # the double pandas aggregation X.isnull().sum().sum() for wide frames).
+    null_count = int(pd.isnull(X.to_numpy()).sum())
+    if null_count > 0:
         main_logger.warning(f"Feature matrix contains {null_count} missing values")
 
     if y.isnull().sum() > 0:
