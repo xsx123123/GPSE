@@ -26,8 +26,8 @@ def _ensure_loguru() -> None:
 try:
     from rich.console import Console
     from rich.panel import Panel
-    from rich.table import Table
     from rich.text import Text
+
     _RICH_AVAILABLE = True
 except ImportError:
     _RICH_AVAILABLE = False
@@ -35,37 +35,34 @@ except ImportError:
 _CONSOLE = Console(stderr=True) if _RICH_AVAILABLE else None
 
 _LEVEL_STYLES = {
-    "DEBUG":    ("dim",              "🔍"),
-    "INFO":     ("bold green",       "●"),
-    "SUCCESS":  ("bold green",       "✓"),
-    "WARNING":  ("bold yellow",      "⚠"),
-    "ERROR":    ("bold red",         "✗"),
-    "CRITICAL": ("bold red reverse", "💥"),
+    "DEBUG": ("dim", ""),
+    "INFO": ("green", ""),
+    "SUCCESS": ("bold green", "✓"),
+    "WARNING": ("bold yellow", "⚠"),
+    "ERROR": ("bold red", "✗"),
+    "CRITICAL": ("bold red", "💥"),
 }
 
 
 def _make_rich_sink(more_info: bool = False):
-    """Return a loguru sink that prints via Rich."""
+    """Return a loguru sink that prints via Rich in a clean, modern format."""
     console = _CONSOLE or Console(stderr=True)
 
     def sink(message):
         record = message.record
         level = record["level"].name
         time = record["time"].strftime("%H:%M:%S")
-        msg = str(message).strip()  # Remove surrounding whitespace and newlines
+        msg = str(message).strip()
 
-        style, icon = _LEVEL_STYLES.get(level, ("white", "•"))
+        style, icon = _LEVEL_STYLES.get(level, ("white", ""))
 
         text = Text()
-        text.append("GPSE ", style="bold cyan")
-        text.append(f"{time} ", style="dim")
-        text.append(f"{icon} ", style=style)
-        text.append(f"{level}", style=style)
-        text.append(" │ ", style="dim")
+        text.append(f"[{time}] ", style="dim")
+        level_str = f"{icon} {level}" if icon else level
+        text.append(f"{level_str: <8} ", style=style)
 
         if more_info:
-            text.append(f"{record['name']}:{record['line']}", style="cyan")
-            text.append(" │ ", style="dim")
+            text.append(f"[{record['name']}:{record['line']}] ", style="cyan dim")
 
         text.append(Text.from_ansi(msg))
         console.print(text, end="\n", soft_wrap=True)
@@ -73,34 +70,40 @@ def _make_rich_sink(more_info: bool = False):
     return sink
 
 
-def _print_run_header(sw: dict, logger_name: str, output_dir: str,
-                      project_configs: list | None = None) -> None:
+def _print_run_header(
+    sw: dict,
+    logger_name: str,
+    output_dir: str,
+    project_configs: list | None = None,
+) -> None:
     """Print a compact software-metadata header via Rich."""
     if not _RICH_AVAILABLE:
         return
 
     author = sw.get("author", "unknown")
     version = sw.get("version", "unknown")
-    email = sw.get("email", "")
 
-    _CONSOLE.print("─" * 60, style="dim")
-    _CONSOLE.print(
-        f"[bold cyan]GPSE[/bold cyan] {version}  "
-        f"[dim]│[/dim]  Author: [bold]{author}[/bold]  "
-        f"[dim]│[/dim]  Email: [bold]{email}[/bold]"
+    header_text = Text()
+    header_text.append(
+        f"GPSE v{version} | Genomic Prediction with Stacking Ensemble\n",
+        style="bold cyan",
     )
-    _CONSOLE.print(f"[dim]Log    : {logger_name}[/dim]")
-    _CONSOLE.print(f"[dim]Output : {output_dir}[/dim]")
-    if project_configs:
-        for cfg_path in project_configs:
-            _CONSOLE.print(f"[dim]Config : {cfg_path}[/dim]")
-    else:
-        _CONSOLE.print("[dim]Config : (no project config found)[/dim]")
-    _CONSOLE.print("─" * 60, style="dim")
+    header_text.append(f"Author: {author}\n\n", style="dim")
+    header_text.append(f"Log    : {logger_name}\n", style="white")
+    header_text.append(f"Output : {output_dir}\n", style="white")
+
+    cfg_str = ", ".join(project_configs) if project_configs else "(no project config found)"
+    header_text.append(f"Config : {cfg_str}", style="white")
+
+    _CONSOLE.print(Panel(header_text, border_style="dim", expand=False))
 
 
-def setup_subprocess_logging(model_name: str, repeat_idx: int,
-                               log_dir: Path, log_level: str = "DEBUG"):
+def setup_subprocess_logging(
+    model_name: str,
+    repeat_idx: int,
+    log_dir: Path,
+    log_level: str = "DEBUG",
+):
     """
     Configure per-worker logging for subprocess tasks.
 
@@ -147,9 +150,11 @@ def setup_subprocess_logging(model_name: str, repeat_idx: int,
         _rich = False
 
     if _rich:
-        # Re-use the Rich sink for pretty console output
-        logger.add(_make_rich_sink(more_info=False), level=log_level,
-                   format="{message}")
+        logger.add(
+            _make_rich_sink(more_info=False),
+            level=log_level,
+            format="{message}",
+        )
     else:
         logger.add(sys.stderr, format=fmt, level=log_level, colorize=True)
 
@@ -158,8 +163,13 @@ def setup_subprocess_logging(model_name: str, repeat_idx: int,
         "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
         "[{extra[worker]}] | {message}"
     )
-    logger.add(str(log_file), format=file_fmt, level=log_level,
-               colorize=False, enqueue=True)
+    logger.add(
+        str(log_file),
+        format=file_fmt,
+        level=log_level,
+        colorize=False,
+        enqueue=True,
+    )
 
     # Bind a default ``worker`` extra field so messages don't KeyError
     logger.configure(extra={"worker": f"{model_name}_R{repeat_idx + 1}"})
@@ -206,6 +216,55 @@ def collect_subprocess_logs(log_dir: Path, main_logger) -> None:
 
     main_logger.info(f"{'─' * 40}")
     main_logger.info(f"Subprocess log collection complete ({len(worker_logs)} files)")
+
+
+def log_config_panel(config_dict: dict, title: str = "GPSE Configuration"):
+    """
+    Print a Rich panel for configuration and write plain text to the log file.
+    """
+    if not _RICH_AVAILABLE:
+        for k, v in config_dict.items():
+            logger.info(f"{title} - {k}: {v}")
+        return
+
+    text = Text()
+    for section, params in config_dict.items():
+        text.append(f"\n[ {section} ]\n", style="bold cyan")
+        if isinstance(params, dict):
+            for k, v in params.items():
+                text.append(f"  • {k: <20}: ", style="dim")
+                text.append(f"{v}\n", style="white")
+        else:
+            text.append(f"  {params}\n", style="white")
+
+    _CONSOLE.print(
+        Panel(text, title=f"[bold]{title}[/bold]", border_style="cyan", expand=False)
+    )
+
+    logger.debug(f"=== {title} ===")
+    for section, params in config_dict.items():
+        if isinstance(params, dict):
+            for k, v in params.items():
+                logger.debug(f"[{section}] {k}: {v}")
+        else:
+            logger.debug(f"[{section}] {params}")
+
+
+def get_loading_status(msg: str):
+    """
+    Return a Rich status context manager, or a logging fallback.
+    """
+    if _RICH_AVAILABLE:
+        return _CONSOLE.status(f"[bold green]{msg}[/bold green]", spinner="dots")
+
+    class DummyStatus:
+        def __enter__(self):
+            logger.info(msg)
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    return DummyStatus()
 
 
 # ── Public API ─────────────────────────────────────────────────────────────
