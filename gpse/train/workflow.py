@@ -156,9 +156,9 @@ def _build_parser(
     task_group.add_argument(
         "--task_type",
         type=str,
-        default="regression",
+        required=True,
         choices=["regression", "classification"],
-        help="Task type: regression or classification (default: regression)",
+        help="Task type: regression or classification (required)",
     )
     task_group.add_argument(
         "--n_classes",

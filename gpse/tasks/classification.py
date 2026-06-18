@@ -173,21 +173,38 @@ class GenomicClassifier:
         # If predicted probabilities are provided, calculate AUC and log loss
         if y_pred_proba is not None:
             try:
-                n_classes = len(np.unique(y_true))
+                # Use the full class space known to the classifier. This keeps
+                # metric calculation stable even when a fold doesn't contain
+                # every class.
+                if self.n_classes is not None:
+                    n_classes = self.n_classes
+                    labels = np.arange(n_classes)
+                else:
+                    labels = np.unique(y_true)
+                    n_classes = len(labels)
+
                 if n_classes == 2:  # Binary classification
                     if y_pred_proba.ndim == 2:
-                        metrics['auc'] = roc_auc_score(y_true, y_pred_proba[:, 1])
+                        metrics['auc'] = roc_auc_score(
+                            y_true, y_pred_proba[:, 1], labels=labels
+                        )
                     else:
-                        metrics['auc'] = roc_auc_score(y_true, y_pred_proba)
+                        metrics['auc'] = roc_auc_score(y_true, y_pred_proba, labels=labels)
                 else:  # Multi-class classification
-                    metrics['auc'] = roc_auc_score(y_true, y_pred_proba, multi_class='ovr', average='weighted')
-                
-                metrics['log_loss'] = log_loss(y_true, y_pred_proba)
+                    metrics['auc'] = roc_auc_score(
+                        y_true,
+                        y_pred_proba,
+                        multi_class='ovr',
+                        average='weighted',
+                        labels=labels,
+                    )
+
+                metrics['log_loss'] = log_loss(y_true, y_pred_proba, labels=labels)
             except Exception as e:
-                main_logger.warning(f"Failed to calculate AUC or log_loss: {e}")
+                main_logger.debug(f"Failed to calculate AUC or log_loss: {e}")
                 metrics['auc'] = 0.0
                 metrics['log_loss'] = float('inf')
-        
+
         return metrics
     
     def proba_to_labels_robust(
@@ -310,7 +327,25 @@ class GenomicClassifier:
         if hasattr(model, 'predict_proba'):
             try:
                 y_pred_proba = model.predict_proba(X_scaled)
-                y_pred = self.proba_to_labels_robust(y_pred_proba, len(X_scaled), self.n_classes)
+                # sklearn predict_proba columns correspond to model.classes_.
+                # When a fold misses some classes, those columns are omitted, so we
+                # must map columns back to the original encoded labels and expand
+                # the probability matrix to the full class space.
+                if hasattr(model, 'classes_') and self.n_classes is not None:
+                    model_classes = np.asarray(model.classes_)
+                    y_pred = model_classes[np.argmax(y_pred_proba, axis=1)].astype(int)
+                    if y_pred_proba.shape[1] != self.n_classes:
+                        full_proba = np.zeros(
+                            (len(X_scaled), self.n_classes),
+                            dtype=y_pred_proba.dtype,
+                        )
+                        for col_idx, cls in enumerate(model_classes):
+                            full_proba[:, cls] = y_pred_proba[:, col_idx]
+                        y_pred_proba = full_proba
+                else:
+                    y_pred = self.proba_to_labels_robust(
+                        y_pred_proba, len(X_scaled), self.n_classes
+                    )
             except Exception:
                 pred = model.predict(X_scaled)
                 y_pred = np.asarray(pred).ravel()

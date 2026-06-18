@@ -261,17 +261,21 @@ def detect_phenotype_type(series, max_classes=20, min_samples_per_class=5):
         * n_classes -- number of classes (``None`` for regression)
         * info_dict -- extra metadata (class distribution, reason, stats, ...)
     """
-    s = series.dropna()
+    # Treat common missing-value markers as NA before deciding on the type.
+    missing_markers = ["", " ", "--", ".", "?", "NA", "N/A", "na", "n/a",
+                       "NULL", "null", "None", "none", "NaN", "nan"]
+    s = series.replace(missing_markers, np.nan).dropna()
     n_total = len(s)
 
     if n_total == 0:
         return "regression", None, {"error": "all values are NA"}
 
     # Try numeric conversion
-    numeric_s = pd.to_numeric(s, errors='coerce')
+    numeric_s = pd.to_numeric(s, errors='coerce').dropna()
+    n_numeric = len(numeric_s)
 
     # Case 1: contains non-numeric (string) labels -> classification
-    if numeric_s.isna().any():
+    if n_numeric < n_total:
         n_unique = int(s.nunique())
         value_counts = s.value_counts().to_dict()
         # JSON-safe keys
