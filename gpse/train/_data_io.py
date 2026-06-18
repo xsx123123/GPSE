@@ -158,8 +158,24 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
         main_logger.warning(f"Feature matrix contains {null_count} missing values")
 
     if y.isnull().sum() > 0:
-        null_count = y.isnull().sum()
-        main_logger.warning(f"Target variable contains {null_count} missing values")
+        null_count = int(y.isnull().sum())
+        main_logger.warning(
+            f"Target variable contains {null_count} missing values; "
+            f"dropping these samples before training"
+        )
+        valid_mask = y.notna()
+        X = X.loc[valid_mask]
+        y = y.loc[valid_mask]
+        pheno_data = pheno_data.loc[valid_mask]
+        main_logger.info(
+            f"After removing missing targets - Features: {X.shape[1]}, "
+            f"Samples: {X.shape[0]}"
+        )
+        if X.shape[0] == 0:
+            raise ValueError(
+                "All samples were removed due to missing target values; "
+                "please check the phenotype data"
+            )
 
     # Step 10: Special handling for classification tasks
     if self.task_type == "classification":
