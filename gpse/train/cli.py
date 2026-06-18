@@ -29,69 +29,70 @@ try:
 except ImportError:  # pragma: no cover
     RichHelpFormatter = argparse.HelpFormatter
 
+try:
+    from rich.console import Console
+    from rich.table import Table
+    from rich.text import Text
+
+    _console = Console()
+except ImportError:  # pragma: no cover
+    _console = None
+    Table = None
+    Text = None
+
 
 def _log_config(args) -> None:
     """Pretty-print the active GPSE configuration, grouped and filtered.
 
     Skips flags the user didn't touch (``version``/``help``), drops ``None``
     values for optional inputs, and only shows preprocessing/convert-related
-    args when the user is actually in that mode.
+    args when the user is actually in that mode. Renders a rich table on the
+    terminal and writes a compact flat copy to the log file.
     """
-    def _show(group: str, items: list[tuple[str, object]]) -> None:
-        rows = [(k, v) for k, v in items if v is not None]
-        if not rows:
-            return
-        main_logger.info(f"[{group}]")
-        width = max(len(k) for k, _ in rows)
-        for k, v in rows:
-            main_logger.info(f"  {k.ljust(width)} : {v}")
-
     ns = vars(args)
 
-    _show("Data", [
-        ("geno_file", ns.get("geno_file")),
-        ("pheno_file", ns.get("pheno_file")),
-        ("target_trait", ns.get("target_trait")),
-        ("task_type", ns.get("task_type")),
-        ("n_classes", ns.get("n_classes")),
-        ("standardize_phenotype", ns.get("standardize_phenotype")),
-    ])
-
-    _show("Training", [
-        ("models", ns.get("models")),
-        ("trials", ns.get("trials")),
-        ("test_size", ns.get("test_size")),
-        ("n_splits", ns.get("n_splits")),
-        ("n_repeats", ns.get("n_repeats")),
-        ("patience", ns.get("patience")),
-        ("use_default_params", ns.get("use_default_params")),
-        ("random_seed", ns.get("random_seed")),
-        ("cv_folds", ns.get("cv_folds")),
-        ("use_same_test_set", ns.get("use_same_test_set")),
-        ("use_stacking", ns.get("use_stacking")),
-        ("top_n_models", ns.get("top_n_models")),
-    ])
-
-    _show("CV", [
-        ("cv_file", ns.get("cv_file")),
-        ("force_new_cv", ns.get("force_new_cv")),
-        ("cv_id_column", ns.get("cv_id_column")),
-    ])
-
-    _show("Parallelism", [
-        ("n_jobs", ns.get("n_jobs")),
-        ("max_workers", ns.get("max_workers")),
-    ])
-
-    _show("Output", [
-        ("results_dir", ns.get("results_dir")),
-        ("save_models", ns.get("save_models")),
-        ("save_representative", ns.get("save_representative")),
-        ("log_level", ns.get("log_level")),
-    ])
+    groups: list[tuple[str, list[tuple[str, object]]]] = [
+        ("Data", [
+            ("geno_file", ns.get("geno_file")),
+            ("pheno_file", ns.get("pheno_file")),
+            ("target_trait", ns.get("target_trait")),
+            ("task_type", ns.get("task_type")),
+            ("n_classes", ns.get("n_classes")),
+            ("standardize_phenotype", ns.get("standardize_phenotype")),
+        ]),
+        ("Training", [
+            ("models", ns.get("models")),
+            ("trials", ns.get("trials")),
+            ("test_size", ns.get("test_size")),
+            ("n_splits", ns.get("n_splits")),
+            ("n_repeats", ns.get("n_repeats")),
+            ("patience", ns.get("patience")),
+            ("use_default_params", ns.get("use_default_params")),
+            ("random_seed", ns.get("random_seed")),
+            ("cv_folds", ns.get("cv_folds")),
+            ("use_same_test_set", ns.get("use_same_test_set")),
+            ("use_stacking", ns.get("use_stacking")),
+            ("top_n_models", ns.get("top_n_models")),
+        ]),
+        ("CV", [
+            ("cv_file", ns.get("cv_file")),
+            ("force_new_cv", ns.get("force_new_cv")),
+            ("cv_id_column", ns.get("cv_id_column")),
+        ]),
+        ("Parallelism", [
+            ("n_jobs", ns.get("n_jobs")),
+            ("max_workers", ns.get("max_workers")),
+        ]),
+        ("Output", [
+            ("results_dir", ns.get("results_dir")),
+            ("save_models", ns.get("save_models")),
+            ("save_representative", ns.get("save_representative")),
+            ("log_level", ns.get("log_level")),
+        ]),
+    ]
 
     if ns.get("enable_preprocess") or ns.get("preprocess_only"):
-        _show("Preprocess", [
+        groups.append(("Preprocess", [
             ("preprocess_only", ns.get("preprocess_only")),
             ("preprocess_prefix", ns.get("preprocess_prefix")),
             ("vcf_file", ns.get("vcf_file")),
@@ -109,7 +110,42 @@ def _log_config(args) -> None:
             ("skip_phenotype_match", ns.get("skip_phenotype_match")),
             ("skip_data_clean", ns.get("skip_data_clean")),
             ("load_matrix_info", ns.get("load_matrix_info")),
-        ])
+        ]))
+
+    # Filter Nones up front so widths and log output only reflect real rows.
+    filtered: list[tuple[str, list[tuple[str, object]]]] = []
+    for name, items in groups:
+        rows = [(k, v) for k, v in items if v is not None]
+        if rows:
+            filtered.append((name, rows))
+
+    # Compact flat copy to the log file (always).
+    for name, rows in filtered:
+        main_logger.info(f"[{name}]")
+        width = max(len(k) for k, _ in rows)
+        for k, v in rows:
+            main_logger.info(f"  {k.ljust(width)} : {v}")
+
+    # Pretty rich table to the terminal (when available).
+    if _console is not None and Table is not None:
+        table = Table(
+            show_header=False,
+            box=None,
+            padding=(0, 1),
+            show_edge=False,
+            show_lines=False,
+        )
+        table.add_column("key", style="cyan", no_wrap=True)
+        table.add_column("value", style="white")
+
+        for name, rows in filtered:
+            table.add_row(Text(name, style="bold magenta"), "")
+            width = max(len(k) for k, _ in rows)
+            for k, v in rows:
+                table.add_row(f"  {k.ljust(width)}", str(v))
+            table.add_row("", "")
+
+        _console.print(table)
 
 
 def _try_infer_task_type(geno_file, pheno_file, target_trait, preprocess_prefix,
