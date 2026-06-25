@@ -363,6 +363,27 @@ gpse train \
     --results_dir output_results/
 ```
 
+> **💡 Shortcut for total core usage: `--threads`**
+>
+> If you just want to say "use about N cores", you can use `--threads N` and GPSE
+> will automatically derive `--max_workers` and `--repeat_workers` for you
+> (keeping `--n_jobs` at 1 to avoid oversubscription):
+>
+> ```bash
+> gpse train \
+>     --geno_file data/train_genotype.csv \
+>     --pheno_file data/train_phenotype.csv \
+>     --target_trait Fruit_Weight \
+>     --n_repeats 7 \
+>     --threads 100 \
+>     --results_dir output_results/
+> ```
+>
+> With 14 regression models this resolves to `--max_workers 14 --repeat_workers 7`,
+> giving ~98 concurrent training units. If `--n_repeats` is 1, the effective
+> parallelism is capped at the number of models (14); increase `--n_repeats` or
+> explicitly set `--n_jobs` if you need more.
+
 > **💡 `--task_type` and `--n_classes` are now optional**
 >
 > When `gpse convert` has generated a `{prefix}_{trait}_phenotype_info.json`

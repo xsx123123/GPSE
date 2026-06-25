@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Dict, Any
 from sklearn.model_selection import train_test_split
 import multiprocessing as mp
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import as_completed
 
 from loguru import logger as main_logger
 
@@ -31,6 +31,7 @@ from gpse.utils.genomic_utils import (
     find_representative_repeat,
 )
 from gpse.utils.log_utils import logger_init, setup_subprocess_logging, collect_subprocess_logs
+from gpse.utils.paralle import graceful_process_pool
 
 
 def _init_worker_threads(n_threads: int) -> None:
@@ -236,11 +237,12 @@ def run_model_multiple_repeats(
     if self.repeat_workers > 1:
         main_logger.info(f"Using {self.repeat_workers} parallel repeat workers")
 
-        with ProcessPoolExecutor(
+        with graceful_process_pool(
             max_workers=self.repeat_workers,
             mp_context=mp.get_context("spawn"),
             initializer=_init_worker_threads,
             initargs=(self.n_threads,),
+            logger=main_logger,
         ) as executor:
             futures = [
                 executor.submit(

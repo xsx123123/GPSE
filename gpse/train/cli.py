@@ -22,7 +22,7 @@ from gpse.train.workflow import (
     _log_stage,
     _show_version,
 )
-from gpse.utils.paralle import validate_parallelism
+from gpse.utils.paralle import derive_parallelism_from_threads, validate_parallelism
 
 try:
     from rich_argparse import RichHelpFormatter
@@ -145,6 +145,54 @@ def _log_config(args) -> None:
     _write_config_to_log(args)
 
 
+def _resolve_model_count(args: argparse.Namespace) -> int:
+    """Return the number of models that will be trained for the current task."""
+    if args.models:
+        return len(args.models)
+    if args.task_type == "regression":
+        from gpse.models.regression_model_optimizer import RegressionModelOptimizer
+
+        return len(RegressionModelOptimizer(random_seed=42, n_threads=1).model_configs)
+    # Classification
+    from gpse.models.classification_model_optimizer import ClassificationModelOptimizer
+
+    return len(
+        ClassificationModelOptimizer(
+            random_seed=42, n_threads=1, n_classes=args.n_classes or 2
+        ).model_configs
+    )
+
+
+def _apply_threads_budget(args: argparse.Namespace) -> None:
+    """Auto-derive max_workers/repeat_workers from --threads if requested."""
+    if args.threads is None:
+        return
+
+    n_models = _resolve_model_count(args)
+    args.n_jobs, args.max_workers, args.repeat_workers = derive_parallelism_from_threads(
+        threads=args.threads,
+        n_models=n_models,
+        n_repeats=args.n_repeats,
+        n_jobs=args.n_jobs,
+        max_workers=args.max_workers,
+        repeat_workers=args.repeat_workers,
+    )
+
+    effective = args.n_jobs * args.max_workers * args.repeat_workers
+    main_logger.info(
+        f"--threads {args.threads} requested; derived parallelism: "
+        f"n_jobs={args.n_jobs}, max_workers={args.max_workers}, "
+        f"repeat_workers={args.repeat_workers} "
+        f"(models={n_models}, repeats={args.n_repeats}, effective={effective})"
+    )
+    if effective < args.threads:
+        main_logger.warning(
+            f"Effective parallelism ({effective}) is below the --threads target "
+            f"({args.threads}). Increase --n_repeats or explicitly set "
+            "--n_jobs / --max_workers / --repeat_workers if you need more cores."
+        )
+
+
 def main(
     argv: list[str] | None = None,
     *,
@@ -167,169 +215,175 @@ def main(
 
     args = parser.parse_args(raw_args)
 
-    if args.version:
-        _show_version()
-        return 0
-
-    _configure_logging(args.log_level)
-
     try:
-        args.n_jobs, args.max_workers, args.repeat_workers = validate_parallelism(
-            args.n_jobs,
-            args.max_workers,
-            args.repeat_workers,
-            logger=main_logger,
-        )
-    except ValueError:
-        return 1
+        if args.version:
+            _show_version()
+            return 0
 
-    if args.preprocess_only:
-        if not args.preprocess_prefix:
-            main_logger.error("--preprocess_prefix is required when --preprocess_only is set")
-            return 1
-    elif args.enable_preprocess:
-        if not args.preprocess_prefix:
-            main_logger.error("--preprocess_prefix is required when --enable_preprocess is set")
-            return 1
-        if not args.target_trait:
-            main_logger.error("--target_trait is required for training")
-            return 1
-    else:
-        if not args.geno_file or not args.pheno_file:
-            main_logger.error("--geno_file and --pheno_file are required in normal training mode")
-            return 1
-        if not args.target_trait:
-            main_logger.error("--target_trait is required for training")
-            return 1
+        _configure_logging(args.log_level)
 
-    _log_config(args)
-
-    processed_geno_file = args.geno_file
-    processed_pheno_file = args.pheno_file
-
-    if args.enable_preprocess or args.preprocess_only:
-        _log_stage("Starting data preprocessing")
-
-        processor = GenomicDataProcessor(logger=main_logger, plink_path=args.plink_path)
-        preprocess_kwargs = {
-            "out_prefix": args.preprocess_prefix,
-            "vcf": args.vcf_file,
-            "bfile": args.bfile,
-            "ped_file": args.ped_file,
-            "map_file": args.map_file,
-            "extract": args.extract_file,
-            "snp_dir": args.snp_dir,
-            "direct": args.direct_convert,
-            "matrix_file": args.matrix_file,
-            "pheno": args.raw_pheno_file,
-            "plink_out": args.plink_out,
-            "skip_matrix": args.skip_matrix_conversion,
-            "skip_match": args.skip_phenotype_match,
-            "skip_clean": args.skip_data_clean,
-            "load": args.load_matrix_info,
-            "trait_name": args.target_trait,
-            "standardize_phenotype": args.standardize_phenotype,
-        }
+        _apply_threads_budget(args)
 
         try:
-            result = processor.process_genomic_data(**preprocess_kwargs)
-            if result != 0:
-                main_logger.error("Data preprocessing failed")
-                return result
-
-            main_logger.info("Data preprocessing completed successfully!")
-            if not args.skip_phenotype_match and args.raw_pheno_file:
-                for ext in [".parquet", ".feather", ".csv"]:
-                    test_file = f"{args.preprocess_prefix}_genotype{ext}"
-                    if os.path.exists(test_file):
-                        processed_geno_file = test_file
-                        break
-                else:
-                    processed_geno_file = f"{args.preprocess_prefix}_genotype.csv"
-                processed_pheno_file = f"{args.preprocess_prefix}_phenotype.csv"
-            else:
-                for ext in [".parquet", ".feather", ".csv"]:
-                    test_file = args.preprocess_prefix + ext
-                    if os.path.exists(test_file):
-                        processed_geno_file = test_file
-                        break
-                else:
-                    processed_geno_file = args.preprocess_prefix + ".csv"
-                processed_pheno_file = args.raw_pheno_file
-
-
-        except Exception as e:
-            main_logger.error(f"Error during data preprocessing: {e}")
-            main_logger.error(traceback.format_exc())
-            return 1
-
-    if args.preprocess_only:
-        main_logger.info("Preprocessing finished; exiting without training")
-        return 0
-
-    if not os.path.exists(processed_geno_file):
-        main_logger.error(f"Genotype file not found: {processed_geno_file}")
-        return 1
-    if not os.path.exists(processed_pheno_file):
-        main_logger.error(f"Phenotype file not found: {processed_pheno_file}")
-        return 1
-
-    # ---- Validate task_type / n_classes (user-specified, no auto-detect) ----
-    if args.task_type == "classification":
-        if args.n_classes is None:
-            main_logger.error(
-                "--n_classes is required when --task_type=classification"
+            args.n_jobs, args.max_workers, args.repeat_workers = validate_parallelism(
+                args.n_jobs,
+                args.max_workers,
+                args.repeat_workers,
+                logger=main_logger,
             )
+        except ValueError:
             return 1
-        if args.n_classes < 2:
-            main_logger.error("--n_classes must be >= 2 for classification")
+
+        if args.preprocess_only:
+            if not args.preprocess_prefix:
+                main_logger.error("--preprocess_prefix is required when --preprocess_only is set")
+                return 1
+        elif args.enable_preprocess:
+            if not args.preprocess_prefix:
+                main_logger.error("--preprocess_prefix is required when --enable_preprocess is set")
+                return 1
+            if not args.target_trait:
+                main_logger.error("--target_trait is required for training")
+                return 1
+        else:
+            if not args.geno_file or not args.pheno_file:
+                main_logger.error("--geno_file and --pheno_file are required in normal training mode")
+                return 1
+            if not args.target_trait:
+                main_logger.error("--target_trait is required for training")
+                return 1
+
+        _log_config(args)
+
+        processed_geno_file = args.geno_file
+        processed_pheno_file = args.pheno_file
+
+        if args.enable_preprocess or args.preprocess_only:
+            _log_stage("Starting data preprocessing")
+
+            processor = GenomicDataProcessor(logger=main_logger, plink_path=args.plink_path)
+            preprocess_kwargs = {
+                "out_prefix": args.preprocess_prefix,
+                "vcf": args.vcf_file,
+                "bfile": args.bfile,
+                "ped_file": args.ped_file,
+                "map_file": args.map_file,
+                "extract": args.extract_file,
+                "snp_dir": args.snp_dir,
+                "direct": args.direct_convert,
+                "matrix_file": args.matrix_file,
+                "pheno": args.raw_pheno_file,
+                "plink_out": args.plink_out,
+                "skip_matrix": args.skip_matrix_conversion,
+                "skip_match": args.skip_phenotype_match,
+                "skip_clean": args.skip_data_clean,
+                "load": args.load_matrix_info,
+                "trait_name": args.target_trait,
+                "standardize_phenotype": args.standardize_phenotype,
+            }
+
+            try:
+                result = processor.process_genomic_data(**preprocess_kwargs)
+                if result != 0:
+                    main_logger.error("Data preprocessing failed")
+                    return result
+
+                main_logger.info("Data preprocessing completed successfully!")
+                if not args.skip_phenotype_match and args.raw_pheno_file:
+                    for ext in [".parquet", ".feather", ".csv"]:
+                        test_file = f"{args.preprocess_prefix}_genotype{ext}"
+                        if os.path.exists(test_file):
+                            processed_geno_file = test_file
+                            break
+                    else:
+                        processed_geno_file = f"{args.preprocess_prefix}_genotype.csv"
+                    processed_pheno_file = f"{args.preprocess_prefix}_phenotype.csv"
+                else:
+                    for ext in [".parquet", ".feather", ".csv"]:
+                        test_file = args.preprocess_prefix + ext
+                        if os.path.exists(test_file):
+                            processed_geno_file = test_file
+                            break
+                    else:
+                        processed_geno_file = args.preprocess_prefix + ".csv"
+                    processed_pheno_file = args.raw_pheno_file
+
+
+            except Exception as e:
+                main_logger.error(f"Error during data preprocessing: {e}")
+                main_logger.error(traceback.format_exc())
+                return 1
+
+        if args.preprocess_only:
+            main_logger.info("Preprocessing finished; exiting without training")
+            return 0
+
+        if not os.path.exists(processed_geno_file):
+            main_logger.error(f"Genotype file not found: {processed_geno_file}")
             return 1
-    elif args.n_classes is not None:
-        main_logger.warning("--n_classes is ignored for regression tasks")
+        if not os.path.exists(processed_pheno_file):
+            main_logger.error(f"Phenotype file not found: {processed_pheno_file}")
+            return 1
 
-    _log_stage("Starting model training")
-    main_logger.info(f"Genotype file: {processed_geno_file}")
-    main_logger.info(f"Phenotype file: {processed_pheno_file}")
+        # ---- Validate task_type / n_classes (user-specified, no auto-detect) ----
+        if args.task_type == "classification":
+            if args.n_classes is None:
+                main_logger.error(
+                    "--n_classes is required when --task_type=classification"
+                )
+                return 1
+            if args.n_classes < 2:
+                main_logger.error("--n_classes must be >= 2 for classification")
+                return 1
+        elif args.n_classes is not None:
+            main_logger.warning("--n_classes is ignored for regression tasks")
 
-    training_standardize = False
-    if args.enable_preprocess and args.standardize_phenotype:
-        main_logger.info("Phenotype already standardized during preprocessing; skipping standardization in training")
-    elif not args.enable_preprocess:
-        training_standardize = args.standardize_phenotype
+        _log_stage("Starting model training")
+        main_logger.info(f"Genotype file: {processed_geno_file}")
+        main_logger.info(f"Phenotype file: {processed_pheno_file}")
 
-    predictor = GenomicPredictorV2(
-        random_seed=args.random_seed,
-        results_dir=args.results_dir,
-        n_trials=args.trials,
-        n_threads=args.n_jobs,
-        max_parallel_jobs=args.max_workers,
-        repeat_workers=args.repeat_workers,
-        test_size=args.test_size,
-        n_splits=args.n_splits,
-        n_repeats=args.n_repeats,
-        patience=args.patience,
-        use_default_params=args.use_default_params,
-        save_models=args.save_models,
-        save_representative=args.save_representative,
-        cv_file=args.cv_file,
-        force_new_cv=args.force_new_cv,
-        cv_id_column=args.cv_id_column,
-        task_type=args.task_type,
-        n_classes=args.n_classes,
-        standardize_phenotype=training_standardize,
-    )
+        training_standardize = False
+        if args.enable_preprocess and args.standardize_phenotype:
+            main_logger.info("Phenotype already standardized during preprocessing; skipping standardization in training")
+        elif not args.enable_preprocess:
+            training_standardize = args.standardize_phenotype
 
-    predictor.run_all_models(
-        geno_file=processed_geno_file,
-        pheno_file=processed_pheno_file,
-        target_trait=args.target_trait,
-        models=args.models,
-        use_stacking=args.use_stacking,
-        top_n_models=args.top_n_models,
-        cv_folds=args.cv_folds,
-        use_same_test_set=args.use_same_test_set,
-    )
-    return 0
+        predictor = GenomicPredictorV2(
+            random_seed=args.random_seed,
+            results_dir=args.results_dir,
+            n_trials=args.trials,
+            n_threads=args.n_jobs,
+            max_parallel_jobs=args.max_workers,
+            repeat_workers=args.repeat_workers,
+            test_size=args.test_size,
+            n_splits=args.n_splits,
+            n_repeats=args.n_repeats,
+            patience=args.patience,
+            use_default_params=args.use_default_params,
+            save_models=args.save_models,
+            save_representative=args.save_representative,
+            cv_file=args.cv_file,
+            force_new_cv=args.force_new_cv,
+            cv_id_column=args.cv_id_column,
+            task_type=args.task_type,
+            n_classes=args.n_classes,
+            standardize_phenotype=training_standardize,
+        )
+
+        predictor.run_all_models(
+            geno_file=processed_geno_file,
+            pheno_file=processed_pheno_file,
+            target_trait=args.target_trait,
+            models=args.models,
+            use_stacking=args.use_stacking,
+            top_n_models=args.top_n_models,
+            cv_folds=args.cv_folds,
+            use_same_test_set=args.use_same_test_set,
+        )
+        return 0
+    except KeyboardInterrupt:
+        main_logger.warning("Training interrupted by user (Ctrl+C).")
+        return 130
 
 
 if __name__ == "__main__":

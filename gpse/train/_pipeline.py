@@ -9,7 +9,7 @@ Runs all or specified models and optionally performs Stacking ensemble.
 
 import os
 import traceback
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import as_completed
 
 import numpy as np
 import pandas as pd
@@ -20,6 +20,7 @@ from loguru import logger as main_logger
 
 from gpse.config import ModelConstants
 from gpse.utils.genomic_utils import create_comparison_table, call_topsis_evaluator
+from gpse.utils.paralle import graceful_process_pool
 from gpse.train.stacking import StackingEnsemble
 
 
@@ -86,10 +87,11 @@ def run_all_models(
 
     if model_workers > 1:
         main_logger.info(f"Using {model_workers} parallel model workers")
-        with ProcessPoolExecutor(
+        with graceful_process_pool(
             max_workers=model_workers,
             initializer=_init_model_worker_threads,
             initargs=(self.n_threads,),
+            logger=main_logger,
         ) as executor:
             futures = {
                 executor.submit(

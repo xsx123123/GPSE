@@ -178,6 +178,17 @@ def _build_parser(
         default=1,
         help="Repeat-level parallelism: maximum number of repeats per model to run at the same time (default: 1)",
     )
+    performance_group.add_argument(
+        "--threads",
+        type=int,
+        default=None,
+        help=(
+            "Target total parallelism (number of concurrent training units). When set, "
+            "GPSE automatically derives --max_workers and --repeat_workers from this budget "
+            "(with --n_jobs kept at 1). Useful shorthand for: --threads 100. "
+            "Cannot exceed available CPU cores."
+        ),
+    )
 
     task_group = parser.add_argument_group("task configuration")
     task_group.add_argument(
