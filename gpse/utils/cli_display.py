@@ -285,18 +285,50 @@ def _show_logo_for_command(command_args: list[str]) -> None:
     show_gpse_logo()
 
 
+# Pure ASCII (FIGlet "big") — single-width only, safe in any terminal.
+_ASCII_42 = r"""
+   _  _        ___
+  | || |      |__ \
+  | || |_       ) |
+  |__   _|     / /
+     | |      / /_
+     |_|     |____|
+"""
+
+_THINKING_LINES = (
+    "Consulting Deep Thought...",
+    "Enumerating life, the universe, and everything...",
+    "Sampling random_seed=42 for reproducibility...",
+    "Cross-validating against the Guide...",
+    "Stacking ensembles of pure coincidence...",
+    "Waiting 7.5 million years (compressed)...",
+)
+
+_AFTERGLOW = (
+    "Don't Panic — and always carry a towel.",
+    "Also the default random seed. Coincidence? Probably not.",
+    "GPSE: Genomic Prediction, Stacking Ensemble... and 42.",
+    "Share and Enjoy. (Results may vary by fold.)",
+    "Mostly harmless. Highly heritable.",
+    "The mice are still reviewing the SNP list.",
+    "So long, and thanks for all the phenotypes.",
+    "If it works, leave random_seed=42 alone.",
+    "42 folds of destiny. K=42 is... ambitious.",
+    "TOPSIS ranks this answer #1. Entropy agrees.",
+)
+
+# Two short lines so the panel never wraps awkwardly mid-sentence.
+_ANSWER_LINE_1 = "The answer to the ultimate question"
+_ANSWER_LINE_2 = "of life, the universe, and everything is 42"
+
+
 def print_easter_egg(show_question: bool = False) -> None:
-    """Display a compact easter egg for the ultimate answer."""
+    """Display a theatrical Hitchhiker-meets-genomics easter egg."""
+    import random
+
     type_delay = 0.014
-    answer_segments = [
-        ("The answer", "bold cyan"),
-        (" to the ", "white"),
-        ("ultimate question", "bold magenta"),
-        (" of ", "white"),
-        ("life, the universe, and everything", "bold green"),
-        (" is ", "white"),
-        ("42", "bold yellow"),
-    ]
+    afterglow = random.choice(_AFTERGLOW)
+    full_answer = f"{_ANSWER_LINE_1}\n{_ANSWER_LINE_2}"
 
     try:
         from rich.console import Console
@@ -306,52 +338,147 @@ def print_easter_egg(show_question: bool = False) -> None:
         console = None
 
     if console is None:
+        print(f"\nGPSE 42\n{'-' * 7}")
         if show_question:
-            print(f"\nGPSE 42\n{'-' * 7}\nQ: {_ULTIMATE_QUESTION_DISPLAY}\nA: 42")
-        else:
-            print(f"\nGPSE 42\n{'-' * 7}")
-        for char in _ULTIMATE_ANSWER_TEXT:
+            print(f"Q: {_ULTIMATE_QUESTION_DISPLAY}")
+        for line in _THINKING_LINES[:3]:
+            print(f"  ... {line}")
+            time.sleep(0.18)
+        print(_ASCII_42)
+        for char in full_answer:
             sys.stdout.write(char)
             sys.stdout.flush()
             time.sleep(type_delay)
-        print("\n")
+        print(f"\n\n  {afterglow}\n")
         return
 
     from rich.align import Align
+    from rich.console import Group
     from rich.live import Live
     from rich.panel import Panel
+    from rich.progress import Progress, SpinnerColumn, TextColumn
     from rich.text import Text
 
-    def append_styled_answer(body: Text, answer_text: str) -> None:
-        offset = 0
-        for segment, style in answer_segments:
-            if offset >= len(answer_text):
-                break
-            visible = answer_text[offset : offset + len(segment)]
-            if visible:
-                body.append(visible, style=style)
-            offset += len(segment)
-
-    def render_panel(answer_text: str) -> Panel:
-        body = Text()
-        if show_question:
-            body.append("Q: ", style="bold cyan")
-            body.append(f"{_ULTIMATE_QUESTION_DISPLAY}\n\n", style="white")
-        body.append("42\n", style="bold bright_cyan")
-        append_styled_answer(body, answer_text)
-        return Panel(
-            Align.center(body),
-            title="[bold cyan]GPSE 42[/bold cyan]",
-            subtitle="[dim]Don't Panic[/dim]",
-            border_style="cyan",
-            padding=(1, 4),
-        )
+    # Style map over the joined two-line answer.
+    answer_segments = [
+        ("The answer", "bold cyan"),
+        (" to the ", "white"),
+        ("ultimate question", "bold magenta"),
+        ("\n", "white"),
+        ("of ", "white"),
+        ("life, the universe, and everything", "bold green"),
+        (" is ", "white"),
+        ("42", "bold bright_yellow"),
+    ]
+    raw_ascii_lines = [ln.rstrip() for ln in _ASCII_42.strip("\n").splitlines()]
+    art_width = max(len(ln) for ln in raw_ascii_lines)
+    # Equal-width lines (trailing spaces preserved via non-breaking pad later).
+    ascii_lines = [ln.ljust(art_width) for ln in raw_ascii_lines]
+    ascii_line_count = len(ascii_lines)
+    # Panel content width driven by the longer of art / answer / footer.
+    content_width = max(
+        art_width,
+        len(_ANSWER_LINE_1),
+        len(_ANSWER_LINE_2),
+        len(afterglow),
+    )
+    art_left = max(0, (content_width - art_width) // 2)
 
     console.print()
-    answer = ""
-    with Live(render_panel(answer), console=console, refresh_per_second=30) as live:
-        for char in _ULTIMATE_ANSWER_TEXT:
+
+    # Act I — dramatic "computing"
+    if show_question:
+        q = Text()
+        q.append("Q: ", style="bold cyan")
+        q.append(_ULTIMATE_QUESTION_DISPLAY, style="italic white")
+        console.print(Align.center(q))
+        console.print()
+
+    with Progress(
+        SpinnerColumn(spinner_name="dots12", style="cyan"),
+        TextColumn("[bold cyan]{task.description}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("", total=len(_THINKING_LINES))
+        for line in _THINKING_LINES:
+            progress.update(task, description=line)
+            time.sleep(0.28 + random.uniform(0.0, 0.12))
+            progress.advance(task)
+
+    # Act II — big ASCII 42 with typewriter answer
+    def center_line(text: str, style: str | None = None) -> Text:
+        left = max(0, (content_width - len(text)) // 2)
+        t = Text(" " * left)
+        t.append(text, style=style)
+        # Trailing pad keeps Panel width stable while typing.
+        t.append(" " * max(0, content_width - left - len(text)))
+        return t
+
+    def styled_answer(answer_text: str) -> Text:
+        """Render typed answer; line 1 and line 2 are each centered."""
+        if "\n" in answer_text:
+            line1, line2 = answer_text.split("\n", 1)
+        else:
+            line1, line2 = answer_text, None
+
+        def paint(line: str, global_offset: int) -> Text:
+            body = Text()
+            # Walk segments that fall inside [global_offset, global_offset+len(line))
+            pos = 0  # position in full_answer
+            for segment, style in answer_segments:
+                seg_end = pos + len(segment)
+                # Intersection with this line's range
+                start = max(pos, global_offset)
+                end = min(seg_end, global_offset + len(line))
+                if start < end:
+                    body.append(line[start - global_offset : end - global_offset], style=style)
+                pos = seg_end
+            left = max(0, (content_width - len(line)) // 2)
+            out = Text(" " * left)
+            out.append_text(body)
+            out.append(" " * max(0, content_width - left - len(line)))
+            return out
+
+        result = paint(line1, 0)
+        if line2 is not None:
+            result.append("\n")
+            result.append_text(paint(line2, len(line1) + 1))
+        return result
+
+    def render_panel(answer_text: str, reveal_lines: int = 0, show_footer: bool = False) -> Align:
+        # Indent whole art block (not per-line center) so the "4" stays diagonal.
+        visible = ascii_lines[: max(1, reveal_lines)]
+        art_block = "\n".join((" " * art_left) + ln for ln in visible)
+        art = Text(art_block, style="bold bright_yellow")
+        parts: list = [art]
+        if reveal_lines >= ascii_line_count:
+            parts.append(Text(""))
+            parts.append(styled_answer(answer_text))
+            if show_footer and len(answer_text) >= len(full_answer):
+                parts.append(Text(""))
+                parts.append(center_line(afterglow, "dim italic"))
+        panel = Panel(
+            Group(*parts),
+            title="[bold cyan]GPSE 42[/bold cyan]",
+            subtitle="[dim]Don't Panic · Share and Enjoy[/dim]",
+            border_style="bright_cyan",
+            padding=(1, 3),
+            expand=False,
+        )
+        return Align.center(panel)
+
+    # Reveal ASCII line by line, then type the answer
+    with Live(render_panel("", reveal_lines=0), console=console, refresh_per_second=30) as live:
+        for i in range(1, ascii_line_count + 1):
+            live.update(render_panel("", reveal_lines=i))
+            time.sleep(0.05)
+        answer = ""
+        for char in full_answer:
             answer += char
-            live.update(render_panel(answer))
+            live.update(render_panel(answer, reveal_lines=ascii_line_count))
             time.sleep(type_delay)
-    console.print("\n")
+        live.update(render_panel(answer, reveal_lines=ascii_line_count, show_footer=True))
+        time.sleep(0.4)
+
+    console.print()
