@@ -275,7 +275,7 @@ def train_and_evaluate_model_for_repeat(
     for fold_idx, (train_idx, val_idx) in enumerate(folds):
         fold_seed = generate_fold_seed(self.random_seed, repeat_idx, fold_idx)
         np.random.seed(fold_seed)
-        task_logger.info(f"Training fold {fold_idx + 1}/{self.n_splits}...")
+        task_logger.debug(f"Training fold {fold_idx + 1}/{self.n_splits}...")
         model = self.create_model(model_name, params)
 
         fold_result = self._train_single_fold(
@@ -306,7 +306,7 @@ def train_and_evaluate_model_for_repeat(
 
     if fold_results:
         avg_metrics = self._calculate_fold_average_metrics(
-            fold_results, repeat_idx, task_logger
+            fold_results, repeat_idx, task_logger, model_name=model_name
         )
         ensemble_metrics = self._compute_ensemble_predictions(
             model_name,

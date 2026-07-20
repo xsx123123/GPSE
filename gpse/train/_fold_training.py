@@ -187,7 +187,14 @@ def _train_single_fold(
 
         # Log results
         self._log_fold_results(
-            fold_idx, train_metrics, val_metrics, test_metrics, training_time, task_logger
+            fold_idx,
+            train_metrics,
+            val_metrics,
+            test_metrics,
+            training_time,
+            task_logger,
+            model_name=model_name,
+            repeat_idx=repeat_idx,
         )
 
         return fold_result
@@ -206,29 +213,33 @@ def _log_fold_results(
     test_metrics: Dict,
     training_time: float,
     task_logger,
+    model_name: str = "",
+    repeat_idx: int = 0,
 ) -> None:
-    """Log fold results."""
+    """Log fold results as a single tagged line."""
+    tag = f"{model_name} R{repeat_idx + 1} F{fold_idx + 1}"
     if self.task_type == "classification":
         self.genomic_classifier.log_classification_results(
-            fold_idx, train_metrics, val_metrics, test_metrics, task_logger
+            fold_idx, train_metrics, val_metrics, test_metrics, task_logger, tag=tag
         )
-        task_logger.info(f"  Training time: {training_time:.2f}s")
+        task_logger.info(f"{tag} | {training_time:.2f}s")
     else:
         task_logger.info(
-            f"Fold {fold_idx + 1} | "
+            f"{tag} | "
             f"Train r={train_metrics['pearson']:.4f} ρ={train_metrics['spearman']:.4f} | "
             f"Val r={val_metrics['pearson']:.4f} ρ={val_metrics['spearman']:.4f} | "
             f"Test r={test_metrics['pearson']:.4f} ρ={test_metrics['spearman']:.4f} "
-            f"MSE={test_metrics['mse']:.4f} | "
+            f"MSE={test_metrics['mse']:.4g} | "
             f"{training_time:.2f}s"
         )
 
 
 def _calculate_fold_average_metrics(
-    self, fold_results: List[Dict], repeat_idx: int, task_logger
+    self, fold_results: List[Dict], repeat_idx: int, task_logger, model_name: str = ""
 ) -> Dict[str, float]:
     """Calculate average metrics across all folds."""
     metrics = {"avg_training_time": np.mean([r["training_time"] for r in fold_results])}
+    tag = f"{model_name} R{repeat_idx + 1}"
 
     if self.task_type == "classification":
         for metric_name in ["accuracy", "f1"]:
@@ -255,36 +266,19 @@ def _calculate_fold_average_metrics(
             metrics["std_test_pr_auc"] = 0.0
 
         # Log output
-        task_logger.info(f"\nRepeat {repeat_idx + 1} average performance:")
-        task_logger.info(
-            f"  Avg Train Accuracy: {metrics['avg_train_accuracy']:.6f} "
-            f"(±{metrics['std_train_accuracy']:.6f})"
-        )
-        task_logger.info(
-            f"  Avg Val Accuracy: {metrics['avg_val_accuracy']:.6f} "
-            f"(±{metrics['std_val_accuracy']:.6f})"
-        )
-        task_logger.info(
-            f"  Avg Test Accuracy: {metrics['avg_test_accuracy']:.6f} "
-            f"(±{metrics['std_test_accuracy']:.6f})"
-        )
-        task_logger.info(
-            f"  Avg Train F1: {metrics['avg_train_f1']:.6f} "
-            f"(±{metrics['std_train_f1']:.6f})"
-        )
-        task_logger.info(
-            f"  Avg Val F1: {metrics['avg_val_f1']:.6f} "
-            f"(±{metrics['std_val_f1']:.6f})"
-        )
-        task_logger.info(
-            f"  Avg Test F1: {metrics['avg_test_f1']:.6f} "
-            f"(±{metrics['std_test_f1']:.6f})"
+        line = (
+            f"{tag} avg | "
+            f"Train acc={metrics['avg_train_accuracy']:.4f}±{metrics['std_train_accuracy']:.4f} "
+            f"f1={metrics['avg_train_f1']:.4f}±{metrics['std_train_f1']:.4f} | "
+            f"Val acc={metrics['avg_val_accuracy']:.4f}±{metrics['std_val_accuracy']:.4f} "
+            f"f1={metrics['avg_val_f1']:.4f}±{metrics['std_val_f1']:.4f} | "
+            f"Test acc={metrics['avg_test_accuracy']:.4f}±{metrics['std_test_accuracy']:.4f} "
+            f"f1={metrics['avg_test_f1']:.4f}±{metrics['std_test_f1']:.4f}"
         )
         if metrics["avg_test_auc"] > 0:
-            task_logger.info(
-                f"  Avg Test AUC: {metrics['avg_test_auc']:.6f} "
-                f"(±{metrics['std_test_auc']:.6f})"
-            )
+            line += f" auc={metrics['avg_test_auc']:.4f}±{metrics['std_test_auc']:.4f}"
+        line += f" | {metrics['avg_training_time']:.2f}s"
+        task_logger.info(line)
     else:
         # Regression task
         for split in ["train", "val", "test"]:
@@ -299,19 +293,12 @@ def _calculate_fold_average_metrics(
         metrics["avg_test_mse"] = np.mean(mse_values)
         metrics["std_test_mse"] = np.std(mse_values)
 
-        task_logger.info(f"\nRepeat {repeat_idx + 1} average performance:")
         task_logger.info(
-            f"  Avg Train Pearson: {metrics['avg_train_pearson']:.6f} "
-            f"(±{metrics['std_train_pearson']:.6f})"
-        )
-        task_logger.info(
-            f"  Avg Val Pearson: {metrics['avg_val_pearson']:.6f} "
-            f"(±{metrics['std_val_pearson']:.6f})"
-        )
-        task_logger.info(
-            f"  Avg Test Pearson: {metrics['avg_test_pearson']:.6f} "
-            f"(±{metrics['std_test_pearson']:.6f})"
+            f"{tag} avg | "
+            f"Train r={metrics['avg_train_pearson']:.4f}±{metrics['std_train_pearson']:.4f} | "
+            f"Val r={metrics['avg_val_pearson']:.4f}±{metrics['std_val_pearson']:.4f} | "
+            f"Test r={metrics['avg_test_pearson']:.4f}±{metrics['std_test_pearson']:.4f} | "
+            f"{metrics['avg_training_time']:.2f}s"
         )
 
-    task_logger.info(f"  Avg training time: {metrics['avg_training_time']:.2f}s")
     return metrics

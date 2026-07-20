@@ -441,28 +441,30 @@ class GenomicClassifier:
         return summary
     
     def log_classification_results(
-        self, 
-        fold_idx: int, 
-        train_metrics: dict, 
-        val_metrics: dict, 
-        test_metrics: dict, 
-        logger=None
+        self,
+        fold_idx: int,
+        train_metrics: dict,
+        val_metrics: dict,
+        test_metrics: dict,
+        logger=None,
+        tag: str = "",
     ):
         """
         Log classification results.
-        
+
         Args:
             fold_idx: Fold index
             train_metrics: Training set metrics
             val_metrics: Validation set metrics
             test_metrics: Test set metrics
             logger: Logger instance
+            tag: Optional prefix tag (e.g. "model R1 F2")
         """
         if logger is None:
             logger = main_logger
 
         line = (
-            f"Fold {fold_idx + 1} | "
+            f"{tag or f'Fold {fold_idx + 1}'} | "
             f"Train acc={train_metrics['accuracy']:.4f} f1={train_metrics['f1']:.4f} | "
             f"Val acc={val_metrics['accuracy']:.4f} f1={val_metrics['f1']:.4f} | "
             f"Test acc={test_metrics['accuracy']:.4f} f1={test_metrics['f1']:.4f}"
