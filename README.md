@@ -57,7 +57,7 @@ pip install .
 
 ## 🚀 Usage
 
-GPSE uses a subcommand architecture: `gpse {convert,train,predict}`.
+GPSE uses a subcommand architecture: `gpse {convert,train,predict,batch}`.
 
 ### Command-Line Preview
 
@@ -441,6 +441,53 @@ gpse train \
 > and `--n_classes 3` are inferred automatically. Explicit values override the
 > auto-detection and trigger a warning if they conflict.
 
+#### 2.5 Batch Multi-Trait Training (`gpse batch`)
+
+Train models for many traits in one run from a single YAML config. Each trait
+executes the full `gpse train` workflow with its own output directory. One
+trait's failure does not stop the remaining traits, and a per-trait summary is
+printed at the end.
+
+```bash
+gpse batch --config batch_config.yaml
+# Preview the generated per-trait commands without running them:
+gpse batch --config batch_config.yaml --dry_run
+```
+
+The YAML has two sections. `defaults` accepts any `gpse train` option (same
+names as the command-line flags) plus the batch-only `results_root`. Each
+`traits` entry requires a `name` (used as `--target_trait`) and may override
+any option — including the task type, so regression and classification traits
+can be mixed in one batch:
+
+```yaml
+defaults:
+  geno_file: maize_geno.csv
+  pheno_file: maize_pheno.csv        # multi-trait table; `name` selects the column
+  task_type: regression
+  use_default_params: true
+  use_stacking: true
+  n_repeats: 2
+  threads: 60
+  results_root: results/             # each trait writes to results/<name>/
+
+traits:
+  - name: FT                         # inherits everything from defaults
+    cv_file: cv_folds/FT_cv_50x5.csv
+  - name: FW
+    models: [rf_reg, xgboost_reg, gblup_reg]   # this trait only
+  - name: color
+    task_type: classification        # per-trait task type
+    n_classes: 3
+    results_dir: results_color/      # overrides results_root
+  - name: DTF
+    enabled: false                   # skipped but kept in the config
+```
+
+A ready-to-edit template lives at `batch/batch_config.example.yaml`. Option
+names that are not valid `gpse train` flags are rejected with an error, and
+Ctrl+C aborts the whole batch.
+
 ### 3. Analyze Phenotypes
 
 Quickly analyze phenotype data to determine the appropriate task type (Regression vs Classification).
@@ -456,6 +503,7 @@ gpse --help
 gpse --version
 gpse convert --help
 gpse train --help
+gpse batch --help
 ```
 
 ## 📥 Input and Output Formats
@@ -722,16 +770,16 @@ are therefore not finalized.
 
 ## 📁 Source Layout
 
-The package is organized around the three workflow commands: `convert`, `train`,
-and `predict`. Runtime-specific code lives in those command packages; shared
-support code lives in `config`, `models`, `tasks`, `tools`, and `utils`.
+The package is organized around the four workflow commands: `convert`, `train`,
+`predict`, and `batch`. Runtime-specific code lives in those command packages;
+shared support code lives in `config`, `models`, `tasks`, `tools`, and `utils`.
 
 ### `gpse/`
 
 | File | Scope |
 | --- | --- |
 | `__init__.py` | Package metadata, currently exposes `__version__`. |
-| `cli.py` | Thin top-level command router for `gpse {convert,train,predict}`. It defines shared CLI flags, routes subcommands, and delegates workflow logic to the relevant package. |
+| `cli.py` | Thin top-level command router for `gpse {convert,train,predict,batch}`. It defines shared CLI flags, routes subcommands, and delegates workflow logic to the relevant package. |
 
 ### `gpse/config/`
 
@@ -887,6 +935,17 @@ Prediction workflow for VCF/matrix inputs with canonical SNP-ID alignment agains
 | `__main__.py` | Enables `python -m gpse.predict`. |
 | `core.py` | Loads VCF/matrix genotypes, canonicalizes SNP IDs, aligns to `feature_manifest.json`, and writes alignment reports. |
 | `cli.py` | Prediction CLI for VCF/matrix input, model feature alignment, missing-SNP reporting, and prediction CSV output. |
+
+### `gpse/batch/`
+
+Batch multi-trait training driver for `gpse batch`: YAML config loading and
+sequential per-trait `gpse train` execution.
+
+| File | Scope |
+| --- | --- |
+| `__init__.py` | Package marker for the batch workflow. |
+| `cli.py` | CLI parser for `gpse batch` (`--config`, `--dry_run`). |
+| `runner.py` | Loads the YAML batch config, merges `defaults` with per-trait overrides, translates options into `gpse train` arguments (including boolean and list flags), runs each trait, and prints the final per-trait summary. |
 
 ### `gpse/models/`
 

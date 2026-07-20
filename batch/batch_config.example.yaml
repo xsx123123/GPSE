@@ -1,0 +1,44 @@
+# GPSE 批量训练配置示例：一条命令跑多个性状
+# 用法: gpse batch --config batch_config.example.yaml
+# 先用 --dry_run 预览每个性状实际执行的 gpse train 命令:
+#   gpse batch --config batch_config.example.yaml --dry_run
+
+defaults:
+  # ---- 数据来源（可被 traits 条目覆盖）----
+  geno_file: /path/to/maize_geno.csv
+  pheno_file: /path/to/maize_pheno.csv      # 多列表型文件，traits 里的 name 即列名
+
+  # ---- 训练参数（与 gpse train 的参数同名；不写的用 train 自带默认值）----
+  task_type: regression
+  use_default_params: true
+  test_size: 0.3
+  n_splits: 5
+  n_repeats: 2
+  random_seed: 42
+  use_same_test_set: true
+  use_stacking: true
+  threads: 60
+
+  # ---- 输出根目录：每个性状写到 <results_root>/<name>/ ----
+  results_root: /path/to/results
+
+traits:
+  # 最简单：只给名字，其余全部继承 defaults
+  - name: FT
+    cv_file: /path/to/FT_cv_50x5.csv        # 每个性状可以用自己的 CV 文件
+
+  # 该性状只跑部分模型
+  - name: FW
+    models: [rf_reg, xgboost_reg, gblup_reg]
+
+  # 分类性状：覆盖任务类型，必要时单独指定数据源和输出目录
+  - name: color
+    task_type: classification
+    n_classes: 3
+    pheno_file: /path/to/color_pheno.csv
+    models: [rf_clf, xgboost_clf, lightgbm_clf]
+    results_dir: /path/to/results_color
+
+  # 暂时跳过，但不从配置里删掉
+  - name: DTF
+    enabled: false

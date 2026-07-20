@@ -97,9 +97,9 @@ def main(argv: list[str] | None = None) -> int:
     if not raw_args:
         show_gpse_logo()
         if _console is not None:
-            _console.print("\n[bold red][ERROR] No command provided. Use convert, train, or predict.[/bold red]\n")
+            _console.print("\n[bold red][ERROR] No command provided. Use convert, train, predict, or batch.[/bold red]\n")
         else:
-            print("\n[ERROR] No command provided. Use convert, train, or predict.\n")
+            print("\n[ERROR] No command provided. Use convert, train, predict, or batch.\n")
         root_parser.print_help()
         return 1
 
@@ -189,8 +189,25 @@ def main(argv: list[str] | None = None) -> int:
             parents=[_common_parent],
         )
 
+    # Batch workflow: train many traits from one YAML config.
+    if command == "batch":
+        _show_logo_for_command(command_args)
+
+        from gpse.batch.cli import main as batch_main
+
+        if command_args and command_args[0] in {"-v", "--version"}:
+            from gpse.train.cli import main as train_main
+
+            return train_main(["--version"], prog="gpse batch")
+        return batch_main(
+            command_args,
+            formatter_class=RichHelpFormatter,
+            prog="gpse batch",
+            parents=[_common_parent],
+        )
+
     # Any other first token is not a supported workflow command.
-    root_parser.error(f"Unknown command: {command}. Use train, convert, or predict.")
+    root_parser.error(f"Unknown command: {command}. Use train, convert, predict, or batch.")
     return 2
 
 

@@ -51,7 +51,7 @@ pip install .
 
 ## 🚀 使用方法
 
-GPSE 使用子命令结构：`gpse {convert,train,predict}`。
+GPSE 使用子命令结构：`gpse {convert,train,predict,batch}`。
 
 ### 命令行示意
 
@@ -302,6 +302,50 @@ gpse train \
 > `--n_classes 3` 会自动推断。显式传入的值会覆盖自动检测结果，
 > 若与检测结果冲突则会发出警告。
 
+#### 2.5 批量多性状训练（`gpse batch`）
+
+通过一份 YAML 配置一次性为多个性状构建模型。每个性状都会独立执行完整的
+`gpse train` 流程并写入各自的输出目录；单个性状失败不会中断后续性状，
+批次结束后会打印每个性状的成功/失败汇总。
+
+```bash
+gpse batch --config batch_config.yaml
+# 只预览每个性状实际生成的命令，不真正运行：
+gpse batch --config batch_config.yaml --dry_run
+```
+
+YAML 分为两段。`defaults` 接受任意 `gpse train` 参数（参数名与命令行选项
+完全一致），另有 batch 专用的 `results_root`；`traits` 列表中每项必填
+`name`（自动作为 `--target_trait`），并可覆盖任意参数——包括任务类型，
+因此回归和分类性状可以混在同一个批次中：
+
+```yaml
+defaults:
+  geno_file: maize_geno.csv
+  pheno_file: maize_pheno.csv        # 多性状表型表，name 即列名
+  task_type: regression
+  use_default_params: true
+  use_stacking: true
+  n_repeats: 2
+  threads: 60
+  results_root: results/             # 每个性状输出到 results/<name>/
+
+traits:
+  - name: FT                         # 全部继承 defaults
+    cv_file: cv_folds/FT_cv_50x5.csv
+  - name: FW
+    models: [rf_reg, xgboost_reg, gblup_reg]   # 该性状只跑这几个模型
+  - name: color
+    task_type: classification        # 按性状指定任务类型
+    n_classes: 3
+    results_dir: results_color/      # 覆盖 results_root
+  - name: DTF
+    enabled: false                   # 暂时跳过，但保留在配置中
+```
+
+可直接修改的模板见 `batch/batch_config.example.yaml`。配置中出现非
+`gpse train` 的参数名会直接报错；Ctrl+C 会终止整个批次。
+
 ### 3. 表型分析
 
 快速分析表型数据，判断更适合回归还是分类。
@@ -317,6 +361,7 @@ gpse --help
 gpse --version
 gpse convert --help
 gpse train --help
+gpse batch --help
 ```
 
 ## 📥 输入与输出格式
@@ -550,14 +595,14 @@ TOPSIS 排名输出：
 
 ## 📁 源码结构
 
-项目按三个工作流命令组织：`convert`、`train` 和 `predict`。命令相关代码放在对应子包中，共享支撑代码放在 `config`、`models`、`tasks`、`tools` 和 `utils` 中。
+项目按四个工作流命令组织：`convert`、`train`、`predict` 和 `batch`。命令相关代码放在对应子包中，共享支撑代码放在 `config`、`models`、`tasks`、`tools` 和 `utils` 中。
 
 ### `gpse/`
 
 | 文件 | 作用 |
 | --- | --- |
 | `__init__.py` | 包元数据，当前导出 `__version__`。 |
-| `cli.py` | 顶层命令路由器，仅负责 `gpse {convert,train,predict}` 的参数路由和共享 CLI 参数。 |
+| `cli.py` | 顶层命令路由器，仅负责 `gpse {convert,train,predict,batch}` 的参数路由和共享 CLI 参数。 |
 
 ### `gpse/config/`
 
@@ -616,6 +661,16 @@ TOPSIS 排名输出：
 | `__init__.py` | Prediction 包标记。 |
 | `__main__.py` | 支持 `python -m gpse.predict`。 |
 | `cli.py` | 未来预测流程的 CLI 占位，目前会提示 prediction 尚未实现。 |
+
+### `gpse/batch/`
+
+`gpse batch` 的实现：YAML 批量配置加载，按性状顺序执行 `gpse train`。
+
+| 文件 | 作用 |
+| --- | --- |
+| `__init__.py` | Batch 包标记。 |
+| `cli.py` | `gpse batch` 的 CLI 解析器（`--config`、`--dry_run`）。 |
+| `runner.py` | 加载 YAML 批量配置，将 `defaults` 与性状级覆盖合并并翻译成 `gpse train` 参数（含布尔和列表参数），逐性状执行训练并打印最终汇总。 |
 
 ### `gpse/models/`
 
