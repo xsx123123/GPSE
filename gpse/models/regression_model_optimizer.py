@@ -383,16 +383,17 @@ class RegressionModelOptimizer:
         - degree: 多项式核的度
         - coef0: 多项式和sigmoid核的独立项
         """
-        kernel = trial.suggest_categorical('kernel', ['rbf', 'laplacian', 'polynomial', 'sigmoid'])
+        kernel = trial.suggest_categorical('kernel', ['linear', 'rbf', 'laplacian', 'polynomial', 'sigmoid'])
 
         params = {
-            'alpha': trial.suggest_float('alpha', 1e-6, 10.0, log=True),
+            # 下限提到 1e-2：p >> n 时过小的 alpha 会让 RBF 核精确插值训练集（过拟合）
+            'alpha': trial.suggest_float('alpha', 1e-2, 10.0, log=True),
             'kernel': kernel,
         }
 
-        # 根据不同核函数添加特定参数
+        # 根据不同核函数添加特定参数（gamma 上限收紧到 1.0，避免核矩阵退化接近单位阵）
         if kernel in ['rbf', 'laplacian', 'polynomial', 'sigmoid']:
-            params['gamma'] = trial.suggest_float('gamma', 1e-6, 10.0, log=True)
+            params['gamma'] = trial.suggest_float('gamma', 1e-6, 1.0, log=True)
 
         if kernel == 'polynomial':
             params['degree'] = trial.suggest_int('degree', 2, 5)
