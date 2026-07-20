@@ -216,15 +216,15 @@ def _log_fold_results(
     model_name: str = "",
     repeat_idx: int = 0,
 ) -> None:
-    """Log fold results as a single tagged line."""
+    """Log fold results as a single tagged line (debug level; use -l DEBUG to see)."""
     tag = f"{model_name} R{repeat_idx + 1} F{fold_idx + 1}"
     if self.task_type == "classification":
         self.genomic_classifier.log_classification_results(
-            fold_idx, train_metrics, val_metrics, test_metrics, task_logger, tag=tag
+            fold_idx, train_metrics, val_metrics, test_metrics, task_logger, tag=tag, level="debug"
         )
-        task_logger.info(f"{tag} | {training_time:.2f}s")
+        task_logger.debug(f"{tag} | {training_time:.2f}s")
     else:
-        task_logger.info(
+        task_logger.debug(
             f"{tag} | "
             f"Train r={train_metrics['pearson']:.4f} ρ={train_metrics['spearman']:.4f} | "
             f"Val r={val_metrics['pearson']:.4f} ρ={val_metrics['spearman']:.4f} | "

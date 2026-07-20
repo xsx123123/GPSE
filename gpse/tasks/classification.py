@@ -448,6 +448,7 @@ class GenomicClassifier:
         test_metrics: dict,
         logger=None,
         tag: str = "",
+        level: str = "info",
     ):
         """
         Log classification results.
@@ -459,10 +460,12 @@ class GenomicClassifier:
             test_metrics: Test set metrics
             logger: Logger instance
             tag: Optional prefix tag (e.g. "model R1 F2")
+            level: Log level name ("info" or "debug")
         """
         if logger is None:
             logger = main_logger
 
+        log = getattr(logger, level, logger.info)
         line = (
             f"{tag or f'Fold {fold_idx + 1}'} | "
             f"Train acc={train_metrics['accuracy']:.4f} f1={train_metrics['f1']:.4f} | "
@@ -471,7 +474,7 @@ class GenomicClassifier:
         )
         if 'auc' in test_metrics:
             line += f" auc={test_metrics['auc']:.4f}"
-        logger.info(line)
+        log(line)
     
     def create_classification_comparison_row(
         self, 

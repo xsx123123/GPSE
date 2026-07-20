@@ -41,13 +41,23 @@ class TestDeriveParallelismFromThreads:
         assert repeat_workers == 1
 
     def test_single_repeat_limits_parallelism(self):
-        # With n_repeats=1, repeat-level parallelism cannot exceed 1
+        # With n_repeats=1, repeat-level parallelism cannot exceed 1;
+        # the leftover budget is recycled into n_jobs (100 // 14 = 7)
         n_jobs, max_workers, repeat_workers = derive_parallelism_from_threads(
             threads=100, n_models=14, n_repeats=1
         )
-        assert n_jobs == 1
+        assert n_jobs == 7
         assert max_workers == 14
         assert repeat_workers == 1
+
+    def test_leftover_budget_recycled_into_n_jobs(self):
+        # threads=80, 15 models, 2 repeats -> 15 * 2 = 30 workers, n_jobs=2
+        n_jobs, max_workers, repeat_workers = derive_parallelism_from_threads(
+            threads=80, n_models=15, n_repeats=2
+        )
+        assert n_jobs == 2
+        assert max_workers == 15
+        assert repeat_workers == 2
 
     def test_explicit_max_workers_preserved(self):
         # User explicitly wants only 7 models in parallel

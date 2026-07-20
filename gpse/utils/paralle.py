@@ -123,10 +123,11 @@ def derive_parallelism_from_threads(
 ) -> tuple[int, int, int]:
     """Derive ``(n_jobs, max_workers, repeat_workers)`` from a total thread budget.
 
-    The strategy keeps ``n_jobs`` unchanged (defaults to 1) and prefers to spend
-    the budget on model-level parallelism first, then repeat-level parallelism.
-    Values that are still at their argparse defaults (``1``) are treated as
-    "not explicitly set" and are overridden; non-default values are preserved.
+    The strategy prefers to spend the budget on model-level parallelism first,
+    then repeat-level parallelism, and finally recycles any leftover budget
+    into ``n_jobs``. Values that are still at their argparse defaults (``1``)
+    are treated as "not explicitly set" and are overridden; non-default values
+    are preserved.
 
     Parameters
     ----------
@@ -171,6 +172,13 @@ def derive_parallelism_from_threads(
     per_model_budget = threads // derived_max_workers
     if repeat_workers == 1:
         derived_repeat_workers = max(1, min(n_repeats, per_model_budget // derived_n_jobs))
+
+    # Give any leftover budget to per-worker threads so the --threads target
+    # is actually used (e.g. threads=80, 15 models, 2 repeats would otherwise
+    # only use 15 * 2 = 30 workers and waste the remaining cores).
+    if n_jobs == 1:
+        used = derived_max_workers * derived_repeat_workers
+        derived_n_jobs = max(1, threads // used)
 
     return derived_n_jobs, derived_max_workers, derived_repeat_workers
 
