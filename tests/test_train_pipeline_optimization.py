@@ -1,6 +1,8 @@
 import json
 import logging
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import optuna
@@ -18,6 +20,7 @@ from gpse.train._ensemble import _compute_ensemble_predictions
 from gpse.train._results import write_result_bundle
 from gpse.train.stacking import StackingEnsemble
 from gpse.models.regression_model_optimizer import RegressionModelOptimizer
+from gpse.models.classification_model_optimizer import ClassificationModelOptimizer
 from gpse.utils.genomic_utils import calculate_repeat_statistics
 from gpse.tasks.classification import GenomicClassifier
 from gpse.train._feature_selection import (
@@ -187,6 +190,65 @@ def test_linear_svr_uses_extended_convergence_budget():
     assert default_params["max_iter"] == 10_000
     assert optimized_params["max_iter"] == 10_000
     assert optimizer.create_model("svr_reg", default_params).max_iter == 10_000
+
+
+def test_catboost_outputs_are_scoped_to_results_directory(tmp_path, monkeypatch):
+    class FakeCatBoostModel:
+        def __init__(self, **params):
+            self.params = params
+
+    monkeypatch.setitem(
+        sys.modules,
+        "catboost",
+        SimpleNamespace(
+            CatBoostRegressor=FakeCatBoostModel,
+            CatBoostClassifier=FakeCatBoostModel,
+        ),
+    )
+    train_dir = tmp_path / "catboost_info"
+
+    regression_model = RegressionModelOptimizer(
+        random_seed=17,
+        n_threads=2,
+        catboost_train_dir=str(train_dir),
+    ).create_model("catboost_reg", {})
+    classification_model = ClassificationModelOptimizer(
+        random_seed=17,
+        n_threads=2,
+        n_classes=2,
+        catboost_train_dir=str(train_dir),
+    ).create_classification_model("catboost_clf", {})
+
+    assert regression_model.params["train_dir"] == str(train_dir)
+    assert classification_model.params["train_dir"] == str(train_dir)
+    assert regression_model.params["thread_count"] == 2
+    assert classification_model.params["thread_count"] == 2
+
+
+def test_catboost_disables_file_output_without_results_directory(monkeypatch):
+    class FakeCatBoostModel:
+        def __init__(self, **params):
+            self.params = params
+
+    monkeypatch.setitem(
+        sys.modules,
+        "catboost",
+        SimpleNamespace(
+            CatBoostRegressor=FakeCatBoostModel,
+            CatBoostClassifier=FakeCatBoostModel,
+        ),
+    )
+
+    regression_model = RegressionModelOptimizer(random_seed=17).create_model(
+        "catboost_reg", {}
+    )
+    classification_model = ClassificationModelOptimizer(
+        random_seed=17,
+        n_classes=2,
+    ).create_classification_model("catboost_clf", {})
+
+    assert regression_model.params["allow_writing_files"] is False
+    assert classification_model.params["allow_writing_files"] is False
 
 
 def test_holdout_reports_accumulate_split_strategies_and_mark_gblup(tmp_path):

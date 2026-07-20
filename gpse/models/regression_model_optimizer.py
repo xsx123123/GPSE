@@ -25,6 +25,7 @@ class RegressionModelOptimizer:
         random_seed: Optional[int] = None,
         n_threads: int = 1,
         random_state: Optional[int] = None,
+        catboost_train_dir: Optional[str] = None,
     ):
         if random_seed is not None and random_state is not None and random_seed != random_state:
             raise ValueError("random_seed and random_state were both provided with different values")
@@ -34,6 +35,7 @@ class RegressionModelOptimizer:
         self.random_seed = random_seed                   # random seed for reproducibility
         self.random_state = random_seed                  # backward-compatible alias
         self.n_threads = n_threads                       # Set number of threads
+        self.catboost_train_dir = catboost_train_dir     # CatBoost train_dir (catboost_info output)
         self.model_configs = {}                          # Initialize empty dict first
         self.model_configs = self._init_model_configs()  # Then populate it
 
@@ -528,6 +530,11 @@ class RegressionModelOptimizer:
         elif model_name == 'catboost_reg':
             from catboost import CatBoostRegressor
             params['thread_count'] = self.n_threads
+            # 将 catboost_info 日志目录导向结果目录；未指定时禁止写文件
+            if self.catboost_train_dir:
+                params.setdefault('train_dir', self.catboost_train_dir)
+            else:
+                params.setdefault('allow_writing_files', False)
             return CatBoostRegressor(**params)
         elif model_name == 'kernelridge_reg':
             from sklearn.kernel_ridge import KernelRidge

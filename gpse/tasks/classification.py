@@ -67,6 +67,7 @@ class GenomicClassifier:
             random_seed=random_seed,
             n_threads=n_threads,
             n_classes=n_classes,
+            catboost_train_dir=str(self.results_dir / "catboost_info"),
         )
         
     def prepare_classification_labels(self, y: pd.Series, results_dir: Path) -> pd.Series:

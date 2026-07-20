@@ -252,7 +252,8 @@ class GenomicPredictorV2:
         # Initialize model optimizer
         if task_type == "regression":
             self.model_optimizer = RegressionModelOptimizer(
-                random_seed=random_seed, n_threads=n_threads
+                random_seed=random_seed, n_threads=n_threads,
+                catboost_train_dir=str(self.results_dir / "catboost_info"),
             )
             self.available_models = list(self.model_optimizer.model_configs.keys())
             self.classification_optimizer = None

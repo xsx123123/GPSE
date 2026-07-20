@@ -32,6 +32,7 @@ class ClassificationModelOptimizer:
         n_threads: int = 1,
         n_classes: int = None,
         random_state: Optional[int] = None,
+        catboost_train_dir: Optional[str] = None,
     ):
         if random_seed is not None and random_state is not None and random_seed != random_state:
             raise ValueError("random_seed and random_state were both provided with different values")
@@ -42,6 +43,7 @@ class ClassificationModelOptimizer:
         self.random_state = random_seed
         self.n_threads = n_threads
         self.n_classes = n_classes
+        self.catboost_train_dir = catboost_train_dir  # CatBoost train_dir (catboost_info output)
         self.model_configs = self._init_classification_model_configs()
 
         # Set environment variables for multi-threading (all 6 BLAS/OpenMP backends)
@@ -281,6 +283,11 @@ class ClassificationModelOptimizer:
         elif model_name == 'catboost_clf':
             from catboost import CatBoostClassifier
             params['thread_count'] = self.n_threads
+            # 将 catboost_info 日志目录导向结果目录；未指定时禁止写文件
+            if self.catboost_train_dir:
+                params.setdefault('train_dir', self.catboost_train_dir)
+            else:
+                params.setdefault('allow_writing_files', False)
             return CatBoostClassifier(**params)
         elif model_name == 'svm_clf':
             from sklearn.svm import SVC
