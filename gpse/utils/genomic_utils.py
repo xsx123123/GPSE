@@ -222,9 +222,11 @@ def create_comparison_table(all_model_results: Dict[str, Dict[str, Any]], result
         
         # Log results
         if logger:
-            logger.info(f"\nModel Performance Comparison:")
+            logger.info("")
+            logger.info(f"Model Performance Comparison:")
             logger.info("\n" + comparison_df.to_string(index=False))
-            logger.info(f"\nComparison table saved to {comparison_path}")
+            logger.info("")
+            logger.info(f"Comparison table saved to {comparison_path}")
         else:
             print(f"\nModel Performance Comparison:")
             print("\n" + comparison_df.to_string(index=False))

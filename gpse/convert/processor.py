@@ -668,7 +668,8 @@ class GenomicDataProcessor:
                                 self.logger.error(f"Trait '{trait}' failed: {exc}")
                 else:
                     for trait in trait_cols:
-                        self.logger.info(f"\n--- Processing trait: {trait} ---")
+                        self.logger.info("")
+                        self.logger.info(f"--- Processing trait: {trait} ---")
                         try:
                             self._process_single_trait(
                                 trait,
@@ -683,7 +684,8 @@ class GenomicDataProcessor:
                         except Exception as exc:
                             self.logger.error(f"Trait '{trait}' failed: {exc}")
 
-                self.logger.info("\nAll traits processed")
+                self.logger.info("")
+                self.logger.info("All traits processed")
 
             else:
                 if kwargs.get('skip_match'):

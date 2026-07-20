@@ -173,7 +173,8 @@ def optimize_model_parameters(
 
             if best_value is not None and recent_best_value is not None:
                 if best_value <= recent_best_value:
-                    log.info(f"\nEarly stopping: no improvement within {self.patience} trials")
+                    log.info("")
+                    log.info(f"Early stopping: no improvement within {self.patience} trials")
                     study.stop()
         return False
 

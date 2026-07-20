@@ -306,7 +306,8 @@ def process_snp_dir(
 
     for snp_file in snp_files:
         phenotype = os.path.basename(snp_file).replace('.txt', '')
-        log.info(f"\nProcessing phenotype: {phenotype}")
+        log.info("")
+        log.info(f"Processing phenotype: {phenotype}")
 
         out_prefix = os.path.join(out_dir, phenotype)
         try:

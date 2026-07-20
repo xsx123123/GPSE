@@ -211,17 +211,15 @@ def train_and_evaluate_model_for_repeat(
     repeat_seed = generate_repeat_seed(self.random_seed, repeat_idx)
     np.random.seed(repeat_seed)
 
-    sep = "=" * 50
-    task_logger.opt(colors=True).info(f"<cyan>{sep}</cyan>")
     task_logger.opt(colors=True).info(
-        f"<b><cyan>Model {model_name}</cyan></b> "
-        f"<yellow>- Repeat {repeat_idx + 1}/{self.n_repeats}</yellow>"
+        f"Model <b><cyan>{model_name}</cyan></b> "
+        f"<yellow>- Repeat {repeat_idx + 1}/{self.n_repeats}</yellow>: starting training"
     )
-    task_logger.opt(colors=True).info(f"<cyan>{sep}</cyan>")
-    main_logger.opt(colors=True).info(
-        f"Starting training Model:<cyan>{model_name}</cyan> "
-        f"Repeat:<yellow>{repeat_idx + 1}</yellow>"
-    )
+    if task_logger is not main_logger:
+        main_logger.opt(colors=True).info(
+            f"Model <b><cyan>{model_name}</cyan></b> "
+            f"<yellow>- Repeat {repeat_idx + 1}/{self.n_repeats}</yellow>: starting training"
+        )
 
     repeat_dir = create_repeat_result_directory(self.results_dir, model_name, repeat_idx)
     if test_indices is None:
@@ -400,7 +398,6 @@ def run_model_multiple_repeats(
     main_logger.info(
         f"Starting {self.n_repeats} repeated training runs for model {model_name}"
     )
-    main_logger.info(f"{'=' * 70}")
 
     model_dir = create_model_result_directory(self.results_dir, model_name)
 

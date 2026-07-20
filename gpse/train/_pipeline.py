@@ -299,7 +299,6 @@ def run_all_models(
         try:
             main_logger.info(f"{'=' * 70}")
             main_logger.info(f"Starting Stacking ensemble")
-            main_logger.info(f"{'=' * 70}")
 
             if not selected_models_for_stacking:
                 raise ValueError("No training-side CV results are available for stacking selection")

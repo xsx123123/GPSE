@@ -200,7 +200,8 @@ def _compute_ensemble_predictions(
                 y_test, ensemble_pred, ensemble_proba
             )
 
-            task_logger.info(f"\nFold-ensemble test performance:")
+            task_logger.info("")
+            task_logger.info("Fold-ensemble test performance:")
             task_logger.info(f"  Accuracy: {ensemble_metrics['accuracy']:.6f}")
             task_logger.info(f"  F1: {ensemble_metrics['f1']:.6f}")
             if "auc" in ensemble_metrics:
@@ -217,7 +218,8 @@ def _compute_ensemble_predictions(
                 )
             ensemble_metrics = calculate_metrics(metric_y_test, metric_predictions)
 
-            task_logger.info("\nFold-ensemble test performance (original phenotype scale):")
+            task_logger.info("")
+            task_logger.info("Fold-ensemble test performance (original phenotype scale):")
             task_logger.info(f"  Pearson: {ensemble_metrics['pearson']:.6f}")
             task_logger.info(f"  Spearman: {ensemble_metrics['spearman']:.6f}")
             task_logger.info(f"  R²: {ensemble_metrics['r2']:.6f}")
