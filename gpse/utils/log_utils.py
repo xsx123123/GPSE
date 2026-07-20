@@ -128,17 +128,15 @@ def _add_console_handler(
         logger.add(sys.stderr, format=fmt, level=log_level, colorize=True, enqueue=True)
         return
     else:
-        # Default style: colorized stderr sink. A RichHandler cannot render
-        # loguru ``<color>`` markups in messages (they get stripped for
-        # non-colorize sinks), so use a colorized stream that mimics the
-        # Rich look: "[HH:mm:ss] LEVEL    message".
-        fmt = (
-            "<green>[{time:HH:mm:ss}]</green> "
-            "<level>{level: <8}</level> "
-            "{message}"
+        handler = RichHandler(
+            show_time=True,
+            omit_repeated_times=False,
+            show_path=False,
+            markup=True,
+            rich_tracebacks=True,
+            log_time_format="[%X]",
         )
-        logger.add(sys.stderr, format=fmt, level=log_level, colorize=True, enqueue=True)
-        return
+        fmt = "{message}"
 
     logger.add(handler, format=fmt, level=log_level, enqueue=True)
 
