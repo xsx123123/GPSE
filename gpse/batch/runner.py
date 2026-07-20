@@ -124,6 +124,25 @@ def build_trait_argv(
     return argv
 
 
+def _format_train_command(argv: list[str]) -> str:
+    """Render a ``gpse train`` argv as a multi-line copy-pasteable command.
+
+    Each flag is grouped with its values on its own line, joined with shell
+    line-continuations, so long paths stay intact instead of wrapping
+    mid-token at the terminal edge.
+    """
+    groups: list[list[str]] = []
+    for token in argv:
+        if token.startswith("--") or not groups:
+            groups.append([token])
+        else:
+            groups[-1].append(token)
+    lines = ["gpse train \\"]
+    lines.extend(f"    {' '.join(group)} \\" for group in groups[:-1])
+    lines.append(f"    {' '.join(groups[-1])}")
+    return "\n".join(lines)
+
+
 def run_batch(config_path: str | Path, dry_run: bool = False) -> int:
     """Run ``gpse train`` for every enabled trait; return 0 when all succeed."""
     defaults, traits = load_batch_config(config_path)
@@ -149,7 +168,8 @@ def run_batch(config_path: str | Path, dry_run: bool = False) -> int:
             continue
 
         if dry_run:
-            print(f"gpse train {' '.join(argv)}")
+            print(f"[{index}/{len(runnable)}] {name}")
+            print(_format_train_command(argv))
             outcomes.append((name, "dry-run"))
             continue
 

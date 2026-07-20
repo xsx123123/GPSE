@@ -1,0 +1,29 @@
+# GPSE 批量训练验证配置：rice 三性状 (YLD/FT/HT)
+# 用法: gpse batch --config tests/validation/rice_batch_config.yaml
+# 预览不执行: gpse batch --config tests/validation/rice_batch_config.yaml --dry_run
+
+defaults:
+  # ---- 数据来源 ----
+  geno_file: /data/xiaoliu/gpse_6pecies_model/6specise/geno/rice_geno.csv
+  pheno_file: /data/xiaoliu/gpse_6pecies_model/6specise/pheno/rice_pheno.csv  # 多列表型，traits 里的 name 即列名
+
+  # ---- 训练参数（与 gpse train 同名）----
+  task_type: regression
+  use_default_params: true
+  test_size: 0.3
+  n_splits: 5
+  n_repeats: 2
+  random_seed: 42
+  use_same_test_set: true
+  threads: 60
+  models: [rf_reg, xgboost_reg, lightgbm_reg, gblup_reg]
+
+  # ---- 输出根目录：每个性状写到 <results_root>/<name>/ ----
+  results_root: /data/jzhang/project/Temp/gpse_26.6.4_test/gpse_new_validation/6species/rice_batch
+
+traits:
+  - name: YLD                        # 继承 defaults 全部参数
+  - name: FT
+    use_stacking: true               # 该性状额外启用 stacking+TOPSIS
+  - name: HT
+    models: [rf_reg, gblup_reg]      # 该性状只跑两个模型

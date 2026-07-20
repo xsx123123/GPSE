@@ -51,6 +51,14 @@ def main(
     )
     args = parser.parse_args(raw_args)
 
+    # Initialize the standard GPSE console logger so batch messages share the
+    # same "[HH:MM:SS] INFO ..." style as `gpse train`. Without this, batch
+    # logs fall back to whatever handler was installed at import time (e.g.
+    # the rich_color_ext box sink pulled in transitively by the logo).
+    from gpse.utils.log_utils import logger_init
+
+    logger_init(log_level=getattr(args, "log_level", "INFO"))
+
     from gpse.batch.runner import run_batch
 
     try:
