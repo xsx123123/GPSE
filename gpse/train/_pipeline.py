@@ -297,7 +297,7 @@ def run_all_models(
 
     if use_stacking and len(all_model_results) >= 2:
         try:
-            main_logger.info(f"\n{'=' * 70}")
+            main_logger.info(f"{'=' * 70}")
             main_logger.info(f"Starting Stacking ensemble")
             main_logger.info(f"{'=' * 70}")
 

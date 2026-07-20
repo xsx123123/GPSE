@@ -211,7 +211,7 @@ def train_and_evaluate_model_for_repeat(
     repeat_seed = generate_repeat_seed(self.random_seed, repeat_idx)
     np.random.seed(repeat_seed)
 
-    task_logger.info(f"\n{'=' * 50}")
+    task_logger.info(f"{'=' * 50}")
     task_logger.info(f"Model {model_name} - Repeat {repeat_idx + 1}/{self.n_repeats}")
     task_logger.info(f"{'=' * 50}")
     main_logger.info(f"Starting training Model:{model_name} Repeat:{repeat_idx + 1}")
@@ -384,7 +384,7 @@ def run_model_multiple_repeats(
     Dict[str, Any]
         Dictionary containing all repeat results.
     """
-    main_logger.info(f"\n{'=' * 70}")
+    main_logger.info(f"{'=' * 70}")
     main_logger.info(
         f"Starting {self.n_repeats} repeated training runs for model {model_name}"
     )
@@ -534,7 +534,7 @@ def run_model_multiple_repeats(
         model_name_summary = summary["model_name"]
         n_repeats = summary["n_repeats"]
 
-        main_logger.info(f"\n{ModelConstants.log_separator_short}")
+        main_logger.info(f"{ModelConstants.log_separator_short}")
         main_logger.info(
             f"Model {model_name_summary} - Average performance over {n_repeats} repeats:"
         )

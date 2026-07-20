@@ -14,6 +14,9 @@ from typing import Dict, Any, Optional
 from gpse.config import ModelConfig, ModelConstants
 
 
+LINEAR_SVR_MAX_ITER = 10_000
+
+
 class RegressionModelOptimizer:
     """Regression model optimizer."""
 
@@ -219,6 +222,7 @@ class RegressionModelOptimizer:
             'loss': trial.suggest_categorical('loss', ['epsilon_insensitive', 'squared_epsilon_insensitive']),
             'C': trial.suggest_float('C', 1e-5, 1e2, log=True),
             'tol': trial.suggest_float('tol', 1e-8, 1e2, log=True),
+            'max_iter': LINEAR_SVR_MAX_ITER,
             'random_state': self.random_seed
         }
 
@@ -564,6 +568,7 @@ class RegressionModelOptimizer:
                 'loss': 'epsilon_insensitive',
                 'C': 1.0,
                 'tol': 1e-4,
+                'max_iter': LINEAR_SVR_MAX_ITER,
                 'random_state': self.random_seed
             }
         elif model_name == 'mlp_reg':

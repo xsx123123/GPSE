@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 import numpy as np
+import optuna
 import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator, RegressorMixin
@@ -167,6 +168,25 @@ def test_gblup_baseline_uses_fixed_linear_kernel_ridge():
 
     assert params == {"alpha": 1.0, "kernel": "linear"}
     assert model.kernel == "linear"
+
+
+def test_linear_svr_uses_extended_convergence_budget():
+    optimizer = RegressionModelOptimizer(random_seed=17, n_threads=1)
+
+    default_params = optimizer.get_default_params("svr_reg")
+    optimized_params = optimizer.get_param_func("svr_reg")(
+        optuna.trial.FixedTrial(
+            {
+                "loss": "epsilon_insensitive",
+                "C": 1.0,
+                "tol": 1e-4,
+            }
+        )
+    )
+
+    assert default_params["max_iter"] == 10_000
+    assert optimized_params["max_iter"] == 10_000
+    assert optimizer.create_model("svr_reg", default_params).max_iter == 10_000
 
 
 def test_holdout_reports_accumulate_split_strategies_and_mark_gblup(tmp_path):
