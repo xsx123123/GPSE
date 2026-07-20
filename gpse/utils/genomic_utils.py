@@ -152,9 +152,17 @@ def call_topsis_evaluator(
 
 def create_comparison_table(all_model_results: Dict[str, Dict[str, Any]], results_dir: Path, logger=None):
     """Create a comparison table for model performance."""
+    if not all_model_results:
+        msg = "No model results available; skipping comparison table"
+        if logger:
+            logger.warning(msg)
+        else:
+            print(msg)
+        return
+
     # Prepare comparison data
     comparison_data = []
-    
+
     # Check task type
     first_result = next(iter(all_model_results.values()))
     is_classification = 'avg_test_accuracy' in first_result

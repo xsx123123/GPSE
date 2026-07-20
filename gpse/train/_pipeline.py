@@ -333,6 +333,11 @@ def run_all_models(
 
     main_logger.info("=" * 50)
     main_logger.info("Model performance comparison before ensemble:")
+    if not all_model_results:
+        raise RuntimeError(
+            "All models failed to train; see the per-model errors above. "
+            "No comparison, ensemble, or reports can be produced."
+        )
     create_comparison_table(all_model_results, self.results_dir, main_logger)
 
     selected_models_for_stacking = None

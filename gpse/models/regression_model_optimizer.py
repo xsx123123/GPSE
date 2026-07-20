@@ -538,11 +538,11 @@ class RegressionModelOptimizer:
                 params.setdefault('allow_writing_files', False)
             return CatBoostRegressor(**params)
         elif model_name == 'kernelridge_reg':
-            from sklearn.kernel_ridge import KernelRidge
-            return KernelRidge(**params)
+            from gpse.models.safe_kernel_ridge import SafeKernelRidge
+            return SafeKernelRidge(**params)
         elif model_name == 'gblup_reg':
-            from sklearn.kernel_ridge import KernelRidge
-            return KernelRidge(**params)
+            from gpse.models.safe_kernel_ridge import SafeKernelRidge
+            return SafeKernelRidge(**params)
         elif model_name == 'lasso_reg':
             from sklearn.linear_model import Lasso
             return Lasso(**params)
