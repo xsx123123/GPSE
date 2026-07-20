@@ -212,16 +212,16 @@ def _log_fold_results(
         self.genomic_classifier.log_classification_results(
             fold_idx, train_metrics, val_metrics, test_metrics, task_logger
         )
+        task_logger.info(f"  Training time: {training_time:.2f}s")
     else:
-        task_logger.info(f"Fold {fold_idx + 1} results:")
-        task_logger.info(f"  Train Pearson: {train_metrics['pearson']:.6f}")
-        task_logger.info(f"  Train Spearman: {train_metrics['spearman']:.6f}")
-        task_logger.info(f"  Val Pearson: {val_metrics['pearson']:.6f}")
-        task_logger.info(f"  Val Spearman: {val_metrics['spearman']:.6f}")
-        task_logger.info(f"  Test Pearson: {test_metrics['pearson']:.6f}")
-        task_logger.info(f"  Test Spearman: {test_metrics['spearman']:.6f}")
-        task_logger.info(f"  Test MSE: {test_metrics['mse']:.6f}")
-    task_logger.info(f"  Training time: {training_time:.2f}s")
+        task_logger.info(
+            f"Fold {fold_idx + 1} | "
+            f"Train r={train_metrics['pearson']:.4f} ρ={train_metrics['spearman']:.4f} | "
+            f"Val r={val_metrics['pearson']:.4f} ρ={val_metrics['spearman']:.4f} | "
+            f"Test r={test_metrics['pearson']:.4f} ρ={test_metrics['spearman']:.4f} "
+            f"MSE={test_metrics['mse']:.4f} | "
+            f"{training_time:.2f}s"
+        )
 
 
 def _calculate_fold_average_metrics(

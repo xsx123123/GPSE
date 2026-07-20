@@ -460,16 +460,16 @@ class GenomicClassifier:
         """
         if logger is None:
             logger = main_logger
-            
-        logger.info(f"Fold {fold_idx+1} results:")
-        logger.info(f"  Training set Accuracy: {train_metrics['accuracy']:.6f}")
-        logger.info(f"  Training set F1: {train_metrics['f1']:.6f}")
-        logger.info(f"  Validation set Accuracy: {val_metrics['accuracy']:.6f}")
-        logger.info(f"  Validation set F1: {val_metrics['f1']:.6f}")
-        logger.info(f"  Test set Accuracy: {test_metrics['accuracy']:.6f}")
-        logger.info(f"  Test set F1: {test_metrics['f1']:.6f}")
+
+        line = (
+            f"Fold {fold_idx + 1} | "
+            f"Train acc={train_metrics['accuracy']:.4f} f1={train_metrics['f1']:.4f} | "
+            f"Val acc={val_metrics['accuracy']:.4f} f1={val_metrics['f1']:.4f} | "
+            f"Test acc={test_metrics['accuracy']:.4f} f1={test_metrics['f1']:.4f}"
+        )
         if 'auc' in test_metrics:
-            logger.info(f"  Test set AUC: {test_metrics['auc']:.6f}")
+            line += f" auc={test_metrics['auc']:.4f}"
+        logger.info(line)
     
     def create_classification_comparison_row(
         self, 
