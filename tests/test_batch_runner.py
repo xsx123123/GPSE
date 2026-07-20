@@ -128,6 +128,14 @@ def test_run_batch_dry_run(tmp_path, capsys):
     assert "gpse train" in out
     assert "--target_trait FT" in out
     assert "--target_trait FW" in out
+    # command is a single line without backslash continuations
+    command_lines = [line for line in out.splitlines() if line.startswith("gpse train ")]
+    assert len(command_lines) == 2
+    assert all("\\" not in line for line in command_lines)
+    # derived per-trait configuration summary is shown
+    assert "Threads per model:" in out
+    assert "Model workers:" in out
+    assert "OMP_NUM_THREADS=" in out
 
 
 def test_run_batch_skips_disabled(tmp_path, capsys):

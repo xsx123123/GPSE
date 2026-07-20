@@ -22,6 +22,7 @@ Config schema::
 from __future__ import annotations
 
 import argparse
+import shlex
 import traceback
 from pathlib import Path
 from typing import Any
@@ -125,22 +126,54 @@ def build_trait_argv(
 
 
 def _format_train_command(argv: list[str]) -> str:
-    """Render a ``gpse train`` argv as a multi-line copy-pasteable command.
+    """Render a ``gpse train`` argv as a single-line copy-pasteable command.
 
-    Each flag is grouped with its values on its own line, joined with shell
-    line-continuations, so long paths stay intact instead of wrapping
-    mid-token at the terminal edge.
+    One continuous line (no ``\\`` continuations): the terminal wraps it
+    visually, and the whole line can be copied and run as-is.
     """
-    groups: list[list[str]] = []
-    for token in argv:
-        if token.startswith("--") or not groups:
-            groups.append([token])
-        else:
-            groups[-1].append(token)
-    lines = ["gpse train \\"]
-    lines.extend(f"    {' '.join(group)} \\" for group in groups[:-1])
-    lines.append(f"    {' '.join(groups[-1])}")
-    return "\n".join(lines)
+    return "gpse train " + shlex.join(argv)
+
+
+def _dry_run_trait_summary(argv: list[str]) -> list[str]:
+    """Render the derived per-trait configuration shown by a real training run.
+
+    Parses the train argv and applies the same ``--threads`` budget
+    derivation as ``gpse train`` so the dry-run preview shows the exact
+    parallelism and key settings each trait will run with.
+    """
+    from gpse.config import ModelConstants
+    from gpse.train.cli import _resolve_model_count
+    from gpse.train.workflow import _build_parser
+    from gpse.utils.paralle import derive_parallelism_from_threads
+
+    args = _build_parser().parse_args(argv)
+    n_jobs, max_workers, repeat_workers = (
+        args.n_jobs,
+        args.max_workers,
+        args.repeat_workers,
+    )
+    if args.threads is not None:
+        n_jobs, max_workers, repeat_workers = derive_parallelism_from_threads(
+            threads=args.threads,
+            n_models=_resolve_model_count(args),
+            n_repeats=args.n_repeats,
+            n_jobs=n_jobs,
+            max_workers=max_workers,
+            repeat_workers=repeat_workers,
+        )
+
+    lines = [
+        f"  Results directory: {args.results_dir}",
+        f"  Random seed: {args.random_seed}",
+        f"  Threads per model: {n_jobs}",
+        f"  Model workers: {max_workers}",
+        f"  Repeat workers: {repeat_workers}",
+        f"  Train folds: {args.n_splits}",
+        f"  Repeats: {args.n_repeats}",
+        f"  Use default params: {args.use_default_params}",
+    ]
+    lines.append("  " + ", ".join(f"{var}={n_jobs}" for var in ModelConstants.thread_env_vars))
+    return lines
 
 
 def run_batch(config_path: str | Path, dry_run: bool = False) -> int:
@@ -170,6 +203,9 @@ def run_batch(config_path: str | Path, dry_run: bool = False) -> int:
         if dry_run:
             print(f"[{index}/{len(runnable)}] {name}")
             print(_format_train_command(argv))
+            for line in _dry_run_trait_summary(argv):
+                print(line)
+            print()
             outcomes.append((name, "dry-run"))
             continue
 
