@@ -127,10 +127,16 @@ def run_task(geno_file, pheno_file, species, trait):
         print(f">>> 实时日志: tail -f {log_file}")
         
         # 等待进程完成
-        return_code = process.wait()
-        
+        try:
+            return_code = process.wait()
+        except KeyboardInterrupt:
+            process.terminate()
+            return_code = process.wait()
+
         if return_code == 0:
             print(f"✓ 任务完成成功")
+        elif return_code in (130, -2):
+            print(f"■ 用户中断 (Ctrl+C)，停止批量任务")
         else:
             print(f"✗ 任务失败，返回码: {return_code}")
     
@@ -230,6 +236,11 @@ def main():
             completed_tasks.append(task_info)
         else:
             failed_tasks.append(task_info)
+        
+        # Ctrl+C (return code 130 / -SIGINT) stops the whole batch
+        if return_code in (130, -2):
+            print(f"\n■ 检测到用户中断，终止剩余 {len(tasks) - i} 个任务")
+            break
         
         print(f"\n任务耗时: {task_duration/60:.2f} 分钟")
         print(f"剩余任务: {len(tasks) - i}")
