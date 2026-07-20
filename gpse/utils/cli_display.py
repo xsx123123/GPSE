@@ -230,6 +230,14 @@ def _build_convert_parser(formatter_class=argparse.HelpFormatter,
         choices=["csv", "parquet", "feather"],
         help="Output genotype matrix format (default: parquet).",
     )
+    conv.add_argument(
+        "--geno-encoding",
+        default="012",
+        choices=["012", "-101"],
+        help="Genotype additive encoding: '012' = 0/1/2 (default), "
+             "'-101' = -1/0/1 centered coding as in Azodi et al. 2019 "
+             "([-1,0,1] = [aa, Aa, AA]).",
+    )
 
 
     # Phenotype options
@@ -238,7 +246,16 @@ def _build_convert_parser(formatter_class=argparse.HelpFormatter,
     pheno.add_argument(
         "--standardize-phenotype",
         action="store_true",
-        help="Apply z-score standardization to the phenotype column.",
+        help="Apply z-score standardization to the phenotype column. "
+             "Equivalent to --pheno-scale zscore.",
+    )
+    pheno.add_argument(
+        "--pheno-scale",
+        default=None,
+        choices=["none", "zscore", "minmax"],
+        help="Phenotype scaling mode: 'none' (default), 'zscore' standardization, "
+             "or 'minmax' normalization to [0, 1] as in Azodi et al. 2019. "
+             "Overrides --standardize-phenotype.",
     )
 
     # Utilities (standalone features, do not require --vcf/--pheno/--out-prefix)

@@ -217,7 +217,8 @@ def standardize_phenotype(pheno_df, trait_col, *, logger=None):
 
     if std_val < 1e-10:
         log.warning("Phenotype standard deviation is near zero; skipping standardization")
-        return pheno_df, {'mean': mean_val, 'std': 1.0, 'applied': False}
+        return pheno_df, {'mean': mean_val, 'std': 1.0, 'applied': False,
+                          'method': 'zscore', 'trait': trait_col}
 
     pheno_standardized = pheno_df.copy()
     pheno_standardized[trait_col] = (y - mean_val) / std_val
@@ -226,11 +227,58 @@ def standardize_phenotype(pheno_df, trait_col, *, logger=None):
         'mean': mean_val,
         'std': std_val,
         'applied': True,
+        'method': 'zscore',
         'trait': trait_col,
     }
 
     log.info(f"Phenotype standardization completed: mean={mean_val:.4f}, std={std_val:.4f}")
     return pheno_standardized, scaler_params
+
+
+def minmax_normalize_phenotype(pheno_df, trait_col, *, logger=None):
+    """Apply min-max normalization to a phenotype column, scaling to [0, 1].
+
+    This matches the phenotype normalization described in Azodi et al. 2019
+    (https://doi.org/10.1534/g3.119.400498).
+
+    Parameters
+    ----------
+    pheno_df : pandas.DataFrame
+        Phenotype DataFrame.
+    trait_col : str
+        Column to normalize.
+    logger
+        Logger instance.
+
+    Returns
+    -------
+    tuple[pandas.DataFrame, dict]
+        Normalized DataFrame and scaler parameter dictionary.
+    """
+    log = logger or _default_logger
+
+    y = pd.to_numeric(pheno_df[trait_col], errors='coerce')
+    min_val = float(y.min())
+    max_val = float(y.max())
+
+    if max_val - min_val < 1e-10:
+        log.warning("Phenotype range is near zero; skipping min-max normalization")
+        return pheno_df, {'min': min_val, 'max': max_val, 'applied': False,
+                          'method': 'minmax', 'trait': trait_col}
+
+    pheno_normalized = pheno_df.copy()
+    pheno_normalized[trait_col] = (y - min_val) / (max_val - min_val)
+
+    scaler_params = {
+        'min': min_val,
+        'max': max_val,
+        'applied': True,
+        'method': 'minmax',
+        'trait': trait_col,
+    }
+
+    log.info(f"Phenotype min-max normalization completed: min={min_val:.4f}, max={max_val:.4f}")
+    return pheno_normalized, scaler_params
 
 
 def save_scaler_params(scaler_params, scaler_file, *, logger=None):

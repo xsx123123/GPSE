@@ -36,6 +36,7 @@ from gpse.convert.phenotype import (
     convert_phenotype as _convert_phenotype,
     match_genotype_phenotype as _match_genotype_phenotype,
     standardize_phenotype as _standardize_phenotype,
+    minmax_normalize_phenotype as _minmax_normalize_phenotype,
     save_scaler_params,
 )
 from gpse.convert.validators import (
@@ -177,13 +178,19 @@ class GenomicDataProcessor:
         """Convert PLINK binary files directly to PED/MAP without SNP filtering."""
         return _convert_bfile_to_ped(bfile, out_prefix, **self._plink_kwargs())
 
-    def convert_to_matrix(self, fileprefix, out_file=None, out_format="parquet"):
+    def convert_to_matrix(self, fileprefix, out_file=None, out_format="parquet",
+                          geno_encoding="012"):
         """Wrapper method."""
-        return _convert_to_matrix(fileprefix, out_file, out_format=out_format, logger=self.logger)
+        return _convert_to_matrix(
+            fileprefix, out_file,
+            out_format=out_format,
+            geno_encoding=geno_encoding,
+            logger=self.logger,
+        )
 
-    def process_snp_dir(self, bfile, snp_dir, out_dir):
+    def process_snp_dir(self, bfile, snp_dir, out_dir, geno_encoding="012"):
         """Process all SNP list files in a directory."""
-        return _process_snp_dir(bfile, snp_dir, out_dir, **self._plink_kwargs())
+        return _process_snp_dir(bfile, snp_dir, out_dir, geno_encoding=geno_encoding, **self._plink_kwargs())
 
     # =================== 2. Phenotype/genotype matching ===================
 
@@ -294,9 +301,13 @@ class GenomicDataProcessor:
         """Apply z-score standardization to a phenotype column."""
         return _standardize_phenotype(pheno_df, trait_col, logger=self.logger)
 
+    def minmax_normalize_phenotype(self, pheno_df, trait_col):
+        """Apply min-max normalization ([0, 1]) to a phenotype column."""
+        return _minmax_normalize_phenotype(pheno_df, trait_col, logger=self.logger)
+
 
     def _process_single_trait(self, trait, pheno_file, geno_df, geno_samples,
-                               out_prefix, user_trait, standardize_phenotype,
+                               out_prefix, user_trait, pheno_scale="none",
                                out_format="parquet"):
         """Process a single trait: match phenotype with genotype and write CSVs."""
         safe_trait = re.sub(r'[^\w\-]', '_', trait)
@@ -331,9 +342,17 @@ class GenomicDataProcessor:
         actual_trait_col = pheno_filtered.columns[1]
 
         trait_scaler = None
-        if standardize_phenotype:
-            self.logger.info("Standardizing phenotype data...")
+        if pheno_scale == 'zscore':
+            self.logger.info("Standardizing phenotype data (z-score)...")
             pheno_filtered, trait_scaler = self.standardize_phenotype(pheno_filtered, actual_trait_col)
+            save_scaler_params(
+                trait_scaler,
+                f"{out_prefix}_{safe_trait}_scaler.json",
+                logger=self.logger,
+            )
+        elif pheno_scale == 'minmax':
+            self.logger.info("Normalizing phenotype data (min-max to [0, 1])...")
+            pheno_filtered, trait_scaler = self.minmax_normalize_phenotype(pheno_filtered, actual_trait_col)
             save_scaler_params(
                 trait_scaler,
                 f"{out_prefix}_{safe_trait}_scaler.json",
@@ -385,10 +404,16 @@ class GenomicDataProcessor:
         self.logger.info(f"  Samples:   {len(common_samples)}")
         self.logger.info(f"  SNPs:      {len(geno_filtered.columns)}")
         if trait_scaler and trait_scaler.get('applied'):
-            self.logger.info(
-                f"  Standardized: mean={trait_scaler['mean']:.4f}, "
-                f"std={trait_scaler['std']:.4f}"
-            )
+            if trait_scaler.get('method') == 'minmax':
+                self.logger.info(
+                    f"  Min-max normalized: min={trait_scaler['min']:.4f}, "
+                    f"max={trait_scaler['max']:.4f}"
+                )
+            else:
+                self.logger.info(
+                    f"  Standardized: mean={trait_scaler['mean']:.4f}, "
+                    f"std={trait_scaler['std']:.4f}"
+                )
 
         return final_pheno_file, final_geno_file
 
@@ -406,6 +431,11 @@ class GenomicDataProcessor:
         """
         import pandas as pd
         out_format = kwargs.get('out_format', 'parquet')
+        geno_encoding = kwargs.get('geno_encoding', '012')
+        pheno_scale = kwargs.get('pheno_scale')
+        if not pheno_scale:
+            # Backward compatibility: --standardize-phenotype implies z-score.
+            pheno_scale = 'zscore' if kwargs.get('standardize_phenotype') else 'none'
 
         out_prefix = kwargs.get('out_prefix')
         output_dir = os.path.dirname(out_prefix)
@@ -424,6 +454,9 @@ class GenomicDataProcessor:
         self.logger.info(f"  Output directory : {abs_out_dir}")
         self.logger.info(f"  Output prefix    : {base_name}")
         self.logger.info(f"  Output format    : {out_format}")
+        self.logger.info(f"  Genotype encoding: {geno_encoding}")
+        if pheno_scale != 'none':
+            self.logger.info(f"  Phenotype scaling: {pheno_scale}")
         self.logger.info(f"  Threads          : {threads}")
         if vcf_file:
             self.logger.info(f"  VCF file         : {vcf_file}")
@@ -506,7 +539,7 @@ class GenomicDataProcessor:
                         ped_prefix = temp_prefix
 
                     ext = '.parquet' if out_format == 'parquet' else '.feather' if out_format == 'feather' else '.csv'
-                    geno_matrix_file = self.convert_to_matrix(ped_prefix, out_prefix + ext, out_format=out_format)
+                    geno_matrix_file = self.convert_to_matrix(ped_prefix, out_prefix + ext, out_format=out_format, geno_encoding=geno_encoding)
                     if kwargs.get('load') and geno_matrix_file:
                         self.load_matrix(geno_matrix_file)
 
@@ -556,7 +589,7 @@ class GenomicDataProcessor:
                         self.logger.info(f"QC and LD pruning completed. New PLINK prefix: {bfile}")
 
                     if kwargs.get('snp_dir'):
-                        self.process_snp_dir(bfile, kwargs['snp_dir'], os.path.dirname(out_prefix))
+                        self.process_snp_dir(bfile, kwargs['snp_dir'], os.path.dirname(out_prefix), geno_encoding=geno_encoding)
                         snp_files = glob.glob(os.path.join(kwargs['snp_dir'], "*.txt"))
                         if snp_files:
                             first_phenotype = os.path.basename(snp_files[0]).replace('.txt', '')
@@ -564,13 +597,13 @@ class GenomicDataProcessor:
                             geno_matrix_file = os.path.join(os.path.dirname(out_prefix), first_phenotype + ext)
                     elif kwargs.get('extract'):
                         out_prefix_temp = self.extract_snps(bfile, kwargs['extract'], out_prefix)
-                        geno_matrix_file = self.convert_to_matrix(out_prefix_temp, out_format=out_format)
+                        geno_matrix_file = self.convert_to_matrix(out_prefix_temp, out_format=out_format, geno_encoding=geno_encoding)
                         if kwargs.get('load') and geno_matrix_file:
                             self.load_matrix(geno_matrix_file)
                     elif kwargs.get('direct') or kwargs.get('pheno'):
                         self.logger.info("Converting the full bfile to a genotype matrix...")
                         out_prefix_temp = self.convert_bfile_to_ped(bfile, out_prefix)
-                        geno_matrix_file = self.convert_to_matrix(out_prefix_temp, out_format=out_format)
+                        geno_matrix_file = self.convert_to_matrix(out_prefix_temp, out_format=out_format, geno_encoding=geno_encoding)
                         if kwargs.get('load') and geno_matrix_file:
                             self.load_matrix(geno_matrix_file)
                     else:
@@ -610,8 +643,8 @@ class GenomicDataProcessor:
                 self.logger.info(f"  {{prefix}}_{{trait}}_genotype.{{ext}}   — numeric genotype matrix (ext = csv/parquet/feather)")
                 self.logger.info(f"  {{prefix}}_{{trait}}_phenotype.{{ext}}  — matched phenotype data (same ext as genotype)")
                 self.logger.info(f"  {{prefix}}_{{trait}}_phenotype_raw.csv — raw phenotype before matching")
-                if kwargs.get('standardize_phenotype'):
-                    self.logger.info(f"  {{prefix}}_{{trait}}_scaler.json    — standardization parameters")
+                if pheno_scale != 'none':
+                    self.logger.info(f"  {{prefix}}_{{trait}}_scaler.json    — phenotype scaling parameters ({pheno_scale})")
 
                 try:
                     pheno_raw = pd.read_csv(kwargs['pheno'], sep='\t')
@@ -655,7 +688,7 @@ class GenomicDataProcessor:
                                 geno_samples,
                                 out_prefix,
                                 user_trait,
-                                kwargs.get('standardize_phenotype', False),
+                                pheno_scale,
                                 out_format,
                             ): trait
                             for trait in trait_cols
@@ -678,7 +711,7 @@ class GenomicDataProcessor:
                                 geno_samples,
                                 out_prefix,
                                 user_trait,
-                                kwargs.get('standardize_phenotype', False),
+                                pheno_scale,
                                 out_format,
                             )
                         except Exception as exc:

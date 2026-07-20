@@ -92,6 +92,8 @@ def _run_pipeline(args: argparse.Namespace) -> int:
             pheno=args.pheno,
             trait_name=args.trait_name,
             standardize_phenotype=args.standardize_phenotype,
+            pheno_scale=getattr(args, "pheno_scale", None),
+            geno_encoding=getattr(args, "geno_encoding", "012"),
             skip_clean=args.skip_clean,
             skip_match=args.skip_match,
             skip_matrix=args.skip_matrix,

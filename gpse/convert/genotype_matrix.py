@@ -30,6 +30,20 @@ GENO_DICT = {
     '11': '2',  # Homozygous alternate
 }
 
+# Centered additive encoding, Azodi et al. 2019 style: [-1, 0, 1] = [aa, Aa, AA]
+GENO_DICT_CENTERED = {
+    '00': '-1',  # Homozygous reference (aa)
+    '01': '0',   # Heterozygous (Aa)
+    '10': '0',   # Heterozygous (Aa)
+    '11': '1',   # Homozygous alternate (AA)
+}
+
+# Supported genotype encodings for convert_to_matrix().
+GENO_ENCODINGS = {
+    '012': GENO_DICT,
+    '-101': GENO_DICT_CENTERED,
+}
+
 
 def _resolve_plink(plink_path, config_path=None, auto_project_config=False):
     """Resolve the PLINK executable from config or command override."""
@@ -182,13 +196,22 @@ def convert_bfile_to_ped(
 # PED/MAP → numeric CSV matrix
 # ---------------------------------------------------------------------------
 
-def convert_to_matrix(fileprefix, out_file=None, *, out_format="parquet", logger=None):
+def convert_to_matrix(fileprefix, out_file=None, *, out_format="parquet", geno_encoding="012", logger=None):
     """Convert PLINK PED/MAP genotype data to a numeric CSV or binary matrix.
 
-    Encoding: ``00→0, 01→1, 10→1, 11→2``, missing → ``3``.
+    Encoding (``geno_encoding="012"``): ``00→0, 01→1, 10→1, 11→2``,
+    missing → ``3``.  With ``geno_encoding="-101"`` (Azodi et al. 2019
+    style): ``00→-1, 01→0, 10→0, 11→1``, missing → ``3``.
     """
     log = logger or _default_logger
+    if geno_encoding not in GENO_ENCODINGS:
+        raise ValueError(
+            f"Unknown geno_encoding '{geno_encoding}'. "
+            f"Supported: {sorted(GENO_ENCODINGS)}"
+        )
+    geno_dict = GENO_ENCODINGS[geno_encoding]
     log.info(f"Converting {fileprefix}.ped and {fileprefix}.map to matrix format...")
+    log.info(f"Genotype encoding: {geno_encoding}")
 
     # Detect pyarrow
     out_format = out_format.lower()
@@ -245,7 +268,7 @@ def convert_to_matrix(fileprefix, out_file=None, *, out_format="parquet", logger
                 sample_id = sample_id.rstrip('_')
 
             geno = row[6:]  # Genotypes start at column 7.
-            encoded_geno = [GENO_DICT.get(g, '3') for g in geno]
+            encoded_geno = [geno_dict.get(g, '3') for g in geno]
             sample_genotypes.append((sample_id, encoded_geno))
 
     # Write matrix based on format.
@@ -291,6 +314,7 @@ def process_snp_dir(
     config_path=None,
     auto_project_config=False,
     allow_extra_chr=False,
+    geno_encoding="012",
     logger=None,
 ):
     """Process all SNP list files (*.txt) in a directory."""
@@ -319,7 +343,7 @@ def process_snp_dir(
                 allow_extra_chr=allow_extra_chr,
                 logger=log,
             )
-            matrix_file = convert_to_matrix(out_prefix, logger=log)
+            matrix_file = convert_to_matrix(out_prefix, geno_encoding=geno_encoding, logger=log)
             log.info(f"Phenotype {phenotype} completed. CSV matrix: {matrix_file}")
         except Exception as e:
             log.error(f"Error while processing phenotype {phenotype}: {str(e)}")
