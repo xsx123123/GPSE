@@ -29,7 +29,7 @@ from gpse.utils.genomic_utils import (
     create_model_result_directory,
     calculate_repeat_statistics,
 )
-from gpse.utils.log_utils import logger_init, setup_subprocess_logging, collect_subprocess_logs
+from gpse.utils.log_utils import logger_init, setup_subprocess_logging, collect_subprocess_logs, shorten_path
 from gpse.utils.paralle import graceful_process_pool
 
 
@@ -360,7 +360,7 @@ def train_and_evaluate_model_for_repeat(
     with open(repeat_results_path, "w") as f:
         json.dump(repeat_results, f, indent=2, cls=NumpyEncoder)
 
-    task_logger.info(f"Repeat {repeat_idx + 1} results saved to {repeat_results_path}")
+    task_logger.info(f"Repeat {repeat_idx + 1} results saved to {shorten_path(repeat_results_path)}")
     return repeat_results
 
 
@@ -507,7 +507,7 @@ def run_model_multiple_repeats(
         )
 
         if model_path:
-            main_logger.info(f"Representative model saved to {model_path}")
+            main_logger.info(f"Representative model saved to {shorten_path(model_path)}")
             if self.task_type == "classification":
                 summary["representative_model"] = {
                     "repeat_idx": int(selected_repeat_idx),
@@ -616,7 +616,7 @@ def run_model_multiple_repeats(
             json.dump(summary, f, indent=2, cls=NumpyEncoder)
 
         main_logger.info(
-            f"Model {model_name_summary} summary results saved to {summary_path}"
+            f"Model {model_name_summary} summary results saved to {shorten_path(summary_path)}"
         )
 
         return summary

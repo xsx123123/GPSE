@@ -132,7 +132,7 @@ def _markdown_report(summary: dict[str, Any], leaderboard: pd.DataFrame) -> str:
         for column in ["rank", "model", "status", "primary_metric", "pearson", "accuracy", "cv_mean", "cv_std"]
         if column in leaderboard.columns
     ]
-    markdown_rows = leaderboard[table_columns].fillna("").infer_objects(copy=False).astype(str)
+    markdown_rows = leaderboard[table_columns].where(lambda df: df.notna(), "").astype(str)
     table_lines = [
         "| " + " | ".join(table_columns) + " |",
         "| " + " | ".join(["---"] * len(table_columns)) + " |",

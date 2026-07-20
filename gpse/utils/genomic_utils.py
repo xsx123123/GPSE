@@ -22,6 +22,8 @@ from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from sklearn.model_selection import KFold, train_test_split
 from sklearn.preprocessing import StandardScaler
 
+from .log_utils import shorten_path
+
 
 def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
     """Calculate all performance metrics."""
@@ -226,7 +228,7 @@ def create_comparison_table(all_model_results: Dict[str, Dict[str, Any]], result
             logger.info(f"Model Performance Comparison:")
             logger.info("\n" + comparison_df.to_string(index=False))
             logger.info("")
-            logger.info(f"Comparison table saved to {comparison_path}")
+            logger.info(f"Comparison table saved to {shorten_path(comparison_path)}")
         else:
             print(f"\nModel Performance Comparison:")
             print("\n" + comparison_df.to_string(index=False))

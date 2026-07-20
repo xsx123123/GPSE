@@ -268,6 +268,33 @@ def collect_subprocess_logs(log_dir: Path, main_logger) -> None:
     main_logger.info(f"Subprocess log collection complete ({len(worker_logs)} files)")
 
 
+def shorten_path(path, max_len: int = 80) -> str:
+    """
+    Abbreviate a filesystem path for one-line console logs.
+
+    Replaces the home directory with ``~`` and, if still too long, collapses
+    leading components with ``…`` so the filename always stays visible.
+    """
+    p = str(path)
+    home = str(Path.home())
+    if home != "/" and p.startswith(home + "/"):
+        p = "~" + p[len(home):]
+    if len(p) <= max_len:
+        return p
+    parts = p.split("/")
+    tail = parts[-1]
+    # Keep as many trailing components as fit, prefix with an ellipsis
+    kept = tail
+    for part in reversed(parts[:-1]):
+        candidate = part + "/" + kept
+        if len("…/" + candidate) > max_len:
+            break
+        kept = candidate
+    if len("…/" + kept) <= max_len:
+        return "…/" + kept
+    return "…" + p[-(max_len - 1):]
+
+
 def log_header(title: str) -> None:
     logger.info("")
     logger.info(f"[bold cyan]{'=' * 10} {title.upper()} {'=' * 10}[/bold cyan]")

@@ -24,6 +24,7 @@ from gpse.utils.paralle import graceful_process_pool
 from gpse.train.stacking import StackingEnsemble
 from gpse.train._repeat_training import create_holdout_indices
 from gpse.train._results import write_result_bundle
+from gpse.utils.log_utils import shorten_path
 
 
 def _init_model_worker_threads(n_threads: int) -> None:
@@ -106,7 +107,7 @@ def _write_holdout_reports(results_dir, all_model_results, task_type, split_stra
     current.to_csv(reports_dir / "holdout_metrics.csv", index=False)
     with open(reports_dir / "holdout_metrics.json", "w", encoding="utf-8") as handle:
         json.dump(current.to_dict(orient="records"), handle, indent=2)
-    main_logger.info(f"Final hold-out reports saved to {reports_dir}")
+    main_logger.info(f"Final hold-out reports saved to {shorten_path(reports_dir)}")
 
 
 def run_all_models(
@@ -386,6 +387,6 @@ def run_all_models(
     )
     main_logger.info(
         "Result bundle saved: "
-        + ", ".join(str(path) for path in report_paths.values())
+        + ", ".join(shorten_path(path) for path in report_paths.values())
     )
     return all_model_results
