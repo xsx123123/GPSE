@@ -25,19 +25,25 @@ from sklearn.preprocessing import StandardScaler
 
 def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
     """Calculate all performance metrics."""
-    try:
-        pearson_corr = pearsonr(y_true, y_pred)[0]
-        if np.isnan(pearson_corr):
-            pearson_corr = 0.0
-    except:
+    # Constant inputs make correlation coefficients undefined (scipy emits
+    # ConstantInputWarning and returns NaN); treat them as 0.0 instead.
+    if np.ptp(y_true) == 0 or np.ptp(y_pred) == 0:
         pearson_corr = 0.0
-        
-    try:
-        spearman_corr = spearmanr(y_true, y_pred)[0]
-        if np.isnan(spearman_corr):
-            spearman_corr = 0.0
-    except:
         spearman_corr = 0.0
+    else:
+        try:
+            pearson_corr = pearsonr(y_true, y_pred)[0]
+            if np.isnan(pearson_corr):
+                pearson_corr = 0.0
+        except:
+            pearson_corr = 0.0
+
+        try:
+            spearman_corr = spearmanr(y_true, y_pred)[0]
+            if np.isnan(spearman_corr):
+                spearman_corr = 0.0
+        except:
+            spearman_corr = 0.0
         
     return {
         'pearson': pearson_corr,
