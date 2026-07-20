@@ -89,7 +89,7 @@ def _build_parser(
             "List of model names to run; runs all available models if omitted. "
             "Regression: elasticnet_reg, gbdt_reg, svr_reg, mlp_reg, knn_reg, "
             "rf_reg, xgboost_reg, adaboost_reg, lightgbm_reg, catboost_reg, "
-            "kernelridge_reg, histgradientboost_reg, sgd_reg, lasso_reg. "
+            "kernelridge_reg, gblup_reg, histgradientboost_reg, sgd_reg, lasso_reg. "
             "Classification: rf_clf, xgboost_clf, lightgbm_clf, catboost_clf, svm_clf, mlp_clf."
         ),
     )
@@ -132,6 +132,30 @@ def _build_parser(
         help="Early-stopping patience for Optuna (default: 20)",
     )
     train_group.add_argument(
+        "--cv_stability_penalty",
+        type=float,
+        default=0.5,
+        help="Optuna objective penalty λ in mean(CV) - λ·std(CV) (default: 0.5)",
+    )
+    train_group.add_argument(
+        "--optuna_per_repeat",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Re-optimize every repeat; default freezes repeat-1 parameters for later repeats",
+    )
+    train_group.add_argument(
+        "--split_strategy",
+        choices=["random", "structure_aware"],
+        default="random",
+        help="Hold-out strategy; structure_aware keeps PCA/KMeans genetic clusters intact",
+    )
+    train_group.add_argument(
+        "--structure_clusters",
+        type=int,
+        default=None,
+        help="Optional KMeans cluster count for --split_strategy structure_aware",
+    )
+    train_group.add_argument(
         "--results_dir",
         type=str,
         default="optimization_results_v2",
@@ -151,9 +175,9 @@ def _build_parser(
     )
     train_group.add_argument(
         "--use_same_test_set",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=True,
-        help="Use the identical test set across all repeats for reproducibility (default: True)",
+        help="Use one fixed test set across repeats; use --no-use_same_test_set for per-repeat splits (default: True)",
     )
 
     performance_group = parser.add_argument_group("performance arguments")
@@ -201,6 +225,61 @@ def _build_parser(
         "--standardize_phenotype",
         action="store_true",
         help="Apply Z-score standardization to phenotype values (regression tasks only)",
+    )
+
+    feature_group = parser.add_argument_group("feature selection options")
+    feature_group.add_argument(
+        "--feature_selection",
+        choices=[
+            "none",
+            "variance",
+            "univariate",
+            "mutual_info",
+            "tree_importance",
+            "lasso",
+            "elasticnet",
+            "pca",
+            "svd",
+        ],
+        default="none",
+        help="Fold-local SNP selection strategy; default keeps every feature",
+    )
+    feature_group.add_argument(
+        "--select_k",
+        type=int,
+        default=5000,
+        help=(
+            "Maximum SNPs retained by --feature_selection univariate or mutual_info "
+            "or tree_importance or lasso or elasticnet, or output components for pca "
+            "and svd (default: 5000)"
+        ),
+    )
+    feature_group.add_argument(
+        "--select_percentile",
+        type=float,
+        default=None,
+        help=(
+            "Percent of SNPs/components to retain for eligible feature-selection methods; "
+            "overrides --select_k"
+        ),
+    )
+    feature_group.add_argument(
+        "--variance_threshold",
+        type=float,
+        default=0.0,
+        help="VarianceThreshold cutoff for --feature_selection variance (default: 0.0)",
+    )
+    feature_group.add_argument(
+        "--genotype_imputation",
+        choices=["none", "mean"],
+        default="none",
+        help="Fold-local genotype missing-value handling; mean treats encoded missing calls as missing",
+    )
+    feature_group.add_argument(
+        "--missing_genotype_code",
+        type=float,
+        default=3.0,
+        help="Encoded missing genotype value used by --genotype_imputation mean (default: 3)",
     )
 
     cv_group = parser.add_argument_group("cross-validation options")

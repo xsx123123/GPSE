@@ -15,11 +15,14 @@ from typing import Dict, List, Optional
 from loguru import logger as main_logger
 
 from gpse.utils.genomic_utils import (
-    prepare_fold_training_data,
     train_fold_model,
     predict_and_calculate_metrics,
     save_fold_predictions_and_plots,
 )
+from gpse.train._feature_selection import (
+    make_model_artifact,
+)
+from gpse.train._model_pipeline import build_training_pipeline
 
 
 def _train_single_fold(
@@ -42,20 +45,29 @@ def _train_single_fold(
 ) -> Optional[Dict]:
     """Train a single fold and return the results."""
     try:
-        # Prepare fold training data
-        (
-            X_fold_train_scaled,
-            X_fold_val_scaled,
-            X_test_scaled,
-            y_fold_train,
-            y_fold_val,
-            scaler,
-        ) = prepare_fold_training_data(X_train, y_train, train_idx, val_idx, X_test)
-
-        # Train fold model
-        model, training_time = train_fold_model(
-            model, X_fold_train_scaled, y_fold_train, n_threads=self.n_threads
+        X_fold_train = X_train.iloc[train_idx]
+        X_fold_val = X_train.iloc[val_idx]
+        y_fold_train = y_train.iloc[train_idx]
+        y_fold_val = y_train.iloc[val_idx]
+        pipeline = build_training_pipeline(
+            model,
+            task_type=self.task_type,
+            model_name=model_name,
+            feature_selection_config=self.feature_selection_config,
+            genotype_imputation_config=self.genotype_imputation_config,
         )
+        pipeline, training_time = train_fold_model(
+            pipeline, X_fold_train, y_fold_train, n_threads=self.n_threads
+        )
+        preprocessor = pipeline.named_steps["preprocess"]
+        model = pipeline.named_steps["model"]
+        imputer = preprocessor.imputer_
+        selector = preprocessor.selector_
+        scaler = preprocessor.scaler_
+        selected_features = preprocessor.selected_features_
+        X_fold_train_scaled = preprocessor.transform(X_fold_train)
+        X_fold_val_scaled = preprocessor.transform(X_fold_val)
+        X_test_scaled = preprocessor.transform(X_test)
 
         # Predict and calculate metrics
         if self.task_type == "classification":
@@ -87,7 +99,23 @@ def _train_single_fold(
             test_metrics = self.genomic_classifier.calculate_classification_metrics(
                 y_test, y_test_pred, y_test_proba
             )
-            plots = {}
+            plots = save_fold_predictions_and_plots(
+                train_idx,
+                val_idx,
+                test_indices,
+                y_fold_train,
+                y_fold_val,
+                y_test,
+                y_fold_train_pred,
+                y_fold_val_pred,
+                y_test_pred,
+                all_predictions,
+                model_name,
+                repeat_idx,
+                fold_idx,
+                repeat_dir,
+                self.results_dir,
+            )
         else:
             (
                 train_metrics,
@@ -133,6 +161,9 @@ def _train_single_fold(
             "train_indices": train_idx.tolist(),
             "val_indices": val_idx.tolist(),
             "plots": plots,
+            "feature_selection": self.feature_selection_config.as_dict(),
+            "genotype_imputation": self.genotype_imputation_config.as_dict(),
+            "selected_feature_count": len(selected_features),
         }
 
         # Save model
@@ -140,7 +171,19 @@ def _train_single_fold(
             import joblib
 
             fold_model_path = repeat_dir / f"fold_{fold_idx + 1}_model.pkl"
-            joblib.dump((model, scaler), fold_model_path)
+            joblib.dump(
+                make_model_artifact(
+                    model,
+                    scaler,
+                    selector,
+                    self.feature_selection_config,
+                    selected_features,
+                    imputer=imputer,
+                    imputation_config=self.genotype_imputation_config,
+                    task_type=self.task_type,
+                ),
+                fold_model_path,
+            )
 
         # Log results
         self._log_fold_results(
@@ -202,6 +245,14 @@ def _calculate_fold_average_metrics(
         else:
             metrics["avg_test_auc"] = 0.0
             metrics["std_test_auc"] = 0.0
+
+        if all("pr_auc" in r["test_metrics"] for r in fold_results):
+            pr_auc_values = [r["test_metrics"]["pr_auc"] for r in fold_results]
+            metrics["avg_test_pr_auc"] = np.mean(pr_auc_values)
+            metrics["std_test_pr_auc"] = np.std(pr_auc_values)
+        else:
+            metrics["avg_test_pr_auc"] = 0.0
+            metrics["std_test_pr_auc"] = 0.0
 
         # Log output
         task_logger.info(f"\nRepeat {repeat_idx + 1} average performance:")

@@ -95,19 +95,13 @@ class ClassificationModelOptimizer:
             'random_state': self.random_seed
         }
 
-        param_dict['max_depth'] = trial.suggest_int('max_depth', 2, 32)
-
-        if param_dict['max_depth'] >= 25:
-            max_n_estimators = 500
-        elif param_dict['max_depth'] >= 15:
-            max_n_estimators = 1000
-        else:
-            max_n_estimators = 2000
+        param_dict['max_depth'] = trial.suggest_int('max_depth', 2, 6)
+        max_n_estimators = 800
 
         param_dict.update({
             'n_estimators': trial.suggest_int('n_estimators', 10, max_n_estimators),
-            'min_samples_split': trial.suggest_int('min_samples_split', 2, 20),
-            'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 20),
+            'min_samples_split': trial.suggest_int('min_samples_split', 5, 20),
+            'min_samples_leaf': trial.suggest_int('min_samples_leaf', 2, 20),
             'bootstrap': trial.suggest_categorical('bootstrap', [True, False]),
             'criterion': trial.suggest_categorical('criterion', ['gini', 'entropy']),
             'max_features': trial.suggest_categorical('max_features', ['sqrt', 'log2', None])
@@ -128,25 +122,17 @@ class ClassificationModelOptimizer:
         param_dict['booster'] = booster
 
         if booster in ['gbtree', 'dart']:
-            param_dict['max_depth'] = trial.suggest_int('max_depth', 1, 14)
-
-            if param_dict['max_depth'] >= 12:
-                max_n_estimators = 200
-                min_eta = 1e-2
-            elif param_dict['max_depth'] >= 10:
-                max_n_estimators = 300
-                min_eta = 1e-3
-            else:
-                max_n_estimators = 400
-                min_eta = 1e-4
+            param_dict['max_depth'] = trial.suggest_int('max_depth', 2, 6)
+            max_n_estimators = 400
+            min_eta = 1e-3
 
             param_dict.update({
                 'n_estimators': trial.suggest_int('n_estimators', 20, max_n_estimators),
                 'learning_rate': trial.suggest_float('learning_rate', min_eta, 1.0, log=True),
-                'min_child_weight': trial.suggest_float('min_child_weight', 0, 10),
+                'min_child_weight': trial.suggest_float('min_child_weight', 1, 20),
                 'gamma': trial.suggest_float('gamma', 0, 10),
-                'subsample': trial.suggest_float('subsample', 0.1, 1.0),
-                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.1, 1.0),
+                'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
                 'reg_alpha': trial.suggest_float('reg_alpha', 1e-8, 10.0, log=True),
                 'reg_lambda': trial.suggest_float('reg_lambda', 1e-8, 10.0, log=True)
             })
@@ -162,20 +148,14 @@ class ClassificationModelOptimizer:
             'objective': 'binary' if is_binary else 'multiclass',
             'metric': 'binary_logloss' if is_binary else 'multi_logloss',
         }
-        param_dict['max_depth'] = trial.suggest_int('max_depth', 3, 20)
-
-        if param_dict['max_depth'] >= 15:
-            max_n_estimators = 500; min_learning_rate = 1e-2; max_leaves = 100
-        elif param_dict['max_depth'] >= 10:
-            max_n_estimators = 1000; min_learning_rate = 1e-3; max_leaves = 200
-        else:
-            max_n_estimators = 2000; min_learning_rate = 1e-4; max_leaves = 256
+        param_dict['max_depth'] = trial.suggest_int('max_depth', 3, 6)
+        max_n_estimators = 800; min_learning_rate = 1e-3; max_leaves = 64
 
         param_dict.update({
             'n_estimators': trial.suggest_int('n_estimators', 50, max_n_estimators, log=True),
             'learning_rate': trial.suggest_float('learning_rate', min_learning_rate, 0.3, log=True),
-            'num_leaves': trial.suggest_int('num_leaves', 2, max_leaves),
-            'min_child_samples': trial.suggest_int('min_child_samples', 1, 100),
+            'num_leaves': trial.suggest_int('num_leaves', 8, max_leaves),
+            'min_child_samples': trial.suggest_int('min_child_samples', 5, 100),
             'reg_alpha': trial.suggest_float('reg_alpha', 1e-8, 10.0, log=True),
             'reg_lambda': trial.suggest_float('reg_lambda', 1e-8, 10.0, log=True),
         })

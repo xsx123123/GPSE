@@ -115,6 +115,26 @@ def _build_root_parser(formatter_class: type[argparse.HelpFormatter] = argparse.
         help="Predict phenotypes using trained GPSE models",
         description="Predict phenotypes using trained GPSE models.",
     )
+
+    # Put workflow commands above options in help output.
+    # argparse prints _action_groups in order; parents inject options first.
+    group_by_title = {group.title: group for group in parser._action_groups}
+    workflow_group = group_by_title.get("workflow commands")
+    options_group = group_by_title.get("options") or group_by_title.get("optional arguments")
+    if workflow_group is not None and options_group is not None:
+        groups = parser._action_groups
+        try:
+            workflow_idx = groups.index(workflow_group)
+            options_idx = groups.index(options_group)
+        except ValueError:
+            pass
+        else:
+            if workflow_idx > options_idx:
+                groups[options_idx], groups[workflow_idx] = (
+                    groups[workflow_idx],
+                    groups[options_idx],
+                )
+
     return parser
 
 

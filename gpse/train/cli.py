@@ -238,6 +238,12 @@ def main(
             if not args.preprocess_prefix:
                 main_logger.error("--preprocess_prefix is required when --preprocess_only is set")
                 return 1
+            if args.standardize_phenotype:
+                main_logger.error(
+                    "--standardize_phenotype cannot be used with --preprocess_only because "
+                    "its parameters must be fitted on the hold-out training partition"
+                )
+                return 1
         elif args.enable_preprocess:
             if not args.preprocess_prefix:
                 main_logger.error("--preprocess_prefix is required when --enable_preprocess is set")
@@ -279,8 +285,14 @@ def main(
                 "skip_clean": args.skip_data_clean,
                 "load": args.load_matrix_info,
                 "trait_name": args.target_trait,
-                "standardize_phenotype": args.standardize_phenotype,
+                "standardize_phenotype": False,
             }
+
+            if args.standardize_phenotype:
+                main_logger.info(
+                    "Deferring phenotype standardization until after hold-out splitting; "
+                    "preprocessing will preserve raw phenotype values"
+                )
 
             try:
                 result = processor.process_genomic_data(**preprocess_kwargs)
@@ -342,11 +354,7 @@ def main(
         main_logger.info(f"Genotype file: {processed_geno_file}")
         main_logger.info(f"Phenotype file: {processed_pheno_file}")
 
-        training_standardize = False
-        if args.enable_preprocess and args.standardize_phenotype:
-            main_logger.info("Phenotype already standardized during preprocessing; skipping standardization in training")
-        elif not args.enable_preprocess:
-            training_standardize = args.standardize_phenotype
+        training_standardize = args.standardize_phenotype
 
         predictor = GenomicPredictorV2(
             random_seed=args.random_seed,
@@ -368,6 +376,16 @@ def main(
             task_type=args.task_type,
             n_classes=args.n_classes,
             standardize_phenotype=training_standardize,
+            cv_stability_penalty=args.cv_stability_penalty,
+            optuna_per_repeat=args.optuna_per_repeat,
+            split_strategy=args.split_strategy,
+            structure_clusters=args.structure_clusters,
+            feature_selection=args.feature_selection,
+            select_k=args.select_k,
+            variance_threshold=args.variance_threshold,
+            select_percentile=args.select_percentile,
+            genotype_imputation=args.genotype_imputation,
+            missing_genotype_code=args.missing_genotype_code,
         )
 
         predictor.run_all_models(

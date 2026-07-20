@@ -22,6 +22,10 @@ from gpse.config.constants import ModelConstants
 from gpse.utils.configuration import load_topsis_config
 from gpse.utils.genomic_utils import create_representative_model_directory
 from threadpoolctl import threadpool_limits
+from gpse.train._feature_selection import (
+    make_model_artifact,
+)
+from gpse.train._model_pipeline import build_training_pipeline
 
 
 def _format_weight(weight: Any) -> str:
@@ -136,20 +140,45 @@ def _save_representative_model(
     representative_model_dir = create_representative_model_directory(model_dir)
 
     try:
-        model = self.create_model(model_name, params)
-
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
+        pipeline = build_training_pipeline(
+            self.create_model(model_name, params),
+            task_type=self.task_type,
+            model_name=model_name,
+            feature_selection_config=self.feature_selection_config,
+            genotype_imputation_config=self.genotype_imputation_config,
+        )
 
         with threadpool_limits(limits=self.n_threads):
-            model.fit(X_scaled, y)
+            pipeline.fit(X, y)
+        preprocessor = pipeline.named_steps["preprocess"]
 
         model_path = representative_model_dir / ModelConstants.model_pkl_file
-        joblib.dump((model, scaler), model_path)
+        joblib.dump(
+            make_model_artifact(
+                pipeline.named_steps["model"],
+                preprocessor.scaler_,
+                preprocessor.selector_,
+                self.feature_selection_config,
+                preprocessor.selected_features_,
+                imputer=preprocessor.imputer_,
+                imputation_config=self.genotype_imputation_config,
+                task_type=self.task_type,
+            ),
+            model_path,
+        )
 
         info_path = representative_model_dir / ModelConstants.model_info_file
         with open(info_path, "w") as f:
-            json.dump(repeat_info, f, indent=2)
+            json.dump(
+                {
+                    **repeat_info,
+                    "feature_selection": self.feature_selection_config.as_dict(),
+                    "genotype_imputation": self.genotype_imputation_config.as_dict(),
+                    "selected_feature_count": len(preprocessor.selected_features_),
+                },
+                f,
+                indent=2,
+            )
 
         return str(model_path)
 

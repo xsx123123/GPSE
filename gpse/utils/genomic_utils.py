@@ -49,7 +49,13 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float
     }
 
 
-def prepare_cv_data(phe_data: pd.DataFrame, save_path: str, cv_times: int, cvfold: int) -> pd.DataFrame:
+def prepare_cv_data(
+    phe_data: pd.DataFrame,
+    save_path: str,
+    cv_times: int,
+    cvfold: int,
+    seed: int = 42,
+) -> pd.DataFrame:
     """
     Generate and save cross-validation grouping information.
     
@@ -58,14 +64,21 @@ def prepare_cv_data(phe_data: pd.DataFrame, save_path: str, cv_times: int, cvfol
         save_path: Path to save the CV file.
         cv_times: Number of repetitions.
         cvfold: Number of CV folds.
+        seed: Dedicated random seed for reproducible fold assignment.
     
     Returns:
         Phenotype data with added CV grouping columns.
     """
+    if cvfold < 2:
+        raise ValueError(f"cvfold must be >= 2, got {cvfold}")
+    if cv_times < 1:
+        raise ValueError(f"cv_times must be >= 1, got {cv_times}")
+
     sample_block = int(phe_data.shape[0] / cvfold)
     phe_index = phe_data.index.to_numpy(copy=True)
+    rng = random.Random(seed)
     for cvi in range(cv_times):
-        random.shuffle(phe_index)
+        rng.shuffle(phe_index)
         for i in range(cvfold):
             if i == cvfold - 1:
                 phe_data.loc[phe_index[sample_block * i:], f'cv{cvi}'] = i
@@ -402,7 +415,7 @@ def create_representative_model_directory(model_dir: Path) -> Path:
 # Data processing functions
 def prepare_train_test_data(X: pd.DataFrame, y: pd.Series, repeat_idx: int, 
                            random_seed: int, test_size: float, 
-                           test_indices: np.ndarray = None) -> Tuple[np.ndarray, pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
+                           test_indices: np.ndarray = None) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
     """
     Prepare training and test data split.
     
@@ -415,7 +428,7 @@ def prepare_train_test_data(X: pd.DataFrame, y: pd.Series, repeat_idx: int,
         test_indices: Test set indices (if provided).
         
     Returns:
-        train_indices, X_train, y_train, X_test, y_test
+        train_indices, test_indices, X_train, y_train, X_test, y_test
     """
     # Split training and test sets if no test indices are provided
     if test_indices is None:
@@ -433,7 +446,7 @@ def prepare_train_test_data(X: pd.DataFrame, y: pd.Series, repeat_idx: int,
     X_test = X.iloc[test_indices]
     y_test = y.iloc[test_indices]
     
-    return train_indices, X_train, y_train, X_test, y_test
+    return train_indices, np.asarray(test_indices), X_train, y_train, X_test, y_test
 
 def prepare_fold_training_data(X_train: pd.DataFrame, y_train: pd.Series, 
                               train_idx: np.ndarray, val_idx: np.ndarray, 
@@ -598,7 +611,9 @@ def calculate_repeat_statistics(all_repeat_results: List[Dict], task_type: str =
             'val_f1_values': [r.get('avg_val_f1', 0.0) for r in all_repeat_results],
             'train_f1_values': [r.get('avg_train_f1', 0.0) for r in all_repeat_results],
             'test_auc_values': [r.get('avg_test_auc', 0.0) for r in all_repeat_results],
+            'test_pr_auc_values': [r.get('avg_test_pr_auc', 0.0) for r in all_repeat_results],
             'ensemble_accuracy_values': [r.get('ensemble_metrics', {}).get('accuracy', 0.0) for r in all_repeat_results],
+            'ensemble_pr_auc_values': [r.get('ensemble_metrics', {}).get('pr_auc', 0.0) for r in all_repeat_results],
         })
     else:
         # Regression task metrics
@@ -607,6 +622,10 @@ def calculate_repeat_statistics(all_repeat_results: List[Dict], task_type: str =
             'val_pearson_values': [r.get('avg_val_pearson', 0.0) for r in all_repeat_results],
             'train_pearson_values': [r.get('avg_train_pearson', 0.0) for r in all_repeat_results],
             'ensemble_pearson_values': [r.get('ensemble_metrics', {}).get('pearson', 0.0) for r in all_repeat_results],
+            'ensemble_spearman_values': [r.get('ensemble_metrics', {}).get('spearman', 0.0) for r in all_repeat_results],
+            'ensemble_mse_values': [r.get('ensemble_metrics', {}).get('mse', 0.0) for r in all_repeat_results],
+            'ensemble_rmse_values': [r.get('ensemble_metrics', {}).get('rmse', 0.0) for r in all_repeat_results],
+            'ensemble_mae_values': [r.get('ensemble_metrics', {}).get('mae', 0.0) for r in all_repeat_results],
             'test_spearman_values': [r.get('avg_test_spearman', 0.0) for r in all_repeat_results],
             'test_mse_values': [r.get('avg_test_mse', 0.0) for r in all_repeat_results]
         })
@@ -638,6 +657,10 @@ def calculate_repeat_statistics(all_repeat_results: List[Dict], task_type: str =
             'std_ensemble_accuracy': np.std(avg_results['ensemble_accuracy_values']),
             'avg_test_auc': np.mean(avg_results['test_auc_values']),
             'std_test_auc': np.std(avg_results['test_auc_values']),
+            'avg_test_pr_auc': np.mean(avg_results['test_pr_auc_values']),
+            'std_test_pr_auc': np.std(avg_results['test_pr_auc_values']),
+            'avg_ensemble_pr_auc': np.mean(avg_results['ensemble_pr_auc_values']),
+            'std_ensemble_pr_auc': np.std(avg_results['ensemble_pr_auc_values']),
         })
     else:
         # Regression task statistics
@@ -650,6 +673,14 @@ def calculate_repeat_statistics(all_repeat_results: List[Dict], task_type: str =
             'std_train_pearson': np.std(avg_results['train_pearson_values']),
             'avg_ensemble_pearson': np.mean(avg_results['ensemble_pearson_values']),
             'std_ensemble_pearson': np.std(avg_results['ensemble_pearson_values']),
+            'avg_ensemble_spearman': np.mean(avg_results['ensemble_spearman_values']),
+            'std_ensemble_spearman': np.std(avg_results['ensemble_spearman_values']),
+            'avg_ensemble_mse': np.mean(avg_results['ensemble_mse_values']),
+            'std_ensemble_mse': np.std(avg_results['ensemble_mse_values']),
+            'avg_ensemble_rmse': np.mean(avg_results['ensemble_rmse_values']),
+            'std_ensemble_rmse': np.std(avg_results['ensemble_rmse_values']),
+            'avg_ensemble_mae': np.mean(avg_results['ensemble_mae_values']),
+            'std_ensemble_mae': np.std(avg_results['ensemble_mae_values']),
             'avg_test_spearman': np.mean(avg_results['test_spearman_values']),
             'std_test_spearman': np.std(avg_results['test_spearman_values']),
             'avg_test_mse': np.mean(avg_results['test_mse_values']),
@@ -761,10 +792,11 @@ def prepare_cv_folds(
         
         # Generate CV groupings
         cv_pheno_data = prepare_cv_data(
-            pheno_data_copy, 
-            str(cv_file_path), 
-            n_repeats, 
-            n_splits
+            pheno_data_copy,
+            str(cv_file_path),
+            n_repeats,
+            n_splits,
+            seed=42,
         )
     
     return cv_pheno_data

@@ -78,15 +78,23 @@ from gpse.train._fold_training import (
     _log_fold_results,
     _calculate_fold_average_metrics,
 )
-from gpse.train._ensemble import _compute_ensemble_predictions
+from gpse.train._ensemble import _compute_ensemble_predictions, _save_deployment_ensemble
 from gpse.train._optimization import optimize_model_parameters
 from gpse.train._repeat_training import (
     train_and_evaluate_model_for_repeat,
     run_model_multiple_repeats,
     _run_repeat_task,
 )
-from gpse.train._cv_manager import prepare_cv_folds, generate_cv_folds_from_file
+from gpse.train._cv_manager import (
+    prepare_cv_folds,
+    generate_cv_folds_from_file,
+    save_train_only_cv_folds,
+)
 from gpse.train._pipeline import run_all_models
+from gpse.train._feature_selection import (
+    validate_feature_selection_config,
+    validate_genotype_imputation_config,
+)
 from gpse.config._topsis_config import (
     get_topsis_configuration,
     _save_representative_model,
@@ -122,6 +130,16 @@ class GenomicPredictorV2:
         task_type: str = "regression",
         n_classes: int = None,
         standardize_phenotype: bool = False,
+        cv_stability_penalty: float = 0.5,
+        optuna_per_repeat: bool = False,
+        split_strategy: str = "random",
+        structure_clusters: int = None,
+        feature_selection: str = "none",
+        select_k: int | None = 5000,
+        variance_threshold: float = 0.0,
+        select_percentile: float | None = None,
+        genotype_imputation: str = "none",
+        missing_genotype_code: float = 3.0,
     ):
         """
         Initialize the predictor.
@@ -186,6 +204,23 @@ class GenomicPredictorV2:
         self.task_type = task_type
         self.n_classes = n_classes
         self.standardize_phenotype = standardize_phenotype
+        if cv_stability_penalty < 0:
+            raise ValueError("cv_stability_penalty must be non-negative")
+        self.cv_stability_penalty = cv_stability_penalty
+        self.optuna_per_repeat = optuna_per_repeat
+        if split_strategy not in {"random", "structure_aware"}:
+            raise ValueError("split_strategy must be 'random' or 'structure_aware'")
+        if structure_clusters is not None and structure_clusters < 2:
+            raise ValueError("structure_clusters must be at least 2 when supplied")
+        self.split_strategy = split_strategy
+        self.structure_clusters = structure_clusters
+        self.feature_selection_config = validate_feature_selection_config(
+            feature_selection, select_k, variance_threshold, select_percentile
+        )
+        self.genotype_imputation_config = validate_genotype_imputation_config(
+            genotype_imputation, missing_genotype_code
+        )
+        self._optimization_cache = {}
         self.phenotype_scaler = None  # Store phenotype standardization parameters
 
         # Validate task type
@@ -245,6 +280,7 @@ class GenomicPredictorV2:
     load_data = load_data
     _standardize_phenotype = _standardize_phenotype
     _inverse_standardize_phenotype = _inverse_standardize_phenotype
+    save_train_only_cv_folds = save_train_only_cv_folds
     create_model = create_model
     get_default_params = get_default_params
     get_param_func = get_param_func
@@ -255,6 +291,7 @@ class GenomicPredictorV2:
     _log_fold_results = _log_fold_results
     _calculate_fold_average_metrics = _calculate_fold_average_metrics
     _compute_ensemble_predictions = _compute_ensemble_predictions
+    _save_deployment_ensemble = _save_deployment_ensemble
     optimize_model_parameters = optimize_model_parameters
     train_and_evaluate_model_for_repeat = train_and_evaluate_model_for_repeat
     run_model_multiple_repeats = run_model_multiple_repeats

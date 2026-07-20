@@ -78,6 +78,8 @@ def _get_default_fold_metrics(self) -> Dict[str, float]:
             "std_test_f1": 0.0,
             "avg_test_auc": 0.0,
             "std_test_auc": 0.0,
+            "avg_test_pr_auc": 0.0,
+            "std_test_pr_auc": 0.0,
             "avg_training_time": 0.0,
         }
     return {

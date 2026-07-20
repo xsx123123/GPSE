@@ -16,6 +16,8 @@ from pathlib import Path
 
 from loguru import logger as main_logger
 
+from gpse.utils.feature_manifest import write_feature_manifest
+
 
 def _read_file_auto(file_path: str) -> pd.DataFrame:
     path = Path(file_path)
@@ -138,8 +140,12 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
         main_logger.info("Coercing phenotype target to numeric (non-numeric values -> NaN)...")
         y = pd.to_numeric(y, errors="coerce")
 
-    # Step 8: Standardize feature column names
-    X.columns = [f"feature_{i}" for i in range(X.shape[1])]
+    # Step 8: Preserve the ordered SNP IDs from convert.  Legacy matrices may
+    # still use arbitrary names, but they are retained verbatim in the manifest.
+    X.columns = [str(column) for column in X.columns]
+    if X.columns.duplicated().any():
+        duplicates = X.columns[X.columns.duplicated()].tolist()
+        raise ValueError(f"Genotype matrix contains duplicate feature IDs: {duplicates[:5]}")
 
     main_logger.info("Validating final data quality...")
     # Step 9: Validate final data quality
@@ -182,23 +188,21 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
         main_logger.info("Processing classification labels...")
         y = self.genomic_classifier.prepare_classification_labels(y, self.results_dir)
 
-    # Step 11: Phenotype standardization (regression only)
+    # Step 11: Preserve raw phenotypes.  When requested, standardization is
+    # fitted only after the hold-out split from y_train in repeat training.
     if self.task_type == "regression" and self.standardize_phenotype:
-        main_logger.info("Standardizing phenotype data...")
-        y, self.phenotype_scaler = self._standardize_phenotype(y)
         main_logger.info(
-            f"Phenotype standardization complete - Original mean: "
-            f"{self.phenotype_scaler['mean']:.4f}, "
-            f"Original std: {self.phenotype_scaler['std']:.4f}"
+            "Phenotype standardization is deferred until after hold-out splitting "
+            "so test labels cannot affect scaler parameters"
         )
 
-        # Save standardization parameters to file
-        scaler_path = self.results_dir / "phenotype_scaler.json"
-        with open(scaler_path, "w") as f:
-            json.dump(self.phenotype_scaler, f, indent=2)
-        main_logger.info(f"Phenotype standardization parameters saved to: {scaler_path}")
+    # Step 12: Persist the exact feature order used by every trained model.
+    manifest_path = write_feature_manifest(
+        self.results_dir, X.columns, source_file=geno_file
+    )
+    main_logger.info(f"Feature manifest saved to: {manifest_path}")
 
-    # Step 12: Record final data information
+    # Step 13: Record final data information
     main_logger.info(
         f"Final data dimensions - Features: {X.shape[1]}, Samples: {X.shape[0]}"
     )

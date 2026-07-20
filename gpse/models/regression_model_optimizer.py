@@ -97,6 +97,11 @@ class RegressionModelOptimizer:
                 param_func=self._kernelridge_reg_params,
                 is_regression=True
             ),
+            'gblup_reg': ModelConfig(
+                model_class='KernelRidge',
+                param_func=self._gblup_reg_params,
+                is_regression=True
+            ),
             'histgradientboost_reg': ModelConfig(
                 model_class='HistGradientBoostingRegressor',
                 param_func=self._histgradientboost_reg_params,
@@ -132,10 +137,10 @@ class RegressionModelOptimizer:
     def _histgradientboost_reg_params(self, trial: optuna.Trial) -> Dict[str, Any]:
         return {
             'loss': trial.suggest_categorical('loss', ['squared_error', 'absolute_error']),
-            'max_depth': trial.suggest_int('max_depth', 1, 20),
+            'max_depth': trial.suggest_int('max_depth', 1, 6),
             'max_iter': trial.suggest_int('max_iter', 10, 500, log=True),
-            'max_leaf_nodes': trial.suggest_int('max_leaf_nodes', 2, 100),
-            'min_samples_leaf': trial.suggest_int('min_samples_leaf', 2, 200),
+            'max_leaf_nodes': trial.suggest_int('max_leaf_nodes', 8, 64),
+            'min_samples_leaf': trial.suggest_int('min_samples_leaf', 5, 100),
             'learning_rate': trial.suggest_float('learning_rate', 1e-4, 1.0, log=True),
             'n_iter_no_change': 20,
             'random_state': self.random_seed
@@ -147,13 +152,10 @@ class RegressionModelOptimizer:
         }
 
         # 限制最大深度，减少过深的树
-        param_dict['max_depth'] = trial.suggest_int('max_depth', 3, 10)
+        param_dict['max_depth'] = trial.suggest_int('max_depth', 3, 6)
 
         # 反转逻辑，深树使用更少的数量
-        if param_dict['max_depth'] >= 8:
-            max_n_estimators = 150
-            min_learning_rate = 0.01
-        elif param_dict['max_depth'] >= 5:
+        if param_dict['max_depth'] >= 5:
             max_n_estimators = 300
             min_learning_rate = 0.005
         else:
@@ -193,12 +195,9 @@ class RegressionModelOptimizer:
             'n_iter_no_change': 20
         }
 
-        param_dict['max_depth'] = trial.suggest_int('max_depth', 1, 10)
+        param_dict['max_depth'] = trial.suggest_int('max_depth', 1, 6)
 
-        if param_dict['max_depth'] >= 8:
-            max_n_estimators = 150
-            min_learning_rate = 5e-2
-        elif param_dict['max_depth'] >= 5:
+        if param_dict['max_depth'] >= 5:
             max_n_estimators = 250
             min_learning_rate = 1e-2
         else:
@@ -258,19 +257,13 @@ class RegressionModelOptimizer:
             'random_state': self.random_seed
         }
 
-        param_dict['max_depth'] = trial.suggest_int('max_depth', 2, 32)
-
-        if param_dict['max_depth'] >= 25:
-            max_n_estimators = 500
-        elif param_dict['max_depth'] >= 15:
-            max_n_estimators = 1000
-        else:
-            max_n_estimators = 2000
+        param_dict['max_depth'] = trial.suggest_int('max_depth', 2, 6)
+        max_n_estimators = 800
 
         param_dict.update({
             'n_estimators': trial.suggest_int('n_estimators', 10, max_n_estimators),
-            'min_samples_split': trial.suggest_int('min_samples_split', 2, 20),
-            'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 20),
+            'min_samples_split': trial.suggest_int('min_samples_split', 5, 20),
+            'min_samples_leaf': trial.suggest_int('min_samples_leaf', 2, 20),
             'bootstrap': trial.suggest_categorical('bootstrap', [True, False])
         })
 
@@ -286,24 +279,16 @@ class RegressionModelOptimizer:
         }
 
         if (param_dict['booster'] == 'gbtree') or (param_dict['booster'] == 'dart'):
-            param_dict['max_depth'] = trial.suggest_int('max_depth', 1, 14)
-
-            if param_dict['max_depth'] >= 12:
-                max_n_estimators = 200
-                min_eta = 1e-2
-            elif param_dict['max_depth'] >= 10:
-                max_n_estimators = 300
-                min_eta = 1e-3
-            else:
-                max_n_estimators = 400
-                min_eta = 1e-4
+            param_dict['max_depth'] = trial.suggest_int('max_depth', 2, 6)
+            max_n_estimators = 400
+            min_eta = 1e-3
 
             param_dict['n_estimators'] = trial.suggest_int('n_estimators', 20, max_n_estimators)
             param_dict['eta'] = trial.suggest_float('eta', min_eta, 1.0, log=True)
-            param_dict['min_child_weight'] = trial.suggest_float('min_child_weight', 0, 10)
+            param_dict['min_child_weight'] = trial.suggest_float('min_child_weight', 1, 20)
             param_dict['gamma'] = trial.suggest_float('gamma', 0, 10)
-            param_dict['subsample'] = trial.suggest_float('subsample', 0.1, 1.0)
-            param_dict['colsample_bytree'] = trial.suggest_float('colsample_bytree', 0.1, 1.0)
+            param_dict['subsample'] = trial.suggest_float('subsample', 0.6, 1.0)
+            param_dict['colsample_bytree'] = trial.suggest_float('colsample_bytree', 0.6, 1.0)
             param_dict['max_bin'] = trial.suggest_categorical('max_bin', [64, 128, 256, 512, 1024])
 
             if param_dict['booster'] == 'dart':
@@ -329,20 +314,10 @@ class RegressionModelOptimizer:
             'verbosity': -1
         }
 
-        param_dict['max_depth'] = trial.suggest_int('max_depth', 3, 20)
-
-        if param_dict['max_depth'] >= 15:
-            max_n_estimators = 500
-            min_learning_rate = 1e-2
-            max_leaves = 100
-        elif param_dict['max_depth'] >= 10:
-            max_n_estimators = 1000
-            min_learning_rate = 1e-3
-            max_leaves = 200
-        else:
-            max_n_estimators = 2000
-            min_learning_rate = 1e-4
-            max_leaves = 256
+        param_dict['max_depth'] = trial.suggest_int('max_depth', 3, 6)
+        max_n_estimators = 800
+        min_learning_rate = 1e-3
+        max_leaves = 64
 
         param_dict.update({
             'n_estimators': trial.suggest_int('n_estimators', 50, max_n_estimators, log=True),
@@ -350,11 +325,11 @@ class RegressionModelOptimizer:
             'min_gain_to_split': trial.suggest_float('min_gain_to_split', 0, 15),
             'lambda_l1': trial.suggest_float('lambda_l1', 1e-8, 10.0, log=True),
             'lambda_l2': trial.suggest_float('lambda_l2', 1e-8, 10.0, log=True),
-            'num_leaves': trial.suggest_int('num_leaves', 2, max_leaves),
-            'feature_fraction': trial.suggest_float('feature_fraction', 0.1, 1.0),
-            'bagging_fraction': trial.suggest_float('bagging_fraction', 0.1, 1.0),
+            'num_leaves': trial.suggest_int('num_leaves', 8, max_leaves),
+            'feature_fraction': trial.suggest_float('feature_fraction', 0.6, 1.0),
+            'bagging_fraction': trial.suggest_float('bagging_fraction', 0.6, 1.0),
             'bagging_freq': trial.suggest_int('bagging_freq', 1, 7),
-            'min_child_samples': trial.suggest_int('min_child_samples', 1, 100)
+            'min_child_samples': trial.suggest_int('min_child_samples', 5, 100)
         })
 
         return param_dict
@@ -423,6 +398,10 @@ class RegressionModelOptimizer:
             params['coef0'] = trial.suggest_float('coef0', 0.0, 10.0)
 
         return params
+
+    def _gblup_reg_params(self, trial: optuna.Trial) -> Dict[str, Any]:
+        """Fixed linear-kernel ridge baseline (GBLUP-equivalent after marker scaling)."""
+        return {'alpha': 1.0, 'kernel': 'linear'}
 
     def filter_model_params(self, model_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -548,6 +527,9 @@ class RegressionModelOptimizer:
         elif model_name == 'kernelridge_reg':
             from sklearn.kernel_ridge import KernelRidge
             return KernelRidge(**params)
+        elif model_name == 'gblup_reg':
+            from sklearn.kernel_ridge import KernelRidge
+            return KernelRidge(**params)
         elif model_name == 'lasso_reg':
             from sklearn.linear_model import Lasso
             return Lasso(**params)
@@ -650,6 +632,8 @@ class RegressionModelOptimizer:
                 'kernel': 'rbf',
                 'gamma': None
             }
+        elif model_name == 'gblup_reg':
+            return {'alpha': 1.0, 'kernel': 'linear'}
         elif model_name == 'histgradientboost_reg':
             return {
                 'max_depth': None,

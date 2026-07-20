@@ -21,10 +21,11 @@ GPSE is a comprehensive, machine-learning-based pipeline for genomic selection a
 ## 🌟 Key Features
 
 * **Complete Data Pipeline**: Seamlessly convert VCF files to PLINK binary formats, extract specific SNPs, convert to numerical matrices, and accurately match genotypes with phenotypes.
+* **Portable SNP Identity**: Uses canonical `chr<chrom>_<chromStart>_<chromEnd>` IDs and persists ordered feature manifests for safe cross-user model reuse.
 * **Broad Algorithm Support**: Supports 14+ robust machine learning algorithms including Random Forest, XGBoost, LightGBM, CatBoost, SVR, MLP, ElasticNet, and more.
 * **Dual Task Modes**: Native support for both **Regression** (continuous traits) and **Classification** (categorical/discrete traits).
 * **Automated Hyperparameter Tuning**: Integrated with Optuna for efficient, automated, multi-threaded parameter optimization.
-* **Robust Evaluation**: Performs multiple repeats of K-Fold cross-validation to ensure model stability and reproducibility.
+* **Robust Evaluation**: Performs multiple repeats of K-Fold cross-validation with a dedicated CV assignment seed of `42` to ensure reproducible fold layouts.
 * **Model Ranking & Selection**: Built-in **TOPSIS** (Technique for Order of Preference by Similarity to Ideal Solution) evaluation utilizing Entropy Weight Method for multi-criteria model ranking.
 * **Stacking Ensemble**: Automatically ensembles the Top-N performing models to maximize prediction accuracy.
 
@@ -103,8 +104,11 @@ gpse convert \
 
 Output files:
 - `data/train_{trait}_genotype.parquet` — numeric matrix (rows=samples, columns=SNPs, values=0/1/2). Default format is **Parquet**; use `--out-format csv` or `--out-format feather` to switch. `feather` requires `pyarrow`.
+- `data/train_{trait}_genotype.features.json` — ordered SNP feature manifest generated alongside the matrix.
 - `data/train_{trait}_phenotype.csv` — cleaned, sample-matched phenotype (ID + trait value)
 - `data/train_{trait}_phenotype_info.json` — auto-detected task type (`regression`/`classification`), `n_classes`, sample count, and class distribution (when applicable)
+
+SNP columns use the canonical `chr<chrom>_<chromStart>_<chromEnd>` format with zero-based, half-open coordinates. For example, VCF `chr1:100` with a one-base REF allele becomes `chr1_99_100`.
 
 #### 1.2 VCF + Phenotype with Extra Chromosomes (Horticultural Crops)
 
@@ -346,6 +350,8 @@ User runs: gpse train --enable_preprocess --vcf_file samples.vcf --raw_pheno_fil
 > **Design note:** `--enable_preprocess` does **not** shell-out to `gpse convert`. Instead, `gpse train` directly `import`s and instantiates `GenomicDataProcessor` inside the same Python process, runs the full convert pipeline, infers output file paths automatically, and then passes those paths to `GenomicPredictorV2` for training.
 
 #### 2.1 Train with Pre-processed Data
+
+Training preserves the genotype feature names and writes `<results_dir>/feature_manifest.json`. This manifest records the exact SNP order used by the saved models and is required for safe prediction-time VCF alignment. CV fold assignment is regenerated with a dedicated `seed=42`, so deleting the cached CV file does not change the fold layout for the same input data.
 
 ```bash
 gpse train \
@@ -858,15 +864,29 @@ model ranking, and stacking ensemble training.
 | `stacking.py` | Optional stacking ensemble stage. Loads trained base models, creates meta-features, trains the meta-model, evaluates, and saves ensemble artifacts. |
 | `topsis.py` | TOPSIS evaluator and optional CLI. Ranks trained models from comparison CSV outputs using configured criteria and weights. |
 
+### 3. Prediction (`gpse predict`)
+
+Predict from a VCF or converted genotype matrix while aligning features to the trained model:
+
+```bash
+gpse predict \
+    --model output_results/ \
+    --vcf-file new_samples.vcf.gz \
+    --out predictions.csv
+```
+
+The command converts VCF variants to canonical SNP IDs, follows the model's `feature_manifest.json` order, reports matched/missing/extra SNPs plus feature coverage, and writes `predictions.alignment.json`. Missing model SNPs use genotype code `3` by default; override with `--missing-value`. Low coverage is recorded as a warning; use `--min-feature-coverage 0.8` (or another 0–1 threshold) to reject unreliable inputs instead of producing predictions.
+
 ### `gpse/predict/`
 
-Implementation placeholder for `gpse predict`.
+Prediction workflow for VCF/matrix inputs with canonical SNP-ID alignment against trained feature manifests.
 
 | File | Scope |
 | --- | --- |
-| `__init__.py` | Prediction package marker. |
+| `__init__.py` | Exports prediction and feature-alignment helpers. |
 | `__main__.py` | Enables `python -m gpse.predict`. |
-| `cli.py` | CLI stub for future prediction workflows. Parses model/genotype/output arguments and currently reports that prediction is not implemented yet. |
+| `core.py` | Loads VCF/matrix genotypes, canonicalizes SNP IDs, aligns to `feature_manifest.json`, and writes alignment reports. |
+| `cli.py` | Prediction CLI for VCF/matrix input, model feature alignment, missing-SNP reporting, and prediction CSV output. |
 
 ### `gpse/models/`
 

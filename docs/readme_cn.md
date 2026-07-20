@@ -321,7 +321,7 @@ gpse train --help
 
 ## 📥 输入与输出格式
 
-当前 GPSE 对 `gpse convert` 和 `gpse train` 定义了完整 I/O 约束。`gpse predict` 已有命令入口，但预测流程尚未实现。
+当前 GPSE 对 `gpse convert` 和 `gpse train` 定义了完整 I/O 约束。`gpse predict` 支持从 VCF 或已转换矩阵加载基因型，并按训练模型保存的 SNP manifest 自动对齐。
 
 ### `gpse convert` 输入
 
@@ -342,6 +342,19 @@ gpse train --help
 
 表型文件通过 `--pheno` 传入。文件应包含表头，第一列为样本 ID，第二列为目标性状。GPSE 会先尝试按 tab 读取，失败后再按逗号读取。转换时只保留前两列。缺失值（`NaN` 和字符串 `NA`）会被删除。可通过 `--trait-name` 重命名目标性状列。
 
+### `gpse predict`
+
+使用训练结果目录或代表模型进行预测：
+
+```bash
+gpse predict \
+    --model results/ \
+    --vcf-file new_samples.vcf.gz \
+    --out predictions.csv
+```
+
+预测前会将 VCF 的 `CHROM/POS/REF` 转换为同样的 canonical SNP ID，并严格按 `feature_manifest.json` 的训练顺序排列。输入缺少的模型 SNP 会使用 GPSE 缺失基因型编码 `3`，同时在终端告警，并将匹配数、缺失数、覆盖率和完整清单写入 `predictions.alignment.json`；输入多余 SNP 也会在该报告中列出。低覆盖率默认只告警；可传入 `--min-feature-coverage 0.8`（或其他 0–1 阈值）直接拒绝不可靠输入。
+
 ### `gpse convert` 输出
 
 仅生成基因型矩阵时，输出：
@@ -355,10 +368,12 @@ gpse train --help
 格式示例（CSV 视图）：
 
 ```csv
-ID,SNP1,SNP2,SNP3
+ID,chr1_99_100,chr2_199_200,chr3_300_301
 sample1,0,1,2
 sample2,1,3,0
 ```
+
+SNP 列名统一为 `chr<chrom>_<chromStart>_<chromEnd>`，采用 0-based、half-open 坐标。例如 VCF 的 `chr1:100`（REF 长度为 1）会转换为 `chr1_99_100`。矩阵旁会写入 `<matrix>.features.json`，记录有序 SNP 清单。
 
 基因型编码：
 
@@ -487,6 +502,7 @@ sample2,9.8,1,4
 
 ```text
 {results_dir}/model_comparison.csv
+{results_dir}/feature_manifest.json
 {results_dir}/cv_folds/{target_trait}_cv_{n_repeats}x{train_folds}.csv
 {results_dir}/{model_name}/summary_results.json
 {results_dir}/{model_name}/repeat_{i}/repeat_results.json
@@ -498,6 +514,8 @@ sample2,9.8,1,4
 ```text
 {results_dir}/{model_name}/repeat_{i}/fold_{j}_model.pkl
 ```
+
+`feature_manifest.json` 保存训练时实际使用的 SNP 有序清单；`predict` 会依据它对输入 VCF 进行对齐。
 
 代表性模型输出：
 

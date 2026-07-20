@@ -13,6 +13,8 @@ import glob
 from datetime import datetime
 
 from gpse.convert.external import resolve_configured_tool, run_command, ensure_log_dir
+from gpse.utils.feature_manifest import write_feature_manifest
+from gpse.utils.snp_ids import canonical_ids_from_map_file
 
 try:
     from gpse.utils.log_utils import logger as _default_logger
@@ -217,20 +219,19 @@ def convert_to_matrix(fileprefix, out_file=None, *, out_format="parquet", logger
         ext = '.parquet' if out_format == 'parquet' else '.feather' if out_format == 'feather' else '.csv'
         out_file = fileprefix + ext
 
-    if os.path.exists(out_file):
+    manifest_file = os.path.splitext(out_file)[0] + ".features.json"
+    if os.path.exists(out_file) and os.path.exists(manifest_file):
         log.info(f"Matrix file already exists: {out_file}")
         log.info("Skipping conversion step...")
         return out_file
+    if os.path.exists(out_file):
+        log.warning("Existing matrix has no feature manifest; regenerating it with canonical SNP IDs.")
 
     if not os.path.exists(ped_path) or not os.path.exists(map_path):
         raise FileNotFoundError(f"Input file not found: {ped_path} or {map_path}")
 
-    # Read SNP IDs from .map (column 2).
-    snpid_list = []
-    with open(map_path) as map_file:
-        for row in map_file:
-            row = row.strip().split()
-            snpid_list.append(row[1])
+    # Use stable UCSC-style IDs from chromosome and base-pair coordinates.
+    snpid_list = canonical_ids_from_map_file(map_path)
 
     # Read sample IDs and genotypes from .ped.
     sample_genotypes = []
@@ -265,6 +266,13 @@ def convert_to_matrix(fileprefix, out_file=None, *, out_format="parquet", logger
             for sample_id, genotypes in sample_genotypes:
                 csv_file.write(sample_id + "," + ",".join(genotypes) + '\n')
 
+    manifest_path = write_feature_manifest(
+        os.path.dirname(out_file) or ".",
+        snpid_list,
+        source_file=out_file,
+        filename=os.path.basename(manifest_file),
+    )
+    log.info(f"Feature manifest written: {manifest_path}")
     log.info(f"Matrix conversion completed: {out_file}")
     return out_file
 

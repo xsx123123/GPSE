@@ -18,10 +18,10 @@ Classification-specific runtime helpers extracted from the legacy monolithic pre
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional, Union
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, label_binarize
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
-    roc_auc_score, log_loss, classification_report, confusion_matrix
+    average_precision_score, roc_auc_score, log_loss, classification_report, confusion_matrix
 )
 import joblib
 from pathlib import Path
@@ -188,8 +188,12 @@ class GenomicClassifier:
                         metrics['auc'] = roc_auc_score(
                             y_true, y_pred_proba[:, 1], labels=labels
                         )
+                        metrics['pr_auc'] = average_precision_score(
+                            y_true, y_pred_proba[:, 1]
+                        )
                     else:
                         metrics['auc'] = roc_auc_score(y_true, y_pred_proba, labels=labels)
+                        metrics['pr_auc'] = average_precision_score(y_true, y_pred_proba)
                 else:  # Multi-class classification
                     metrics['auc'] = roc_auc_score(
                         y_true,
@@ -198,11 +202,17 @@ class GenomicClassifier:
                         average='weighted',
                         labels=labels,
                     )
+                    metrics['pr_auc'] = average_precision_score(
+                        label_binarize(y_true, classes=labels),
+                        y_pred_proba,
+                        average='weighted',
+                    )
 
                 metrics['log_loss'] = log_loss(y_true, y_pred_proba, labels=labels)
             except Exception as e:
                 main_logger.debug(f"Failed to calculate AUC or log_loss: {e}")
                 metrics['auc'] = 0.0
+                metrics['pr_auc'] = 0.0
                 metrics['log_loss'] = float('inf')
 
         return metrics

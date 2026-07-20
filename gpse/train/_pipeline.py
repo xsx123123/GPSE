@@ -8,13 +8,13 @@ Runs all or specified models and optionally performs Stacking ensemble.
 """
 
 import os
+import json
 import traceback
 from concurrent.futures import as_completed
 
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional, List
-from sklearn.model_selection import train_test_split
 
 from loguru import logger as main_logger
 
@@ -22,6 +22,8 @@ from gpse.config import ModelConstants
 from gpse.utils.genomic_utils import create_comparison_table, call_topsis_evaluator
 from gpse.utils.paralle import graceful_process_pool
 from gpse.train.stacking import StackingEnsemble
+from gpse.train._repeat_training import create_holdout_indices
+from gpse.train._results import write_result_bundle
 
 
 def _init_model_worker_threads(n_threads: int) -> None:
@@ -29,8 +31,82 @@ def _init_model_worker_threads(n_threads: int) -> None:
         os.environ[env_var] = str(n_threads)
 
 
-def _run_model_task(predictor, model_name, X, y, cv_pheno_data, use_same_test_set):
-    return predictor.run_model_multiple_repeats(model_name, X, y, cv_pheno_data, use_same_test_set)
+def _run_model_task(predictor, model_name, X, y, cv_pheno_data, use_same_test_set, test_indices):
+    return predictor.run_model_multiple_repeats(
+        model_name, X, y, cv_pheno_data, use_same_test_set, test_indices
+    )
+
+
+def _save_split_manifest(
+    results_dir, X, train_indices, test_indices, task_type, random_seed, phenotype_scaler=None,
+    split_metadata=None,
+):
+    manifest = {
+        "split_type": "stratified_holdout" if task_type == "classification" else "random_holdout",
+        "random_seed": random_seed,
+        "n_train": int(len(train_indices)),
+        "n_test": int(len(test_indices)),
+        "train_ids_file": "train_ids.txt",
+        "test_ids_file": "test_ids.txt",
+        "phenotype_scaler": phenotype_scaler,
+        **(split_metadata or {}),
+    }
+    (results_dir / "train_ids.txt").write_text(
+        "\n".join(map(str, X.index[train_indices])) + "\n", encoding="utf-8"
+    )
+    (results_dir / "test_ids.txt").write_text(
+        "\n".join(map(str, X.index[test_indices])) + "\n", encoding="utf-8"
+    )
+    with open(results_dir / "split_manifest.json", "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2)
+
+
+def _write_holdout_reports(results_dir, all_model_results, task_type, split_strategy):
+    """Persist final hold-out metrics after all model/stacking choices are frozen."""
+    reports_dir = results_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for model_name, result in all_model_results.items():
+        row = {
+            "split_strategy": split_strategy,
+            "model": model_name,
+            "is_gblup_baseline": model_name == "gblup_reg",
+        }
+        if task_type == "classification":
+            row.update(
+                {
+                    "accuracy": result.get("avg_ensemble_accuracy", result.get("avg_test_accuracy", 0.0)),
+                    "accuracy_std": result.get("std_ensemble_accuracy", result.get("std_test_accuracy", 0.0)),
+                    "f1": result.get("avg_test_f1", 0.0),
+                    "auc": result.get("avg_test_auc", 0.0),
+                    "pr_auc": result.get("avg_ensemble_pr_auc", result.get("avg_test_pr_auc", 0.0)),
+                }
+            )
+        else:
+            row.update(
+                {
+                    "pearson": result.get("avg_ensemble_pearson", result.get("avg_test_pearson", 0.0)),
+                    "pearson_std": result.get("std_ensemble_pearson", result.get("std_test_pearson", 0.0)),
+                    "spearman": result.get("avg_ensemble_spearman", result.get("avg_test_spearman", 0.0)),
+                    "mse": result.get("avg_ensemble_mse", result.get("avg_test_mse", 0.0)),
+                    "rmse": result.get("avg_ensemble_rmse", 0.0),
+                    "mae": result.get("avg_ensemble_mae", 0.0),
+                    "metric_scale": "original" if result.get("phenotype_standardized") else "raw",
+                }
+            )
+        rows.append(row)
+
+    current = pd.DataFrame(rows)
+    csv_path = reports_dir / "model_comparison_holdout.csv"
+    if csv_path.exists():
+        existing = pd.read_csv(csv_path)
+        existing = existing[existing["split_strategy"] != split_strategy]
+        current = pd.concat([existing, current], ignore_index=True, sort=False)
+    current.to_csv(csv_path, index=False)
+    current.to_csv(reports_dir / "holdout_metrics.csv", index=False)
+    with open(reports_dir / "holdout_metrics.json", "w", encoding="utf-8") as handle:
+        json.dump(current.to_dict(orient="records"), handle, indent=2)
+    main_logger.info(f"Final hold-out reports saved to {reports_dir}")
 
 
 def run_all_models(
@@ -73,9 +149,42 @@ def run_all_models(
     """
     X, y, pheno_data = self.load_data(geno_file, pheno_file, target_trait)
 
-    main_logger.info("Preparing cross-validation folds...")
-    cv_pheno_data = self.prepare_cv_folds(pheno_data, target_trait)
-    main_logger.info("Cross-validation folds ready")
+    fixed_test_indices = None
+    if use_same_test_set:
+        train_indices, fixed_test_indices, split_metadata = create_holdout_indices(
+            y,
+            self.test_size,
+            self.random_seed,
+            self.task_type,
+            X=X,
+            split_strategy=self.split_strategy,
+            structure_clusters=self.structure_clusters,
+            return_metadata=True,
+        )
+        phenotype_scaler = None
+        if self.task_type == "regression" and self.standardize_phenotype:
+            _, phenotype_scaler = self._standardize_phenotype(y.iloc[train_indices])
+        _save_split_manifest(
+            self.results_dir,
+            X,
+            train_indices,
+            fixed_test_indices,
+            self.task_type,
+            self.random_seed,
+            phenotype_scaler,
+            split_metadata,
+        )
+        main_logger.info("Saved fixed hold-out split manifest; test data is reserved for final evaluation")
+
+    cv_pheno_data = None
+    if self.cv_file is not None:
+        main_logger.info("Loading user-supplied cross-validation folds...")
+        cv_pheno_data = self.prepare_cv_folds(pheno_data, target_trait)
+        main_logger.info("External cross-validation folds ready")
+    else:
+        main_logger.info(
+            "CV folds will be generated and persisted from each post-hold-out training set"
+        )
 
     if models is None:
         models = self.available_models
@@ -102,6 +211,7 @@ def run_all_models(
                     y,
                     cv_pheno_data,
                     use_same_test_set,
+                    fixed_test_indices,
                 ): (idx, model_name)
                 for idx, model_name in enumerate(models, start=1)
             }
@@ -120,7 +230,7 @@ def run_all_models(
             )
             try:
                 model_summary = self.run_model_multiple_repeats(
-                    model_name, X, y, cv_pheno_data, use_same_test_set
+                    model_name, X, y, cv_pheno_data, use_same_test_set, fixed_test_indices
                 )
                 all_model_results[model_name] = model_summary
             except Exception as e:
@@ -133,35 +243,57 @@ def run_all_models(
 
     selected_models_for_stacking = None
     if use_stacking and len(all_model_results) >= 2:
-        comparison_path = self.results_dir / "model_comparison.csv"
-        if comparison_path.exists():
-            out_base = comparison_path.stem + "_topsis"
-            topsis_out = comparison_path.with_name(f"{out_base}.csv")
-            topsis_simple = comparison_path.with_name(f"{out_base}_simple.csv")
-
+        primary_label = "CV Accuracy" if self.task_type == "classification" else "CV Pearson"
+        cv_rows = [
+            {
+                "Model": name,
+                primary_label: result["training_selection"]["cv_mean"],
+                "CV Std": result["training_selection"]["cv_std"],
+            }
+            for name, result in all_model_results.items()
+            if "training_selection" in result
+        ]
+        cv_comparison = pd.DataFrame(cv_rows)
+        if not cv_comparison.empty:
+            cv_path = self.results_dir / "model_comparison_cv.csv"
+            topsis_path = self.results_dir / "model_comparison_cv_topsis.csv"
+            topsis_simple_path = self.results_dir / "model_comparison_cv_topsis_simple.csv"
+            cv_comparison.to_csv(cv_path, index=False)
             try:
-                criteria, criteria_types, manual_weights = self.get_topsis_configuration()
-
                 call_topsis_evaluator(
-                    comparison_csv=str(comparison_path),
-                    output_csv=str(topsis_out),
-                    criteria=criteria,
-                    criteria_types=criteria_types,
-                    manual_weights=manual_weights,
+                    comparison_csv=str(cv_path),
+                    output_csv=str(topsis_path),
+                    criteria=[primary_label, "CV Std"],
+                    criteria_types=["max", "min"],
+                    manual_weights="0.8,0.2",
                     min_transform="neglog",
-                    simple_output=str(topsis_simple),
+                    simple_output=str(topsis_simple_path),
                     logger=main_logger,
                 )
-
-                topsis_df = pd.read_csv(topsis_simple)
-                selected_models_for_stacking = topsis_df.head(top_n_models)["Model"].tolist()
-                main_logger.info(
-                    f"Top {top_n_models} models selected by TOPSIS ranking: {selected_models_for_stacking}"
+                selected_models_for_stacking = pd.read_csv(topsis_simple_path).head(top_n_models)["Model"].tolist()
+            except Exception as exc:
+                main_logger.warning(
+                    f"Training-only TOPSIS failed; falling back to CV mean/std ranking: {exc}"
                 )
-
-            except Exception as e:
-                main_logger.error(f"TOPSIS evaluation failed: {str(e)}")
-                selected_models_for_stacking = None
+                cv_comparison = cv_comparison.sort_values(
+                    [primary_label, "CV Std"], ascending=[False, True]
+                )
+                selected_models_for_stacking = cv_comparison.head(top_n_models)["Model"].tolist()
+            with open(self.results_dir / "stacking_selected_models.json", "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "selection_source": "train_only_cv",
+                        "criteria": [primary_label, "CV Std"],
+                        "selection_method": "TOPSIS (fallback: CV mean/std rank)",
+                        "selected_models": selected_models_for_stacking,
+                    },
+                    handle,
+                    indent=2,
+                )
+            main_logger.info(
+                "Selected stacking base models using training-only CV metrics: "
+                f"{selected_models_for_stacking}"
+            )
 
     if use_stacking and len(all_model_results) >= 2:
         try:
@@ -169,62 +301,43 @@ def run_all_models(
             main_logger.info(f"Starting Stacking ensemble")
             main_logger.info(f"{'=' * 70}")
 
-            if selected_models_for_stacking:
-                selected_models = selected_models_for_stacking
-                main_logger.info(
-                    f"Using top {len(selected_models)} models by TOPSIS for ensemble: {', '.join(selected_models)}"
+            if not selected_models_for_stacking:
+                raise ValueError("No training-side CV results are available for stacking selection")
+            selected_models = selected_models_for_stacking
+            if fixed_test_indices is None:
+                train_indices, fixed_test_indices = create_holdout_indices(
+                    y,
+                    self.test_size,
+                    self.random_seed,
+                    self.task_type,
+                    X=X,
+                    split_strategy=self.split_strategy,
+                    structure_clusters=self.structure_clusters,
                 )
             else:
-                if self.task_type == "classification":
-                    model_performances = [
-                        (
-                            name,
-                            results.get(
-                                "avg_ensemble_accuracy",
-                                results.get("avg_test_accuracy", 0.0),
-                            ),
-                        )
-                        for name, results in all_model_results.items()
-                    ]
-                else:
-                    model_performances = [
-                        (
-                            name,
-                            results.get(
-                                "avg_ensemble_pearson",
-                                results.get("avg_test_pearson", 0.0),
-                            ),
-                        )
-                        for name, results in all_model_results.items()
-                    ]
-                model_performances.sort(key=lambda x: x[1], reverse=True)
-                selected_models = [name for name, _ in model_performances[:top_n_models]]
-                main_logger.info(
-                    f"Using top {len(selected_models)} models by test performance for ensemble: {', '.join(selected_models)}"
-                )
-
-            if use_same_test_set:
-                _, test_indices = train_test_split(
-                    range(len(X)), test_size=self.test_size, random_state=self.random_seed
-                )
-                train_indices = np.array([i for i in range(len(X)) if i not in test_indices])
-                X_train = X.iloc[train_indices]
-                y_train = y.iloc[train_indices]
-                X_test = X.iloc[test_indices]
-                y_test = y.iloc[test_indices]
-            else:
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X, y, test_size=self.test_size, random_state=self.random_seed
-                )
+                train_indices = np.setdiff1d(np.arange(len(X)), fixed_test_indices)
+            X_train, y_train = X.iloc[train_indices], y.iloc[train_indices]
+            X_test, y_test = X.iloc[fixed_test_indices], y.iloc[fixed_test_indices]
+            if self.task_type == "regression" and self.standardize_phenotype:
+                y_train, scaler = self._standardize_phenotype(y_train)
+                if scaler["applied"]:
+                    y_test = (y_test - scaler["mean"]) / scaler["std"]
+            selected_params = {
+                name: all_model_results[name]["training_selection"]["best_params"]
+                for name in selected_models
+            }
 
             stacking_model = StackingEnsemble(
                 base_models_dir=str(self.results_dir),
+                model_factory=lambda name: self.create_model(name, selected_params[name]),
                 top_n_models=top_n_models,
                 cv_folds=cv_folds,
                 random_seed=self.random_seed,
                 n_threads=self.n_threads,
                 use_default_params=self.use_default_params,
                 task_type=self.task_type,
+                feature_selection_config=self.feature_selection_config,
+                genotype_imputation_config=self.genotype_imputation_config,
             )
 
             stacking_results = stacking_model.fit(
@@ -258,4 +371,22 @@ def run_all_models(
             main_logger.error(f"Stacking ensemble execution failed: {str(e)}")
             main_logger.error(traceback.format_exc())
 
+    _write_holdout_reports(
+        self.results_dir, all_model_results, self.task_type, self.split_strategy
+    )
+    report_paths = write_result_bundle(
+        self.results_dir,
+        all_model_results,
+        task_type=self.task_type,
+        target_trait=target_trait,
+        split_strategy=self.split_strategy,
+        sample_count=len(X),
+        feature_count=X.shape[1],
+        feature_selection=self.feature_selection_config.as_dict(),
+        genotype_imputation=self.genotype_imputation_config.as_dict(),
+    )
+    main_logger.info(
+        "Result bundle saved: "
+        + ", ".join(str(path) for path in report_paths.values())
+    )
     return all_model_results
