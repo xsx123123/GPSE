@@ -1,0 +1,42 @@
+echo "===== [$(date '+%F %T')] Run 1/2: baseline (no stacking) -> maize_FT ====="
+
+gpse train \
+  --geno_file /data/xiaoliu/gpse_6pecies_model/6specise/geno/maize_geno.csv \
+  --pheno_file /data/xiaoliu/gpse_6pecies_model/6specise/pheno_split/maize_FT.csv \
+  --target_trait FT \
+  --task_type regression \
+  --results_dir /data/jzhang/project/Temp/gpse_26.6.4_test/gpse_new_validation/6species/maize_FT \
+  --models elasticnet_reg gbdt_reg svr_reg mlp_reg knn_reg rf_reg xgboost_reg adaboost_reg lightgbm_reg catboost_reg \
+           kernelridge_reg gblup_reg histgradientboost_reg sgd_reg lasso_reg \
+  --use_default_params \
+  --test_size 0.3 \
+  --n_splits 5 \
+  --n_repeats 2 \
+  --random_seed 42 \
+  --cv_file /data/xiaoliu/gpse_6pecies_model/multi_traits_results_maize_FT/cv_folds/FT_cv_50x5.csv \
+  --use_same_test_set \
+  --threads 60
+
+echo "===== [$(date '+%F %T')] Run 1/2 done: baseline ====="
+echo "===== [$(date '+%F %T')] Run 2/2: stacking+TOPSIS -> maize_FT_topsis ====="
+
+gpse train \
+  --geno_file /data/xiaoliu/gpse_6pecies_model/6specise/geno/maize_geno.csv \
+  --pheno_file /data/xiaoliu/gpse_6pecies_model/6specise/pheno_split/maize_FT.csv \
+  --target_trait FT \
+  --task_type regression \
+  --results_dir /data/jzhang/project/Temp/gpse_26.6.4_test/gpse_new_validation/6species/maize_FT_topsis \
+  --models elasticnet_reg gbdt_reg svr_reg mlp_reg knn_reg rf_reg xgboost_reg adaboost_reg lightgbm_reg catboost_reg \
+           kernelridge_reg gblup_reg histgradientboost_reg sgd_reg lasso_reg \
+  --use_default_params \
+  --test_size 0.3 \
+  --n_splits 5 \
+  --n_repeats 2 \
+  --random_seed 42 \
+  --use_stacking \
+  --cv_file /data/xiaoliu/gpse_6pecies_model/multi_traits_results_maize_FT/cv_folds/FT_cv_50x5.csv \
+  --use_same_test_set \
+  --threads 60
+
+echo "===== [$(date '+%F %T')] Run 2/2 done: stacking+TOPSIS ====="
+echo "===== [$(date '+%F %T')] All runs finished ====="

@@ -110,6 +110,99 @@ def _write_holdout_reports(results_dir, all_model_results, task_type, split_stra
     main_logger.info(f"Final hold-out reports saved to {shorten_path(reports_dir)}")
 
 
+def _write_topsis_final_predictions(results_dir, all_model_results, X, task_type):
+    """Persist hold-out predictions from the CV-TOPSIS top-ranked model.
+
+    The best model is the rank-1 entry of ``model_comparison_cv_topsis_simple.csv``
+    (falling back to CV mean/std ranking). Predictions come from that model's
+    selected repeat: per-fold test predictions are averaged (regression) or
+    majority-voted (classification). Values are converted back to the original
+    phenotype scale when standardization was applied.
+    """
+    reports_dir = results_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+
+    topsis_simple_path = results_dir / "model_comparison_cv_topsis_simple.csv"
+    topsis_score = None
+    if topsis_simple_path.exists():
+        ranking = pd.read_csv(topsis_simple_path).sort_values("TOPSIS_Rank")
+        best_row = ranking.iloc[0]
+        best_model = best_row["Model"]
+        topsis_score = float(best_row["TOPSIS_Score"])
+    else:
+        candidates = [
+            (
+                name,
+                result["training_selection"]["cv_mean"],
+                result["training_selection"]["cv_std"],
+            )
+            for name, result in all_model_results.items()
+            if "training_selection" in result
+        ]
+        if not candidates:
+            main_logger.warning(
+                "No training-selection CV results available; "
+                "skipping TOPSIS-based final predictions"
+            )
+            return None
+        candidates.sort(key=lambda item: (-item[1], item[2]))
+        best_model = candidates[0][0]
+
+    selection = all_model_results[best_model].get("training_selection", {})
+    repeat_idx = int(selection.get("selected_repeat_idx", 0))
+    predictions_file = (
+        results_dir / best_model / f"repeat_{repeat_idx + 1}" / "all_predictions.json"
+    )
+    if not predictions_file.exists():
+        main_logger.warning(
+            f"Missing {predictions_file}; skipping TOPSIS-based final predictions"
+        )
+        return None
+    with open(predictions_file, encoding="utf-8") as handle:
+        all_predictions = json.load(handle)
+    test_entries = all_predictions.get("test") or []
+    if not test_entries:
+        main_logger.warning(
+            f"No test predictions in {predictions_file}; "
+            "skipping TOPSIS-based final predictions"
+        )
+        return None
+
+    indices = np.asarray(test_entries[0]["indices"], dtype=int)
+    observed = np.asarray(test_entries[0]["true_values"], dtype=float)
+    predicted_stack = np.asarray(
+        [entry["predicted_values"] for entry in test_entries], dtype=float
+    )
+    if task_type == "classification":
+        predicted = pd.DataFrame(predicted_stack).mode().iloc[0].to_numpy()
+    else:
+        predicted = predicted_stack.mean(axis=0)
+
+    split_manifest_path = results_dir / "split_manifest.json"
+    if split_manifest_path.exists():
+        with open(split_manifest_path, encoding="utf-8") as handle:
+            scaler = json.load(handle).get("phenotype_scaler") or {}
+        if scaler.get("applied"):
+            observed = observed * scaler["std"] + scaler["mean"]
+            predicted = predicted * scaler["std"] + scaler["mean"]
+
+    output_path = reports_dir / "final_predictions.csv"
+    pd.DataFrame(
+        {
+            "ID": X.index[indices].astype(str),
+            "observed": observed,
+            "predicted": predicted,
+        }
+    ).to_csv(output_path, index=False)
+    score_note = f", TOPSIS_Score={topsis_score:.6f}" if topsis_score is not None else ""
+    main_logger.info(
+        f"Final TOPSIS-based predictions saved to {output_path} "
+        f"(model={best_model}{score_note}, repeat={repeat_idx + 1}, "
+        f"fold_predictions={len(test_entries)})"
+    )
+    return output_path
+
+
 def run_all_models(
     self,
     geno_file: str,
@@ -243,7 +336,7 @@ def run_all_models(
     create_comparison_table(all_model_results, self.results_dir, main_logger)
 
     selected_models_for_stacking = None
-    if use_stacking and len(all_model_results) >= 2:
+    if len(all_model_results) >= 2:
         primary_label = "CV Accuracy" if self.task_type == "classification" else "CV Pearson"
         cv_rows = [
             {
@@ -271,7 +364,7 @@ def run_all_models(
                     simple_output=str(topsis_simple_path),
                     logger=main_logger,
                 )
-                selected_models_for_stacking = pd.read_csv(topsis_simple_path).head(top_n_models)["Model"].tolist()
+                topsis_ranked_models = pd.read_csv(topsis_simple_path)["Model"].tolist()
             except Exception as exc:
                 main_logger.warning(
                     f"Training-only TOPSIS failed; falling back to CV mean/std ranking: {exc}"
@@ -279,22 +372,24 @@ def run_all_models(
                 cv_comparison = cv_comparison.sort_values(
                     [primary_label, "CV Std"], ascending=[False, True]
                 )
-                selected_models_for_stacking = cv_comparison.head(top_n_models)["Model"].tolist()
-            with open(self.results_dir / "stacking_selected_models.json", "w", encoding="utf-8") as handle:
-                json.dump(
-                    {
-                        "selection_source": "train_only_cv",
-                        "criteria": [primary_label, "CV Std"],
-                        "selection_method": "TOPSIS (fallback: CV mean/std rank)",
-                        "selected_models": selected_models_for_stacking,
-                    },
-                    handle,
-                    indent=2,
+                topsis_ranked_models = cv_comparison["Model"].tolist()
+            if use_stacking:
+                selected_models_for_stacking = topsis_ranked_models[:top_n_models]
+                with open(self.results_dir / "stacking_selected_models.json", "w", encoding="utf-8") as handle:
+                    json.dump(
+                        {
+                            "selection_source": "train_only_cv",
+                            "criteria": [primary_label, "CV Std"],
+                            "selection_method": "TOPSIS (fallback: CV mean/std rank)",
+                            "selected_models": selected_models_for_stacking,
+                        },
+                        handle,
+                        indent=2,
+                    )
+                main_logger.info(
+                    "Selected stacking base models using training-only CV metrics: "
+                    f"{selected_models_for_stacking}"
                 )
-            main_logger.info(
-                "Selected stacking base models using training-only CV metrics: "
-                f"{selected_models_for_stacking}"
-            )
 
     if use_stacking and len(all_model_results) >= 2:
         try:
@@ -373,6 +468,9 @@ def run_all_models(
 
     _write_holdout_reports(
         self.results_dir, all_model_results, self.task_type, self.split_strategy
+    )
+    _write_topsis_final_predictions(
+        self.results_dir, all_model_results, X, self.task_type
     )
     report_paths = write_result_bundle(
         self.results_dir,
