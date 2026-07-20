@@ -5,6 +5,7 @@
 <h1 align="center">GPSE (Genomic Prediction with Stacking Ensemble)</h1>
 
 <p align="center">
+  <a href="https://pypi.org/project/gpse/"><img src="https://img.shields.io/pypi/v/gpse" alt="PyPI Version"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python Version">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/status-Alpha-orange" alt="Status">
@@ -36,9 +37,13 @@ GPSE is a comprehensive, machine-learning-based pipeline for genomic selection a
 * Python >= 3.10
 * [PLINK 1.9](https://www.cog-genomics.org/plink/) (Required for genomic data format conversion and SNP extraction)
 
-### Install via Poetry
+### Install via pip (Recommended)
 
-This project uses Poetry for dependency management:
+```bash
+pip install gpse
+```
+
+### Install from Source
 
 ```bash
 # Clone the repository
@@ -47,11 +52,8 @@ cd gpse
 
 # Install dependencies using Poetry
 poetry install
-```
 
-### Install via pip
-
-```bash
+# Or install with pip
 pip install .
 ```
 

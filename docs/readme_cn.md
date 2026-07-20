@@ -5,6 +5,7 @@
 <h1 align="center">GPSE（Genomic Prediction with Stacking Ensemble）</h1>
 
 <p align="center">
+  <a href="https://pypi.org/project/gpse/"><img src="https://img.shields.io/pypi/v/gpse" alt="PyPI Version"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python Version">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/status-Alpha-orange" alt="Status">
@@ -35,17 +36,22 @@ GPSE 是一个面向基因组选择与预测的机器学习流水线，覆盖从
 * Python >= 3.10
 * [PLINK 1.9](https://www.cog-genomics.org/plink/)（用于基因组格式转换与 SNP 提取）
 
-### 使用 Poetry 安装
+### 使用 pip 安装（推荐）
+
+```bash
+pip install gpse
+```
+
+### 从源码安装
 
 ```bash
 git clone https://github.com/xsx123123/GPSE.git
 cd gpse
+
+# 使用 Poetry 安装
 poetry install
-```
 
-### 使用 pip 安装
-
-```bash
+# 或使用 pip 安装
 pip install .
 ```
 
