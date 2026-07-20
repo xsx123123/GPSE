@@ -211,10 +211,17 @@ def train_and_evaluate_model_for_repeat(
     repeat_seed = generate_repeat_seed(self.random_seed, repeat_idx)
     np.random.seed(repeat_seed)
 
-    task_logger.info(f"{'=' * 50}")
-    task_logger.info(f"Model {model_name} - Repeat {repeat_idx + 1}/{self.n_repeats}")
-    task_logger.info(f"{'=' * 50}")
-    main_logger.info(f"Starting training Model:{model_name} Repeat:{repeat_idx + 1}")
+    sep = "=" * 50
+    task_logger.opt(colors=True).info(f"<cyan>{sep}</cyan>")
+    task_logger.opt(colors=True).info(
+        f"<b><cyan>Model {model_name}</cyan></b> "
+        f"<yellow>- Repeat {repeat_idx + 1}/{self.n_repeats}</yellow>"
+    )
+    task_logger.opt(colors=True).info(f"<cyan>{sep}</cyan>")
+    main_logger.opt(colors=True).info(
+        f"Starting training Model:<cyan>{model_name}</cyan> "
+        f"Repeat:<yellow>{repeat_idx + 1}</yellow>"
+    )
 
     repeat_dir = create_repeat_result_directory(self.results_dir, model_name, repeat_idx)
     if test_indices is None:
@@ -243,7 +250,10 @@ def train_and_evaluate_model_for_repeat(
             "Fitted phenotype scaler on hold-out training labels only: "
             f"mean={phenotype_scaler['mean']:.6f}, std={phenotype_scaler['std']:.6f}"
         )
-    task_logger.info(f"Train size: {len(train_indices)}, Test size: {len(test_indices)}")
+    task_logger.opt(colors=True).info(
+        f"Train size: <green>{len(train_indices)}</green>, "
+        f"Test size: <green>{len(test_indices)}</green>"
+    )
 
     folds = self.generate_cv_folds_from_file(
         X_train, y_train, cv_pheno_data, repeat_idx, task_logger
@@ -252,7 +262,9 @@ def train_and_evaluate_model_for_repeat(
 
     if self.use_default_params or model_name == "gblup_reg":
         params = self.get_default_params(model_name)
-        task_logger.info(f"Using fixed baseline/default parameters: {params}")
+        task_logger.opt(colors=True).info(
+            f"Using fixed baseline/default parameters: <d>{params}</d>"
+        )
         optimization_info = {
             "best_params": params,
             "best_value": None,

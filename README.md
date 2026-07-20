@@ -949,6 +949,14 @@ live in the corresponding workflow package.
 
 ## 📝 Recent Updates
 
+* **Logging Overhaul, Parallelism Tuning & Batch Interrupt Handling** (`2026-07-20`)
+  * Added a Wiki documentation framework under `docs/wiki/` — software overview, per-subcommand guides (`convert` / `train` / `predict`), configuration reference, and a full Python API reference.
+  * Training logs are now compact single lines tagged with model/repeat/fold (`xgboost_reg R1 F3 | Train r=... | Val r=... | Test r=... | 5.4s`); per-fold lines are demoted to DEBUG so parallel runs no longer interleave into noise (use `-l DEBUG` to inspect folds). Repeat averages are single-line summaries.
+  * `derive_parallelism_from_threads` now recycles leftover `--threads` budget into `n_jobs` after model- and repeat-level allocation (e.g. `--threads 80` with 15 models × 2 repeats now uses 60 cores instead of 30).
+  * `batch/batch_genomic_prediction.py` stops the remaining batch queue on Ctrl+C (return code 130) instead of treating the interrupt as an ordinary task failure.
+  * Silenced two warning streams: pandas `FutureWarning` on `fillna` downcasting in the Markdown report, and scipy `ConstantInputWarning` by skipping Pearson/Spearman when an input array is constant (metric falls back to 0.0).
+  * Large/diverged MSE values now render in scientific notation (`4.415e+27`) instead of long digit strings.
+
 * **Automatic Phenotype Type Detection** (`2026-06-10`)
   * Added `detect_phenotype_type()` in `gpse/convert/phenotype.py` — automatically classifies each trait as `regression` or `classification` based on value distribution.
     * Binary traits (≤2 unique values) → `classification`

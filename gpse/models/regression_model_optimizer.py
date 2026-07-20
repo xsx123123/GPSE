@@ -460,7 +460,8 @@ class RegressionModelOptimizer:
             return XGBRegressor(**params)
         elif model_name == 'histgradientboost_reg':
             from sklearn.ensemble import HistGradientBoostingRegressor
-            params['n_jobs'] = self.n_threads
+            # HGBR has no n_jobs parameter; its parallelism is governed by
+            # the OpenMP/BLAS thread environment variables.
             return HistGradientBoostingRegressor(**params)
         elif model_name == 'sgd_reg':
             from sklearn.linear_model import SGDRegressor

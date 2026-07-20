@@ -267,18 +267,18 @@ def _calculate_fold_average_metrics(
 
         # Log output
         line = (
-            f"{tag} avg | "
+            f"<cyan>{tag}</cyan> <b>avg</b> | "
             f"Train acc={metrics['avg_train_accuracy']:.4f}±{metrics['std_train_accuracy']:.4f} "
             f"f1={metrics['avg_train_f1']:.4f}±{metrics['std_train_f1']:.4f} | "
             f"Val acc={metrics['avg_val_accuracy']:.4f}±{metrics['std_val_accuracy']:.4f} "
             f"f1={metrics['avg_val_f1']:.4f}±{metrics['std_val_f1']:.4f} | "
-            f"Test acc={metrics['avg_test_accuracy']:.4f}±{metrics['std_test_accuracy']:.4f} "
-            f"f1={metrics['avg_test_f1']:.4f}±{metrics['std_test_f1']:.4f}"
+            f"<green>Test acc={metrics['avg_test_accuracy']:.4f}±{metrics['std_test_accuracy']:.4f} "
+            f"f1={metrics['avg_test_f1']:.4f}±{metrics['std_test_f1']:.4f}</green>"
         )
         if metrics["avg_test_auc"] > 0:
             line += f" auc={metrics['avg_test_auc']:.4f}±{metrics['std_test_auc']:.4f}"
         line += f" | {metrics['avg_training_time']:.2f}s"
-        task_logger.info(line)
+        task_logger.opt(colors=True).info(line)
     else:
         # Regression task
         for split in ["train", "val", "test"]:
@@ -293,11 +293,11 @@ def _calculate_fold_average_metrics(
         metrics["avg_test_mse"] = np.mean(mse_values)
         metrics["std_test_mse"] = np.std(mse_values)
 
-        task_logger.info(
-            f"{tag} avg | "
+        task_logger.opt(colors=True).info(
+            f"<cyan>{tag}</cyan> <b>avg</b> | "
             f"Train r={metrics['avg_train_pearson']:.4f}±{metrics['std_train_pearson']:.4f} | "
             f"Val r={metrics['avg_val_pearson']:.4f}±{metrics['std_val_pearson']:.4f} | "
-            f"Test r={metrics['avg_test_pearson']:.4f}±{metrics['std_test_pearson']:.4f} | "
+            f"<green>Test r={metrics['avg_test_pearson']:.4f}±{metrics['std_test_pearson']:.4f}</green> | "
             f"{metrics['avg_training_time']:.2f}s"
         )
 

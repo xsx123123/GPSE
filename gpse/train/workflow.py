@@ -9,21 +9,20 @@ import argparse
 from gpse.train.predictor import main_logger
 from gpse.utils.cli_display import _load_software_info
 
-try:
-    from rich.console import Console
-
-    _console = Console()
-except ImportError:  # pragma: no cover
-    _console = None
-
 __version__ = _load_software_info().get("version", "unknown")
 
 
-def _log_stage(title: str) -> None:
-    """Print a pretty stage separator to terminal and log to file."""
-    if _console is not None:
-        _console.rule(f"[bold blue]{title}[/bold blue]")
-    main_logger.info(title)
+def _log_stage(title: str, width: int = 76) -> None:
+    """Log a stage separator through loguru.
+
+    Routing the rule through the logger (instead of a separate Rich console
+    on stdout) keeps it serialized with surrounding log records, so it can
+    never interleave mid-line with asynchronously enqueued log messages.
+    """
+    pad = max(width - len(title) - 2, 4)
+    left = pad // 2
+    right = pad - left
+    main_logger.info(f"{'─' * left} {title} {'─' * right}")
 
 
 def _build_parser(
