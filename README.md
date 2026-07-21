@@ -30,6 +30,17 @@ GPSE is a comprehensive, machine-learning-based pipeline for genomic selection a
 * **Model Ranking & Selection**: Built-in **TOPSIS** (Technique for Order of Preference by Similarity to Ideal Solution) evaluation utilizing Entropy Weight Method for multi-criteria model ranking.
 * **Stacking Ensemble**: Automatically ensembles the Top-N performing models to maximize prediction accuracy.
 
+## 📖 Documentation
+
+- [Wiki Home](docs/wiki/README.md) — full documentation index
+- [Overview](docs/wiki/01-overview.md) — features, architecture, and dependencies
+- [`gpse convert`](docs/wiki/02-cli-convert.md) — data conversion, QC, and recoding
+- [`gpse train`](docs/wiki/03-cli-train.md) — training, HPO, repeated CV, and stacking
+- [`gpse predict`](docs/wiki/04-cli-predict.md) — feature alignment and phenotype prediction
+- [Configuration](docs/wiki/05-configuration.md) — `gpse.yaml` and TOPSIS configuration
+- [API Reference](docs/wiki/06-api-reference.md) — public Python classes and functions
+- [中文文档](docs/readme_cn.md) — 简体中文说明
+
 ## 🛠️ Installation
 
 ### Prerequisites
@@ -59,7 +70,7 @@ pip install .
 
 ## 🚀 Usage
 
-GPSE uses a subcommand architecture: `gpse {convert,train,predict,batch}`.
+GPSE uses a subcommand architecture: `gpse {convert,train,predict,batch,tools}`.
 
 ### Command-Line Preview
 
@@ -498,7 +509,25 @@ Quickly analyze phenotype data to determine the appropriate task type (Regressio
 python -m gpse.tools.analyze_phenotypes
 ```
 
-### 4. Show Help
+### 4. Split Train/Test Data (`gpse tools split`)
+
+Split matched genotype/phenotype samples into training and held-out test
+subsets. The test set can later be scored with `gpse predict`:
+
+```bash
+gpse tools split \
+    --geno data/train_genotype.csv \
+    --pheno data/train_phenotype.csv \
+    --out-prefix data/split \
+    --test-ratio 0.2 \
+    --seed 42
+```
+
+This writes `data/split_train_geno`, `data/split_train_pheno`,
+`data/split_test_geno`, and `data/split_test_pheno`. Use `--stratify COLUMN`
+for stratified splitting of classification traits.
+
+### 5. Show Help
 
 ```bash
 gpse --help
@@ -506,12 +535,13 @@ gpse --version
 gpse convert --help
 gpse train --help
 gpse batch --help
+gpse tools --help
 ```
 
 ## 📥 Input and Output Formats
 
-GPSE currently defines concrete I/O for `gpse convert` and `gpse train`.
-`gpse predict` is present as a command stub, but prediction is not implemented yet.
+GPSE currently defines concrete I/O for `gpse convert`, `gpse train`, and
+`gpse predict`.
 
 ### `gpse convert` Inputs
 
@@ -690,8 +720,9 @@ gpse train \
 
 During training, GPSE keeps only samples shared by genotype and phenotype IDs,
 sorts them into a consistent order, and uses all non-ID genotype columns as
-features. Feature names are normalized internally to `feature_0`, `feature_1`,
-and so on.
+features. The exact ordered feature list is saved to
+`{results_dir}/feature_manifest.json` so `gpse predict` can align new VCF or
+matrix data to the trained model.
 
 Classification labels can be strings or non-continuous numeric labels. GPSE
 encodes them to continuous integer classes and saves the encoder to:
@@ -766,14 +797,17 @@ TOPSIS model-ranking output:
 
 ### `gpse predict`
 
-`gpse predict` currently accepts `--model`, `--geno-file`, and `--out`, but the
-prediction workflow is not implemented yet. Prediction input and output formats
-are therefore not finalized.
+`gpse predict` accepts a trained model directory plus a VCF or converted
+genotype matrix, canonicalizes variant IDs, aligns them to the model's
+`feature_manifest.json`, and writes a prediction CSV together with a
+`predictions.alignment.json` report (matched/missing/extra SNPs and feature
+coverage). See [3. Prediction (`gpse predict`)](#3-prediction-gpse-predict)
+for full usage.
 
 ## 📁 Source Layout
 
-The package is organized around the four workflow commands: `convert`, `train`,
-`predict`, and `batch`. Runtime-specific code lives in those command packages;
+The package is organized around the five workflow commands: `convert`, `train`,
+`predict`, `batch`, and `tools`. Runtime-specific code lives in those command packages;
 shared support code lives in `config`, `models`, `tasks`, `tools`, and `utils`.
 
 ### `gpse/`
@@ -948,6 +982,7 @@ sequential per-trait `gpse train` execution.
 | `__init__.py` | Package marker for the batch workflow. |
 | `cli.py` | CLI parser for `gpse batch` (`--config`, `--dry_run`). |
 | `runner.py` | Loads the YAML batch config, merges `defaults` with per-trait overrides, translates options into `gpse train` arguments (including boolean and list flags), runs each trait, and prints the final per-trait summary. |
+| `merge.py` | Merges per-trait summary tables (`model_comparison*.csv` and holdout summaries) across traits into `<results_root>/merged/` with a leading `Trait` column. |
 
 ### `gpse/models/`
 
@@ -979,6 +1014,8 @@ Standalone helper scripts that are useful outside the main workflow commands.
 | File | Scope |
 | --- | --- |
 | `__init__.py` | Tools package marker. |
+| `cli.py` | CLI parser for `gpse tools` utility subcommands (currently `split`). |
+| `split.py` | Train/test splitting for matched genotype/phenotype data. Writes `<prefix>_train_geno`, `<prefix>_train_pheno`, `<prefix>_test_geno`, and `<prefix>_test_pheno`, with optional stratified splitting for classification traits. |
 | `analyze_phenotypes.py` | Standalone phenotype analysis helper for inspecting trait distributions and deciding whether traits are better treated as regression or classification targets. |
 
 ### `gpse/utils/`
@@ -1009,6 +1046,12 @@ live in the corresponding workflow package.
 * `rich` & `loguru` (for beautiful CLI output and logging)
 
 ## 📝 Recent Updates
+
+* **0.0.3a1: Batch Training, Data Splitting & Validation Suite** (`2026-07-21`)
+  * New `gpse batch` subcommand: YAML-driven multi-trait batch training. `defaults` accepts any `gpse train` option, each trait can override options individually, `--dry_run` previews the generated per-trait commands, and per-trait summary tables are merged into `<results_root>/merged/` after the run.
+  * New `gpse tools split` subcommand: split matched genotype/phenotype samples into train/test subsets (optional stratified splitting for classification traits) for later `gpse predict` evaluation.
+  * Fixed a scipy-OpenBLAS segfault in `kernelridge_reg` by routing the solve through a safe path.
+  * Added a multi-species validation suite under `tests/validation/`: batch configs and runner scripts covering 6 field-crop species, 3 cucurbit species, and a lettuce MAGIC population, each exercising all 15 regression models.
 
 * **Logging Overhaul, Parallelism Tuning & Batch Interrupt Handling** (`2026-07-20`)
   * Added a Wiki documentation framework under `docs/wiki/` — software overview, per-subcommand guides (`convert` / `train` / `predict`), configuration reference, and a full Python API reference.

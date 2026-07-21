@@ -6,7 +6,7 @@
 
 目录中的文件分为两类：
 
-1. `*_batch_config.yaml` 与 `*_batch.sh`：六个物种的多性状批量验证。
+1. `*_batch_config.yaml` 与 `*_batch.sh`：六个物种的多性状批量验证，以及黄瓜、甜瓜、西瓜三个葫芦科物种的批量验证。
 2. `6_special_validation_*.sh`：玉米 FT、HT 性状的专项对照验证。
 
 ## 环境要求
@@ -38,6 +38,9 @@ gpse --help
 | Soy | `soy_batch_config.yaml` | `6_species_validation_soy_batch.sh` | HT、R8、YLD | R8 |
 | Spruce | `spruce_batch_config.yaml` | `6_species_validation_spruce_batch.sh` | DBH、HT、DE | HT |
 | Switchgrass | `switchgrass_batch_config.yaml` | `6_species_validation_switchgrass_batch.sh` | ST、HT、AN | HT |
+| Cucumber | `cucumber_batch_config.yaml` | `3_species_validation_cucumber_batch.sh` | 12 个连续性状 | 无 |
+| Melon | `melon_batch_config.yaml` | `3_species_validation_melon_batch.sh` | 8 个连续性状 | 无 |
+| Watermelon | `watermelon_batch_config.yaml` | `3_species_validation_watermelon_batch.sh` | 4 个连续性状 | 无 |
 
 运行单个物种，例如玉米：
 
@@ -66,6 +69,34 @@ for script in tests/validation/6_species_validation_*_batch.sh; do
   bash "$script" || exit 1
 done
 ```
+
+### 三物种（葫芦科）批量验证
+
+黄瓜、甜瓜、西瓜的表型数据是按性状拆分的单列 CSV（`ID,Trait` 两列），不是六物种使用的多列表型文件，因此这三个配置在 `traits` 中为每个性状单独覆盖 `pheno_file`：
+
+```yaml
+traits:
+  - name: BFB_fruit
+    pheno_file: /data/xiaoliu/gpse_3species/watermelon/watermelon_phenotype_continuous/BFB_fruit.csv
+```
+
+性状清单（均为回归任务，表型列名与 `name` 一致）：
+
+- Cucumber（12 个）：Anthracnose、Days_to_flower、Downy_mildew、Gummy_stem_blight、Meloidogyne_arenaria_race_2、M._incognita_race_3、pct_firm_loss、pct_weight_loss、Root_size、Shriveling、Yield_Iowa、Yield_North_Carolina
+- Melon（8 个）：100-seed_weight_g、Bitterness、Fruit_L_D_ratio、Fruit_length_cm、Fruit_weight_kg、fruit_width_cm、Leaf_color、Soluble_solids_content_oBrix
+- Watermelon（4 个）：BFB_fruit、PM_race_2_leaf、PM_race_2_stem、PRSV_mean
+
+默认均未启用 stacking；需要时参照六物种配置在对应性状下加 `use_stacking: true`。
+
+依次运行三个物种：
+
+```bash
+for script in tests/validation/3_species_validation_*_batch.sh; do
+  bash "$script" || exit 1
+done
+```
+
+注意：这三个物种目录下还有分类性状（黄瓜 2 个、甜瓜 28 个、西瓜 3 个），当前未纳入批量配置。其原始文件为 tab 分隔、表头为 `Plant_ID` 的 txt，需要先转换为 gpse 要求的逗号分隔、`ID` 列名的 CSV，并按 `task_type: classification` 逐性状指定 `n_classes` 后才能使用。
 
 ### Batch YAML 结构
 
@@ -108,7 +139,7 @@ traits:
 
 ## 当前回归模型
 
-六个 batch 配置以及玉米专项脚本均使用以下 15 个回归模型：
+九个 batch 配置（六物种 + 三物种）以及玉米专项脚本均使用以下 15 个回归模型：
 
 | 模型名称 | 模型类型 |
 | --- | --- |
@@ -228,11 +259,11 @@ bash tests/validation/6_special_validation_maize_FT_feature_selection_univariate
 - `results_root` 或 `--results_dir`：结果输出目录。
 - `--cv_file`：专项实验使用的外部 CV 划分文件。
 
-批量配置使用多列表型文件，`traits[].name` 必须与表型文件中的目标列名完全一致。专项脚本目前使用按性状拆分的表型文件。
+批量配置有两种表型组织方式：六物种使用多列表型文件，`traits[].name` 必须与表型文件中的目标列名完全一致；三物种（葫芦科）使用按性状拆分的单列 CSV，在 `traits[].pheno_file` 中逐性状指定，`name` 与该 CSV 中的性状列名一致。专项脚本目前使用按性状拆分的表型文件。
 
 ## 注意事项
 
-- 六个物种、三个性状、15 个模型会产生大量训练任务，运行时间和磁盘占用都可能较大。
+- 六物种各 3 个性状、三物种共 24 个性状，每个性状 15 个模型，会产生大量训练任务，运行时间和磁盘占用都可能较大。
 - 同一个输出目录中已有结果时，执行前应确认是否允许覆盖或追加。
 - `use_stacking` 会增加额外训练和模型选择开销。
 - `use_default_params: true` 适合流程验证；如果需要正式调参评估，应根据实验设计调整该选项和 trials 数量。

@@ -1,0 +1,55 @@
+# GPSE 批量训练验证配置：melon 8 个连续性状
+# 用法: gpse batch --config tests/validation/melon_batch_config.yaml
+# 预览不执行: gpse batch --config tests/validation/melon_batch_config.yaml --dry_run
+
+defaults:
+  # ---- 数据来源 ----
+  geno_file: /data/xiaoliu/gpse_3species/melon/geno/melon_geno.csv
+  # 每个性状在 traits 里覆盖 pheno_file（按性状拆分的单列表型 CSV）
+
+  # ---- 训练参数（与 gpse train 同名）----
+  task_type: regression
+  use_default_params: true
+  test_size: 0.3
+  n_splits: 5
+  n_repeats: 2
+  random_seed: 42
+  use_same_test_set: true
+  threads: 60
+  models:
+    - elasticnet_reg
+    - gbdt_reg
+    - svr_reg
+    - mlp_reg
+    - knn_reg
+    - rf_reg
+    - xgboost_reg
+    - adaboost_reg
+    - lightgbm_reg
+    - catboost_reg
+    - kernelridge_reg
+    - gblup_reg
+    - histgradientboost_reg
+    - sgd_reg
+    - lasso_reg
+
+  # ---- 输出根目录：每个性状写到 <results_root>/<name>/ ----
+  results_root: /data/jzhang/project/Temp/gpse_26.6.4_test/gpse_new_validation/3species/melon_batch
+
+traits:
+  - name: 100-seed_weight_g
+    pheno_file: /data/xiaoliu/gpse_3species/melon/melon_phenotyp_continuous/100-seed_weight_g.csv
+  - name: Bitterness
+    pheno_file: /data/xiaoliu/gpse_3species/melon/melon_phenotyp_continuous/Bitterness.csv
+  - name: Fruit_L_D_ratio
+    pheno_file: /data/xiaoliu/gpse_3species/melon/melon_phenotyp_continuous/Fruit_L_D_ratio.csv
+  - name: Fruit_length_cm
+    pheno_file: /data/xiaoliu/gpse_3species/melon/melon_phenotyp_continuous/Fruit_length_cm.csv
+  - name: Fruit_weight_kg
+    pheno_file: /data/xiaoliu/gpse_3species/melon/melon_phenotyp_continuous/Fruit_weight_kg.csv
+  - name: fruit_width_cm
+    pheno_file: /data/xiaoliu/gpse_3species/melon/melon_phenotyp_continuous/fruit_width_cm.csv
+  - name: Leaf_color
+    pheno_file: /data/xiaoliu/gpse_3species/melon/melon_phenotyp_continuous/Leaf_color.csv
+  - name: Soluble_solids_content_oBrix
+    pheno_file: /data/xiaoliu/gpse_3species/melon/melon_phenotyp_continuous/Soluble_solids_content_oBrix.csv

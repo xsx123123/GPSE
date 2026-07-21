@@ -1,40 +1,43 @@
-# 01. 软件总览
+# 01. Overview
 
-## 软件作用
+## What GPSE Does
 
-GPSE (Genomic Prediction with Stacking Ensemble) 是一个基因组选择（Genomic Selection）机器学习流水线，面向园艺作物育种场景。它从原始 VCF/PLINK 基因型数据出发，完成：
+GPSE (Genomic Prediction with Stacking Ensemble) is a genomic selection machine learning pipeline aimed at horticultural crop breeding. Starting from raw VCF/PLINK genotype data, it covers:
 
-1. **数据转换**：VCF → PLINK → PED/MAP → 加性数值矩阵 → 表型匹配；
-2. **质量控制**：缺失率/MAF 过滤、Beagle 插补（可选）、LD pruning；
-3. **模型训练**：Optuna 超参优化 + 重复交叉验证 + TOPSIS 多指标排名；
-4. **集成学习**：严格 OOF（out-of-fold）Stacking，防止数据泄漏；
-5. **预测部署**：canonical SNP ID 特征对齐，用训练产物预测新样本表型。
+1. **Data conversion**: VCF → PLINK → PED/MAP → additive numeric matrix → phenotype matching;
+2. **Quality control**: missing-rate/MAF filtering, optional Beagle imputation, LD pruning;
+3. **Model training**: Optuna hyperparameter optimization + repeated cross-validation + TOPSIS multi-metric ranking;
+4. **Ensemble learning**: strict out-of-fold (OOF) Stacking that prevents data leakage;
+5. **Prediction deployment**: canonical SNP ID feature alignment to predict phenotypes of new samples from training artifacts.
 
-## 核心特性
+## Key Features
 
-- **14+ 回归算法 + 6 分类算法**：elasticnet、GBDT、SVR、MLP、KNN、RF、XGBoost、AdaBoost、LightGBM、CatBoost、KernelRidge、GBLUP 基线等；
-- **双任务模式**：`--task_type regression | classification`；
-- **可复现 / 防泄漏**：固定 hold-out + train-only CV + 严格 OOF stacking（详见 `train_pipeline.md`）；
-- **跨用户模型复用**：canonical SNP ID（`chr<chrom>_<chromStart>_<chromEnd>`）与 `feature_manifest.json`；
-- **并行训练**：`--threads` 自动推导 `n_jobs / max_workers / repeat_workers`；
-- **TOPSIS 综合评价**：熵权法/手动权重，兼顾精度与稳定性。
+- **15 regression + 6 classification algorithms**: ElasticNet, GBDT, SVR, MLP, KNN, RF, XGBoost, AdaBoost, LightGBM, CatBoost, KernelRidge, GBLUP baseline, and more;
+- **Dual task modes**: `--task_type regression | classification`;
+- **Reproducible / leak-free**: fixed hold-out + train-only CV + strict OOF stacking (see `train_pipeline.md`);
+- **Cross-user model reuse**: canonical SNP IDs (`chr<chrom>_<chromStart>_<chromEnd>`) and `feature_manifest.json`;
+- **Parallel training**: `--threads` automatically derives `n_jobs / max_workers / repeat_workers`;
+- **TOPSIS multi-criteria evaluation**: entropy or manual weights, balancing accuracy and stability;
+- **Batch multi-trait training**: `gpse batch` runs the full training workflow for many traits from one YAML config;
+- **Train/test splitting**: `gpse tools split` carves out a held-out test set for later `gpse predict` scoring.
 
-## 整体架构
+## Architecture
 
 ```
 gpse/
-├── cli.py            # CLI 入口（argparse + rich-argparse），路由到子命令
-├── convert/          # gpse convert：数据转换 / QC / recode / deps
-├── train/            # gpse train：训练、优化、CV、Stacking、TOPSIS
-├── predict/          # gpse predict：特征对齐与表型预测
-├── models/           # 模型注册与 Optuna 搜索空间（回归/分类 optimizer）
-├── tasks/            # 任务层（分类标签编码、分类指标）
-├── config/           # 包内置 YAML 配置与模型常量
-├── tools/            # 内部辅助脚本（表型分析）
-└── utils/            # 配置加载、SNP ID、feature manifest、并行、日志
+├── cli.py            # CLI entry point (argparse + rich-argparse), routes subcommands
+├── convert/          # gpse convert: data conversion / QC / recode / deps
+├── train/            # gpse train: training, optimization, CV, Stacking, TOPSIS
+├── predict/          # gpse predict: feature alignment and phenotype prediction
+├── batch/            # gpse batch: YAML-driven multi-trait training + result merging
+├── models/           # Model registries and Optuna search spaces (regression/classification)
+├── tasks/            # Task layer (classification label encoding, classification metrics)
+├── config/           # Package YAML configs and model constants
+├── tools/            # gpse tools: train/test splitting + phenotype analysis helper
+└── utils/            # Config loading, SNP IDs, feature manifest, parallelism, logging
 ```
 
-## 依赖
+## Dependencies
 
-- **Python ≥ 3.10**（Poetry 构建）；核心库：scikit-learn、xgboost、lightgbm、catboost、optuna、cyvcf2、ngboost、pandas/numpy、loguru/rich、PyYAML；
-- **外部工具**：PLINK ≥ 1.9（必需）；java + Beagle jar（仅插补时需要）。检查方式：`gpse convert --check-deps`。
+- **Python ≥ 3.10** (Poetry build); core libraries: scikit-learn, xgboost, lightgbm, catboost, optuna, cyvcf2, ngboost, pandas/numpy, loguru/rich, PyYAML;
+- **External tools**: PLINK ≥ 1.9 (required); java + Beagle jar (only needed for imputation). Check with `gpse convert --check-deps`.

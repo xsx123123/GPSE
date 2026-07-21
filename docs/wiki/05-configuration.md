@@ -1,31 +1,35 @@
-# 05. 配置文件
+# 05. Configuration
 
-## 项目级 `gpse.yaml`
+## Project-level `gpse.yaml`
 
-放置于工作目录（或 `gpse.local.yaml`，或用 `--config PATH` 显式指定），用于声明外部工具与 convert 配置：
+Placed in the working directory (or `gpse.local.yaml`, or given explicitly via `--config PATH`); declares external tools and convert settings:
 
 ```yaml
 external_tools:
   - name: plink
-    cmd: plink            # 可写绝对路径
+    cmd: plink            # absolute paths are allowed
   - name: java
     cmd: java
     required: false
 convert:
-  beagle_jar_path: /path/to/beagle.jar   # 仅 --impute 时使用
+  beagle_jar_path: /path/to/beagle.jar   # only used with --impute
 ```
 
-加载逻辑（`gpse/utils/configuration.py`）：按 **包内默认 → 项目 `gpse.yaml` → `gpse.local.yaml` → CLI `--config`** 顺序深合并，named-list 按 `name` 覆盖；`--no-project-config` 关闭项目配置自动加载。
+Loading logic (`gpse/utils/configuration.py`): deep-merged in the order **package defaults → project `gpse.yaml` → `gpse.local.yaml` → CLI `--config`**; named lists are overridden by `name`. `--no-project-config` disables automatic project config loading.
 
-## 包内置配置
+## Package Configs
 
-| 文件 | 内容 |
-|------|------|
-| `gpse/config/software.yaml` | 软件元信息 + 外部工具声明（plink：`--version` 探测、min_version 1.9、必需；java：可选） |
-| `gpse/config/default.yaml` | 软件元信息 + 日志配置（log_level、more_info、Label） |
-| `gpse/config/topsis.yaml` | TOPSIS 评价指标：分类 `Test Accuracy (max, 0.8) / Test Accuracy (std) (min, 0.2)`；回归 `Test Pearson (max, 0.8) / Test Pearson (std) (min, 0.2)` |
+| File | Contents |
+|------|----------|
+| `gpse/config/software.yaml` | Software metadata + external tool declarations (plink: `--version` probe, min_version 1.9, required; java: optional) |
+| `gpse/config/default.yaml` | Software metadata + logging config (log_level, more_info, Label) |
+| `gpse/config/topsis.yaml` | TOPSIS evaluation criteria: classification `Test Accuracy (max, 0.8) / Test Accuracy (std) (min, 0.2)`; regression `Test Pearson (max, 0.8) / Test Pearson (std) (min, 0.2)` |
 
-## 训练产物中的清单文件
+## Batch Config (`gpse batch`)
 
-- `feature_manifest.json`：训练特征的 canonical SNP ID 列表，供 predict 对齐（`gpse/utils/feature_manifest.py`）；
-- `split_manifest.json`：hold-out / CV 划分记录，保证可复现。
+`gpse batch` reads its own YAML config, separate from `gpse.yaml`. It has two sections: `defaults` (any `gpse train` option plus the batch-only `results_root`) and `traits` (each entry requires `name` = target trait column and may override any option, or be skipped with `enabled: false`). See [03. `gpse train` → Batch Multi-Trait Training](03-cli-train.md#batch-multi-trait-training-gpse-batch) for the full schema. A ready-to-edit template lives at `batch/batch_config.example.yaml`; real-world validation configs are under `tests/validation/*_batch_config.yaml`.
+
+## Manifest Files in Training Artifacts
+
+- `feature_manifest.json`: canonical SNP ID list of the training features, used by `gpse predict` for alignment (`gpse/utils/feature_manifest.py`);
+- `split_manifest.json`: hold-out / CV split record, guaranteeing reproducibility.

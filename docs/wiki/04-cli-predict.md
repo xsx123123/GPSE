@@ -1,34 +1,44 @@
-# 04. 子命令 `gpse predict`
+# 04. Subcommand `gpse predict`
 
-用训练产物对新样本做表型预测。实现位于 `gpse/predict/`（CLI：`gpse/predict/cli.py`，核心：`gpse/predict/core.py`）。
+Predicts phenotypes of new samples from training artifacts. Implemented in `gpse/predict/` (CLI: `gpse/predict/cli.py`, core: `gpse/predict/core.py`).
 
-## 用法
+## Usage
 
 ```bash
 gpse predict --model MODEL --vcf-file new.vcf.gz --out predictions.csv \
   [--report report.json] [--missing-value 3.0] [--min-feature-coverage 0.8]
 ```
 
-| 参数 | 必需 | 说明 |
-|------|------|------|
-| `--model` | 是 | `model.pkl` 文件 / `deployment_ensemble` 目录 / results 目录（自动解析） |
-| `--vcf-file` / `--geno-file` | 是（二选一） | 新样本的 VCF 或基因型矩阵文件 |
-| `--out` | 是 | 输出预测 CSV |
-| `--report` | 否 | 特征对齐报告 JSON，默认 `<out>.alignment.json` |
-| `--missing-value` | 否（默认 3.0） | 缺失基因型的填充值 |
-| `--min-feature-coverage` | 否（0–1） | 特征覆盖率下限，低于则拒绝预测 |
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--model` | yes | A `model.pkl` file / `deployment_ensemble` directory / results directory (auto-resolved) |
+| `--vcf-file` / `--geno-file` | yes (one of the two) | VCF or genotype matrix file of the new samples |
+| `--out` | yes | Output prediction CSV |
+| `--report` | no | Feature alignment report JSON; defaults to `<out>.alignment.json` |
+| `--missing-value` | no (default 3.0) | Fill value for missing genotypes |
+| `--min-feature-coverage` | no (0–1) | Minimum feature coverage; lower coverage rejects the input |
 
-## 特征对齐机制
+## Feature Alignment
 
-- 训练时以 canonical SNP ID（`chr<chrom>_<chromStart>_<chromEnd>`，见 `gpse/utils/snp_ids.py`）记录特征，并写入 `feature_manifest.json`；
-- 预测时按 manifest 对齐新样本的 SNP 列：缺失特征以 `--missing-value` 填充，多余特征丢弃；
-- 对齐统计（覆盖率、缺失 SNP 列表）写入对齐报告 JSON；覆盖率低于 `--min-feature-coverage` 时报错退出，防止在低质量对齐上产生误导性预测。
+- At training time, features are recorded as canonical SNP IDs — `chr<chrom>_<chromStart>_<chromEnd>` (zero-based, half-open coordinates; see `gpse/utils/snp_ids.py`) — and written to `feature_manifest.json`;
+- At prediction time, the new samples' SNP columns are aligned against the manifest: missing features are filled with `--missing-value`, extra features are dropped;
+- Alignment statistics (matched/missing/extra SNP counts, feature coverage, missing SNP list) are written to the alignment report JSON; if coverage falls below `--min-feature-coverage`, the command exits with an error instead of producing misleading predictions on a low-quality alignment.
 
-## 输出
+## Output
 
-- `predictions.csv`：样本 ID + 预测表型；
-- `<out>.alignment.json`：对齐报告（feature coverage、缺失/多余特征）。
+- `predictions.csv`: sample IDs + predicted phenotypes;
+- `<out>.alignment.json`: alignment report (feature coverage, matched/missing/extra features).
 
-## 对应 API
+## Typical Workflow
 
-见 [06. API 参考 → predict](06-api-reference.md#gpsepredict)。
+A common pattern is to hold out a test set with `gpse tools split` before training, then score it afterwards:
+
+```bash
+gpse tools split --geno geno.csv --pheno pheno.csv --out-prefix data/split --test-ratio 0.2
+gpse train --geno_file data/split_train_geno.csv --pheno_file data/split_train_pheno.csv ...
+gpse predict --model optimization_results_v2 --geno-file data/split_test_geno.csv --out test_predictions.csv
+```
+
+## Corresponding API
+
+See [06. API Reference → predict](06-api-reference.md#gpsepredict).

@@ -1,0 +1,63 @@
+# GPSE 批量训练验证配置：cucumber 12 个连续性状
+# 用法: gpse batch --config tests/validation/cucumber_batch_config.yaml
+# 预览不执行: gpse batch --config tests/validation/cucumber_batch_config.yaml --dry_run
+
+defaults:
+  # ---- 数据来源 ----
+  geno_file: /data/xiaoliu/gpse_3species/cucumber/geno/cucumber_geno.csv
+  # 每个性状在 traits 里覆盖 pheno_file（按性状拆分的单列表型 CSV）
+
+  # ---- 训练参数（与 gpse train 同名）----
+  task_type: regression
+  use_default_params: true
+  test_size: 0.3
+  n_splits: 5
+  n_repeats: 2
+  random_seed: 42
+  use_same_test_set: true
+  threads: 60
+  models:
+    - elasticnet_reg
+    - gbdt_reg
+    - svr_reg
+    - mlp_reg
+    - knn_reg
+    - rf_reg
+    - xgboost_reg
+    - adaboost_reg
+    - lightgbm_reg
+    - catboost_reg
+    - kernelridge_reg
+    - gblup_reg
+    - histgradientboost_reg
+    - sgd_reg
+    - lasso_reg
+
+  # ---- 输出根目录：每个性状写到 <results_root>/<name>/ ----
+  results_root: /data/jzhang/project/Temp/gpse_26.6.4_test/gpse_new_validation/3species/cucumber_batch
+
+traits:
+  - name: Anthracnose
+    pheno_file: /data/xiaoliu/gpse_3species/cucumber/traits_Continuous/Anthracnose.csv
+  - name: Days_to_flower
+    pheno_file: /data/xiaoliu/gpse_3species/cucumber/traits_Continuous/Days_to_flower.csv
+  - name: Downy_mildew
+    pheno_file: /data/xiaoliu/gpse_3species/cucumber/traits_Continuous/Downy_mildew.csv
+  - name: Gummy_stem_blight
+    pheno_file: /data/xiaoliu/gpse_3species/cucumber/traits_Continuous/Gummy_stem_blight.csv
+  - name: Meloidogyne_arenaria_race_2
+    pheno_file: /data/xiaoliu/gpse_3species/cucumber/traits_Continuous/Meloidogyne_arenaria_race_2.csv
+  - name: M._incognita_race_3
+    pheno_file: /data/xiaoliu/gpse_3species/cucumber/traits_Continuous/M._incognita_race_3.csv
+  - name: pct_firm_loss
+    pheno_file: /data/xiaoliu/gpse_3species/cucumber/traits_Continuous/pct_firm_loss.csv
+  - name: pct_weight_loss
+    pheno_file: /data/xiaoliu/gpse_3species/cucumber/traits_Continuous/pct_weight_loss.csv
+  - name: Root_size
+    pheno_file: /data/xiaoliu/gpse_3species/cucumber/traits_Continuous/Root_size.csv
+  - name: Shriveling
+    pheno_file: /data/xiaoliu/gpse_3species/cucumber/traits_Continuous/Shriveling.csv
+  - name: Yield_Iowa
+    pheno_file: /data/xiaoliu/gpse_3species/cucumber/traits_Continuous/Yield_Iowa.csv
+  - name: Yield_North_Carolina
+    pheno_file: /data/xiaoliu/gpse_3species/cucumber/traits_Continuous/Yield_North_Carolina.csv

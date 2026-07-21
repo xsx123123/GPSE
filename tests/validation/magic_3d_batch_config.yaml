@@ -1,0 +1,58 @@
+# GPSE 批量训练验证配置：生菜 MAGIC 群体 3D 表型（9 个性状）
+# 用法: gpse batch --config tests/validation/magic_3d_batch_config.yaml
+# 预览不执行: gpse batch --config tests/validation/magic_3d_batch_config.yaml --dry_run
+
+defaults:
+  # ---- 数据来源 ----
+  geno_file: /data/xiaoliu/gpse_magic_15models/lettuce_LD_cleand.csv
+  # 每个性状在 traits 里覆盖 pheno_file（按性状拆分的单列表型 CSV）
+
+  # ---- 训练参数（与 gpse train 同名）----
+  task_type: regression
+  use_default_params: true
+  test_size: 0.3
+  n_splits: 5
+  n_repeats: 2
+  random_seed: 42
+  use_same_test_set: true
+  threads: 60
+  models:
+    - elasticnet_reg
+    - gbdt_reg
+    - svr_reg
+    - mlp_reg
+    - knn_reg
+    - rf_reg
+    - xgboost_reg
+    - adaboost_reg
+    - lightgbm_reg
+    - catboost_reg
+    - kernelridge_reg
+    - gblup_reg
+    - histgradientboost_reg
+    - sgd_reg
+    - lasso_reg
+
+  # ---- 输出根目录：每个性状写到 <results_root>/<name>/ ----
+  results_root: /data/jzhang/project/Temp/gpse_26.6.4_test/gpse_new_validation/magic/magic_3d_batch
+
+traits:
+  - name: 3D_Angle_p1
+    pheno_file: /data/xiaoliu/gpse_magic_15models/traits_3D_12/3D_Angle_p1.csv
+  - name: 3D_Angle_p5
+    pheno_file: /data/xiaoliu/gpse_magic_15models/traits_3D_12/3D_Angle_p5.csv
+  - name: 3D_Curliness_chy
+    pheno_file: /data/xiaoliu/gpse_magic_15models/traits_3D_12/3D_Curliness_chy.csv
+  - name: 3D_Curliness
+    pheno_file: /data/xiaoliu/gpse_magic_15models/traits_3D_12/3D_Curliness.csv
+  - name: 3D_Flatness_chy
+    pheno_file: /data/xiaoliu/gpse_magic_15models/traits_3D_12/3D_Flatness_chy.csv
+  # 注意：该 CSV 的表型列名是小写 d 的 3d_Flatness_mean，name 必须与列名一致
+  - name: 3d_Flatness_mean
+    pheno_file: /data/xiaoliu/gpse_magic_15models/traits_3D_12/3D_Flatness_mean.csv
+  - name: 3D_LA_2p5a
+    pheno_file: /data/xiaoliu/gpse_magic_15models/traits_3D_12/3D_LA_2p5a.csv
+  - name: 3D_LA_rp5
+    pheno_file: /data/xiaoliu/gpse_magic_15models/traits_3D_12/3D_LA_rp5.csv
+  - name: 3D_Perimeter3D
+    pheno_file: /data/xiaoliu/gpse_magic_15models/traits_3D_12/3D_Perimeter3D.csv
