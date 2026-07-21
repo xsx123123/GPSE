@@ -17,11 +17,17 @@ Config schema::
         models: [rf_clf, xgboost_clf]
         results_dir: /custom/output    # overrides results_root
         enabled: false                 # optional; skip this trait
+
+After all traits finish, the per-trait summary tables
+(``model_comparison*.csv`` and the holdout summaries under
+``reports/``) are merged across traits — with a leading ``Trait``
+column — into ``<results_root>/merged/``.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
 import traceback
 from pathlib import Path
@@ -33,6 +39,7 @@ from loguru import logger as main_logger
 # Keys consumed by the batch runner itself; everything else must be a
 # ``gpse train`` long option and is passed through.
 RESERVED_KEYS = {"name", "enabled", "results_root", "target_trait"}
+SECTION_WIDTH = 70
 
 
 def _train_option_actions() -> dict[str, argparse.Action]:
@@ -189,6 +196,8 @@ def run_batch(config_path: str | Path, dry_run: bool = False) -> int:
         main_logger.error("No enabled traits to run")
         return 1
 
+    if dry_run:
+        _log_highlighted_heading("DRY-RUN")
     main_logger.info(f"Batch training: {len(runnable)} trait(s) from {config_path}")
     outcomes: list[tuple[str, str]] = []
     for index, trait in enumerate(runnable, start=1):
@@ -201,17 +210,18 @@ def run_batch(config_path: str | Path, dry_run: bool = False) -> int:
             continue
 
         if dry_run:
-            print(f"[{index}/{len(runnable)}] {name}")
-            print(_format_train_command(argv))
+            main_logger.info(f"[{index}/{len(runnable)}] {name}")
+            main_logger.info(_format_train_command(argv))
             for line in _dry_run_trait_summary(argv):
-                print(line)
-            print()
+                main_logger.info(line)
             outcomes.append((name, "dry-run"))
             continue
 
-        main_logger.info("=" * 70)
-        main_logger.info(f"[{index}/{len(runnable)}] Training trait: {name}")
-        main_logger.info("=" * 70)
+        main_logger.info("=" * SECTION_WIDTH)
+        main_logger.info(
+            f"[{index}/{len(runnable)}] Training trait: {name}".center(SECTION_WIDTH)
+        )
+        main_logger.info("=" * SECTION_WIDTH)
         from gpse.train.cli import main as train_main
 
         try:
@@ -230,13 +240,75 @@ def run_batch(config_path: str | Path, dry_run: bool = False) -> int:
             return 130
         outcomes.append((name, "ok" if exit_code == 0 else f"failed({exit_code})"))
 
-    _log_summary(outcomes)
+    _log_summary(outcomes, dry_run=dry_run)
+    if not dry_run:
+        _merge_batch_results(defaults, runnable, outcomes)
     return 0 if all(status in {"ok", "dry-run"} for _, status in outcomes) else 1
 
 
-def _log_summary(outcomes: list[tuple[str, str]]) -> None:
-    main_logger.info("=" * 70)
-    main_logger.info("Batch summary:")
+def _trait_results_dir(
+    defaults: dict[str, Any], trait: dict[str, Any]
+) -> Path | None:
+    """Resolve the results directory of one trait (same rule as argv build)."""
+    if trait.get("results_dir"):
+        return Path(str(trait["results_dir"]))
+    results_root = trait.get("results_root", defaults.get("results_root"))
+    if results_root:
+        return Path(str(results_root)) / trait["name"]
+    return None
+
+
+def _merge_batch_results(
+    defaults: dict[str, Any],
+    runnable: list[dict[str, Any]],
+    outcomes: list[tuple[str, str]],
+) -> None:
+    """Merge per-trait summary CSVs into ``<root>/merged/`` after training."""
+    from gpse.batch.merge import merge_trait_results
+
+    succeeded = {name for name, status in outcomes if status == "ok"}
+    trait_dirs = {
+        trait["name"]: results_dir
+        for trait in runnable
+        if trait["name"] in succeeded
+        and (results_dir := _trait_results_dir(defaults, trait)) is not None
+    }
+    if not trait_dirs:
+        return
+
+    results_root = defaults.get("results_root")
+    if results_root:
+        output_dir = Path(str(results_root)) / "merged"
+    else:
+        parents = [str(path.parent) for path in trait_dirs.values()]
+        output_dir = Path(os.path.commonpath(parents)) / "merged"
+
+    try:
+        written = merge_trait_results(trait_dirs, output_dir)
+    except Exception:
+        main_logger.warning("Failed to merge per-trait summary tables:")
+        main_logger.warning(traceback.format_exc())
+        return
+    if written:
+        main_logger.info("Merged cross-trait summary tables:")
+        for path in written:
+            main_logger.info(f"  {path}")
+
+
+def _log_highlighted_heading(title: str) -> None:
+    main_logger.info("=" * SECTION_WIDTH)
+    main_logger.opt(colors=True).info(
+        "<bold><yellow>{}</yellow></bold>", title.center(SECTION_WIDTH)
+    )
+    main_logger.info("=" * SECTION_WIDTH)
+
+
+def _log_summary(outcomes: list[tuple[str, str]], dry_run: bool = False) -> None:
+    if dry_run:
+        _log_highlighted_heading("DRY-RUN SUMMARY")
+    else:
+        main_logger.info("=" * SECTION_WIDTH)
+        main_logger.info("Batch summary:")
     for name, status in outcomes:
         main_logger.info(f"  {name}: {status}")
-    main_logger.info("=" * 70)
+    main_logger.info("=" * SECTION_WIDTH)

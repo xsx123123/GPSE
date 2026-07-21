@@ -20,6 +20,8 @@ defaults:
   threads: 60
 
   # ---- 输出根目录：每个性状写到 <results_root>/<name>/ ----
+  # 全部性状跑完后，各性状的 model_comparison*.csv 等汇总表会自动合并
+  # （首列加 Trait），写到 <results_root>/merged/
   results_root: /path/to/results
 
 traits:
