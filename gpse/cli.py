@@ -97,9 +97,9 @@ def main(argv: list[str] | None = None) -> int:
     if not raw_args:
         show_gpse_logo()
         if _console is not None:
-            _console.print("\n[bold red][ERROR] No command provided. Use convert, train, predict, or batch.[/bold red]\n")
+            _console.print("\n[bold red][ERROR] No command provided. Use convert, train, predict, batch, or tools.[/bold red]\n")
         else:
-            print("\n[ERROR] No command provided. Use convert, train, predict, or batch.\n")
+            print("\n[ERROR] No command provided. Use convert, train, predict, batch, or tools.\n")
         root_parser.print_help()
         return 1
 
@@ -206,8 +206,26 @@ def main(argv: list[str] | None = None) -> int:
             parents=[_common_parent],
         )
 
+    # Tools workflow: utility subcommands (split, etc.).
+    if command == "tools":
+        _show_logo_for_command(command_args)
+
+        from gpse.tools.cli import main as tools_main
+
+        if command_args and command_args[0] in {"-v", "--version"}:
+            from gpse.train.cli import main as train_main
+
+            return train_main(["--version"], prog="gpse tools")
+        return tools_main(
+            command_args,
+            formatter_class=RichHelpFormatter,
+            prog="gpse tools",
+            help_action=_LogoHelpAction,
+            parents=[_common_parent],
+        )
+
     # Any other first token is not a supported workflow command.
-    root_parser.error(f"Unknown command: {command}. Use train, convert, predict, or batch.")
+    root_parser.error(f"Unknown command: {command}. Use train, convert, predict, batch, or tools.")
     return 2
 
 

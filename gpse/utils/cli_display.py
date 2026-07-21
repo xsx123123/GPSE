@@ -87,7 +87,7 @@ def _build_root_parser(formatter_class: type[argparse.HelpFormatter] = argparse.
     )
     subparsers = parser.add_subparsers(
         dest="command",
-        metavar="{convert,train,predict,batch}",
+        metavar="{convert,train,predict,batch,tools}",
         title="workflow commands",
         description="Run one of the GPSE workflows",
     )
@@ -122,6 +122,14 @@ def _build_root_parser(formatter_class: type[argparse.HelpFormatter] = argparse.
         add_help=False,
         help="Train models for multiple traits from one YAML config",
         description="Train GPSE models for multiple traits from one YAML config.",
+    )
+
+    # Add the tools subcommand
+    subparsers.add_parser(
+        "tools",
+        add_help=False,
+        help="Utility tools for data preparation (split, etc.)",
+        description="GPSE utility tools for data preparation and analysis.",
     )
 
     # Put workflow commands above options in help output.
