@@ -318,6 +318,15 @@ def _build_parser(
         default=5,
         help="Number of internal folds used by Stacking to generate meta-features (default: 5)",
     )
+    stack_group.add_argument(
+        "--topsis_config",
+        type=str,
+        default=None,
+        help=(
+            "Path to a custom TOPSIS criteria/weights YAML file. "
+            "Overrides the built-in gpse/config/topsis.yaml when provided"
+        ),
+    )
 
     pre_group = parser.add_argument_group("data preprocessing options")
     pre_group.add_argument(

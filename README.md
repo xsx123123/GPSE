@@ -410,6 +410,29 @@ gpse train \
 > `--n_classes` for you. You only need to pass them explicitly when you want
 > to override the auto-detected values or when no info file is present.
 
+> **💡 Custom TOPSIS ranking criteria: `--topsis_config`**
+>
+> GPSE ranks models using TOPSIS with configurable criteria and weights.
+> By default, regression uses `Test Pearson (0.8) + Test Pearson std (0.2)`
+> and classification uses `Test Accuracy (0.8) + Test Accuracy std (0.2)`.
+> The built-in config (`gpse/config/topsis.yaml`) lists all 11 available
+> metrics per task type; metrics with `weight: 0` are reference-only.
+>
+> To customise ranking (e.g. also consider Spearman or training time):
+>
+> ```bash
+> gpse train \
+>     --geno_file data/train_genotype.csv \
+>     --pheno_file data/train_phenotype.csv \
+>     --target_trait Fruit_Weight \
+>     --task_type regression \
+>     --topsis_config my_topsis.yaml \
+>     --results_dir output_results/
+> ```
+>
+> See [Configuration → TOPSIS](docs/wiki/05-configuration.md#topsis-configuration-topsisyaml)
+> for the full schema and all available criteria.
+
 #### 2.2 One-Stop: Preprocessing + Training
 
 ```bash

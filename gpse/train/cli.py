@@ -386,6 +386,7 @@ def main(
             select_percentile=args.select_percentile,
             genotype_imputation=args.genotype_imputation,
             missing_genotype_code=args.missing_genotype_code,
+            topsis_config=args.topsis_config,
         )
 
         predictor.run_all_models(

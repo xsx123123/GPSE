@@ -140,6 +140,7 @@ class GenomicPredictorV2:
         select_percentile: float | None = None,
         genotype_imputation: str = "none",
         missing_genotype_code: float = 3.0,
+        topsis_config: str = None,
     ):
         """
         Initialize the predictor.
@@ -220,6 +221,7 @@ class GenomicPredictorV2:
         self.genotype_imputation_config = validate_genotype_imputation_config(
             genotype_imputation, missing_genotype_code
         )
+        self.topsis_config = topsis_config
         self._optimization_cache = {}
         self.phenotype_scaler = None  # Store phenotype standardization parameters
 

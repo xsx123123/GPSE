@@ -23,7 +23,97 @@ Loading logic (`gpse/utils/configuration.py`): deep-merged in the order **packag
 |------|----------|
 | `gpse/config/software.yaml` | Software metadata + external tool declarations (plink: `--version` probe, min_version 1.9, required; java: optional) |
 | `gpse/config/default.yaml` | Software metadata + logging config (log_level, more_info, Label) |
-| `gpse/config/topsis.yaml` | TOPSIS evaluation criteria: classification `Test Accuracy (max, 0.8) / Test Accuracy (std) (min, 0.2)`; regression `Test Pearson (max, 0.8) / Test Pearson (std) (min, 0.2)` |
+| `gpse/config/topsis.yaml` | TOPSIS multi-criteria model ranking configuration (see below) |
+
+## TOPSIS Configuration (`topsis.yaml`)
+
+The TOPSIS (Technique for Order of Preference by Similarity to Ideal Solution) evaluator ranks trained models using multiple performance criteria. The configuration lives in `gpse/config/topsis.yaml` and defines which metrics participate in ranking and their relative importance.
+
+### Schema
+
+```yaml
+tasks:
+  regression:       # or "classification"
+    criteria:
+      - name: "Test Pearson"      # must match a column in model_comparison.csv
+        type: max                  # "max" = higher is better, "min" = lower is better
+        weight: 0.8                # relative importance (normalised internally)
+```
+
+### Weight Semantics
+
+- Weights are normalised at runtime — only the **ratio** between non-zero weights matters.
+- Criteria with `weight: 0` are **reference-only**: they appear in the config for documentation and can be activated by setting a positive weight in a custom config file. They do **not** participate in the TOPSIS ranking computation.
+- At least one criterion must have `weight > 0`.
+
+### Default Criteria
+
+**Regression** (11 criteria, 2 active):
+
+| Criterion | Type | Weight | Status |
+|-----------|------|--------|--------|
+| Test Pearson | max | 0.8 | **active** |
+| Test Pearson (std) | min | 0.2 | **active** |
+| Test Spearman | max | 0 | reference |
+| Test Spearman (std) | min | 0 | reference |
+| Validation Pearson | max | 0 | reference |
+| Validation Pearson (std) | min | 0 | reference |
+| Test MSE | min | 0 | reference |
+| Test MSE (std) | min | 0 | reference |
+| Ensemble Pearson | max | 0 | reference |
+| Ensemble Pearson (std) | min | 0 | reference |
+| Training Time (s) | min | 0 | reference |
+
+**Classification** (11 criteria, 2 active):
+
+| Criterion | Type | Weight | Status |
+|-----------|------|--------|--------|
+| Test Accuracy | max | 0.8 | **active** |
+| Test Accuracy (std) | min | 0.2 | **active** |
+| Test F1 | max | 0 | reference |
+| Test F1 (std) | min | 0 | reference |
+| Test AUC | max | 0 | reference |
+| Test AUC (std) | min | 0 | reference |
+| Validation Accuracy | max | 0 | reference |
+| Validation Accuracy (std) | min | 0 | reference |
+| Ensemble Accuracy | max | 0 | reference |
+| Ensemble Accuracy (std) | min | 0 | reference |
+| Training Time (s) | min | 0 | reference |
+
+### Custom Config File
+
+Users can supply their own TOPSIS config via `--topsis_config`:
+
+```bash
+gpse train \
+    --geno_file data/genotype.parquet \
+    --pheno_file data/phenotype.csv \
+    --target_trait Fruit_Weight \
+    --task_type regression \
+    --topsis_config my_topsis.yaml
+```
+
+Example custom config that also considers Spearman correlation and training time:
+
+```yaml
+tasks:
+  regression:
+    criteria:
+      - name: "Test Pearson"
+        type: max
+        weight: 0.5
+      - name: "Test Pearson (std)"
+        type: min
+        weight: 0.1
+      - name: "Test Spearman"
+        type: max
+        weight: 0.3
+      - name: "Training Time (s)"
+        type: min
+        weight: 0.1
+```
+
+When `--topsis_config` is omitted, the built-in `gpse/config/topsis.yaml` is used. The active configuration (source file, active criteria, and reference criteria) is printed at the start of every training run.
 
 ## Batch Config (`gpse batch`)
 

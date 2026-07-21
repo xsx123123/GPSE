@@ -35,9 +35,15 @@ def _format_weight(weight: Any) -> str:
     return str(weight)
 
 
-def _parse_topsis_task_config(task_type: str) -> Tuple[list, list, str]:
-    """Parse and validate the TOPSIS config for a task type."""
-    config = load_topsis_config()
+def _parse_topsis_task_config(
+    task_type: str, user_config_path: str | None = None
+) -> Tuple[list, list, str]:
+    """Parse and validate the TOPSIS config for a task type.
+
+    Only criteria with weight > 0 are returned for the actual TOPSIS
+    computation. Weight-0 criteria are reference-only.
+    """
+    config = load_topsis_config(user_config_path)
     task_configs = config.get("tasks", {})
     if not isinstance(task_configs, dict):
         raise ValueError("TOPSIS config must define 'tasks' as a mapping")
@@ -72,18 +78,33 @@ def _parse_topsis_task_config(task_type: str) -> Tuple[list, list, str]:
         if weight is None:
             raise ValueError(f"TOPSIS criterion '{name}' for task '{task_key}' is missing 'weight'")
         try:
-            float(weight)
+            weight = float(weight)
         except (TypeError, ValueError) as exc:
             raise ValueError(
                 f"TOPSIS criterion '{name}' for task '{task_key}' has a non-numeric weight"
             ) from exc
 
-        criteria.append(str(name))
-        criteria_types.append(str(criterion_type))
-        weights.append(weight)
+        if weight > 0:
+            criteria.append(str(name))
+            criteria_types.append(str(criterion_type))
+            weights.append(weight)
+
+    if not criteria:
+        raise ValueError(
+            f"TOPSIS task '{task_key}' has no criteria with weight > 0; "
+            "at least one criterion must have a positive weight"
+        )
 
     manual_weights = ",".join(_format_weight(weight) for weight in weights)
     return criteria, criteria_types, manual_weights
+
+
+def get_all_topsis_criteria(task_type: str, user_config_path: str | None = None) -> list[dict]:
+    """Return the full criteria list (including weight-0) for display."""
+    config = load_topsis_config(user_config_path)
+    task_key = "classification" if task_type == "classification" else "regression"
+    task_config = config.get("tasks", {}).get(task_key, {})
+    return task_config.get("criteria", [])
 
 
 def get_topsis_configuration(self) -> Tuple[list, list, str]:
@@ -95,7 +116,10 @@ def get_topsis_configuration(self) -> Tuple[list, list, str]:
     Tuple[list, list, str]
         (criteria, criteria_types, manual_weights)
     """
-    criteria, criteria_types, manual_weights = _parse_topsis_task_config(self.task_type)
+    user_config = getattr(self, "topsis_config", None)
+    criteria, criteria_types, manual_weights = _parse_topsis_task_config(
+        self.task_type, user_config
+    )
     task_name = "Classification" if self.task_type == "classification" else "Regression"
     main_logger.info(
         f"TOPSIS config: {task_name} task - "
@@ -203,3 +227,24 @@ def log_environment_settings(self) -> None:
 
     for env_var in ModelConstants.thread_env_vars:
         main_logger.info(f"{env_var}={os.environ.get(env_var, 'not set')}")
+
+    user_config = getattr(self, "topsis_config", None)
+    if user_config:
+        main_logger.info(f"- TOPSIS config: {user_config} (user-supplied)")
+    else:
+        main_logger.info("- TOPSIS config: built-in default (gpse/config/topsis.yaml)")
+    try:
+        all_criteria = get_all_topsis_criteria(self.task_type, user_config)
+        active = [c for c in all_criteria if float(c.get("weight", 0)) > 0]
+        inactive = [c for c in all_criteria if float(c.get("weight", 0)) == 0]
+        main_logger.info(
+            f"- TOPSIS active criteria ({len(active)}): "
+            + ", ".join(f"{c['name']}({c['type']},w={c['weight']})" for c in active)
+        )
+        if inactive:
+            main_logger.info(
+                f"- TOPSIS reference criteria ({len(inactive)}, weight=0): "
+                + ", ".join(c["name"] for c in inactive)
+            )
+    except Exception:
+        main_logger.debug("Could not load TOPSIS criteria for display")
