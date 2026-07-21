@@ -131,7 +131,7 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
     pheno_data = pheno_data.sort_index()
 
     # Step 7: Extract feature matrix and target variable
-    X = geno_data.copy()
+    X = geno_data
     y = pheno_data[target_trait].copy()
 
     # Step 7b: For regression, coerce the target to numeric so that string

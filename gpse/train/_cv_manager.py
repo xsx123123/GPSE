@@ -193,6 +193,7 @@ def generate_cv_folds_from_file(
         )
         raise ValueError(f"CV column {cv_col} does not exist")
 
+    X_index_map = {idx: i for i, idx in enumerate(X.index)}
     folds = []
     for fold_idx in range(self.n_splits):
         val_mask = cv_pheno_data[cv_col] == fold_idx
@@ -201,7 +202,6 @@ def generate_cv_folds_from_file(
         train_mask = cv_pheno_data[cv_col] != fold_idx
         train_indices = cv_pheno_data.index[train_mask].tolist()
 
-        X_index_map = {idx: i for i, idx in enumerate(X.index)}
         train_idx = np.array(
             [X_index_map[idx] for idx in train_indices if idx in X_index_map]
         )

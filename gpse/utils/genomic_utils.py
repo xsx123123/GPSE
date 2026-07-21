@@ -287,6 +287,7 @@ def generate_cv_folds_from_file(
         raise ValueError(f"Column {cv_col} missing in CV file")
     
     # Generate all folds
+    X_index_map = {idx: i for i, idx in enumerate(X.index)}
     folds = []
     for fold_idx in range(n_splits):
         # Get validation set indices
@@ -298,7 +299,6 @@ def generate_cv_folds_from_file(
         train_indices = cv_pheno_data.index[train_mask].tolist()
         
         # Convert indices to positional indices in X
-        X_index_map = {idx: i for i, idx in enumerate(X.index)}
         train_idx = np.array([X_index_map[idx] for idx in train_indices if idx in X_index_map])
         val_idx = np.array([X_index_map[idx] for idx in val_indices if idx in X_index_map])
         
@@ -457,7 +457,7 @@ def prepare_train_test_data(X: pd.DataFrame, y: pd.Series, repeat_idx: int,
             random_state=repeat_seed
         )
     
-    train_indices = np.array([i for i in range(len(X)) if i not in test_indices])
+    train_indices = np.setdiff1d(np.arange(len(X)), np.asarray(test_indices), assume_unique=True)
     
     X_train = X.iloc[train_indices]
     y_train = y.iloc[train_indices]

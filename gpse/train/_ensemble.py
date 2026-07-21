@@ -166,21 +166,16 @@ def _compute_ensemble_predictions(
                 )
 
         # Compute ensemble predictions
-        ensemble_preds = []
-        for model, scaler, selector, imputer in ensemble_models:
-            X_test_transformed = transform_for_member(scaler, selector, imputer, X_test)
-            ensemble_preds.append(model.predict(X_test_transformed))
-
         if self.task_type == "classification":
+            ensemble_preds = []
             ensemble_probas = []
             for model, scaler, selector, imputer in ensemble_models:
-                X_test_transformed = transform_for_member(
-                    scaler, selector, imputer, X_test
-                )
+                X_test_transformed = transform_for_member(scaler, selector, imputer, X_test)
+                ensemble_preds.append(model.predict(X_test_transformed))
                 if hasattr(model, "predict_proba"):
                     ensemble_probas.append(model.predict_proba(X_test_transformed))
                 else:
-                    pred = model.predict(X_test_transformed)
+                    pred = ensemble_preds[-1]
                     n_classes = getattr(self, "n_classes", int(np.max(pred)) + 1)
                     prob = np.zeros((len(pred), n_classes))
                     prob[np.arange(len(pred)), pred.astype(int)] = 1.0
@@ -209,6 +204,10 @@ def _compute_ensemble_predictions(
             if "pr_auc" in ensemble_metrics:
                 task_logger.info(f"  PR-AUC: {ensemble_metrics['pr_auc']:.6f}")
         else:
+            ensemble_preds = []
+            for model, scaler, selector, imputer in ensemble_models:
+                X_test_transformed = transform_for_member(scaler, selector, imputer, X_test)
+                ensemble_preds.append(model.predict(X_test_transformed))
             ensemble_pred = np.mean(ensemble_preds, axis=0)
             metric_y_test = y_test_original if y_test_original is not None else y_test
             metric_predictions = ensemble_pred
