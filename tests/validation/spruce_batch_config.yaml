@@ -16,7 +16,22 @@ defaults:
   random_seed: 42
   use_same_test_set: true
   threads: 60
-  models: [rf_reg, xgboost_reg, lightgbm_reg, gblup_reg]
+  models:
+    - elasticnet_reg
+    - gbdt_reg
+    - svr_reg
+    - mlp_reg
+    - knn_reg
+    - rf_reg
+    - xgboost_reg
+    - adaboost_reg
+    - lightgbm_reg
+    - catboost_reg
+    - kernelridge_reg
+    - gblup_reg
+    - histgradientboost_reg
+    - sgd_reg
+    - lasso_reg
 
   # ---- 输出根目录：每个性状写到 <results_root>/<name>/ ----
   results_root: /data/jzhang/project/Temp/gpse_26.6.4_test/gpse_new_validation/6species/spruce_batch
@@ -25,5 +40,4 @@ traits:
   - name: DBH                        # 继承 defaults 全部参数
   - name: HT
     use_stacking: true               # 该性状额外启用 stacking+TOPSIS
-  - name: DE
-    models: [rf_reg, gblup_reg]      # 该性状只跑两个模型
+  - name: DE                         # 同样继承全部回归模型
