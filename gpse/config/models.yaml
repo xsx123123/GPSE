@@ -1,0 +1,385 @@
+# GPSE Model Registry
+#
+# Declares all available ML models for genomic prediction.
+# Override with: gpse train --model_config my_models.yaml
+#
+# Schema per entry:
+#   name            — unique model key (used with --models)
+#   task            — regression | classification
+#   import_path     — fully-qualified class path (lazy-imported at creation time)
+#   thread_strategy — none | n_jobs | nthread | thread_count | list thereof
+#   default_params  — fallback hyperparams ({random_seed}/{n_threads}/{n_classes} placeholders)
+#   search_space    — inline Optuna DSL (mutually exclusive with param_func)
+#   param_func      — "builtin:_method_name" or "module.path:func_name"
+#   extra           — optional special-handling flags
+#
+# Search space DSL item types:
+#   int:         {name, type: int, low, high, step?, log?}
+#   float:       {name, type: float, low, high, log?}
+#   categorical: {name, type: categorical, choices: [...]}
+#   fixed:       {name, type: fixed, value: ...}
+
+models:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # REGRESSION MODELS
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  # --- Tier A: flat search space (zero-code addition) ---
+
+  - name: elasticnet_reg
+    task: regression
+    import_path: sklearn.linear_model.ElasticNet
+    thread_strategy: none
+    default_params:
+      alpha: 1.0
+      l1_ratio: 0.5
+      random_state: "{random_seed}"
+    search_space:
+      - {name: alpha, type: float, low: 1.0e-8, high: 100.0, log: true}
+      - {name: l1_ratio, type: float, low: 1.0e-5, high: 1.0, log: true}
+      - {name: random_state, type: fixed, value: "{random_seed}"}
+
+  - name: lasso_reg
+    task: regression
+    import_path: sklearn.linear_model.Lasso
+    thread_strategy: none
+    default_params:
+      alpha: 1.0
+      random_state: "{random_seed}"
+    search_space:
+      - {name: alpha, type: float, low: 1.0e-8, high: 100.0, log: true}
+      - {name: random_state, type: fixed, value: "{random_seed}"}
+
+  - name: sgd_reg
+    task: regression
+    import_path: sklearn.linear_model.SGDRegressor
+    thread_strategy: none
+    default_params:
+      loss: squared_error
+      penalty: l2
+      alpha: 0.0001
+      random_state: "{random_seed}"
+    search_space:
+      - {name: loss, type: categorical, choices: [squared_error, huber, epsilon_insensitive, squared_epsilon_insensitive]}
+      - {name: penalty, type: categorical, choices: [l2, l1, elasticnet]}
+      - {name: alpha, type: float, low: 1.0e-8, high: 100.0, log: true}
+      - {name: random_state, type: fixed, value: "{random_seed}"}
+
+  - name: svr_reg
+    task: regression
+    import_path: sklearn.svm.LinearSVR
+    thread_strategy: none
+    default_params:
+      loss: epsilon_insensitive
+      C: 1.0
+      tol: 1.0e-4
+      max_iter: 10000
+      random_state: "{random_seed}"
+    search_space:
+      - {name: loss, type: categorical, choices: [epsilon_insensitive, squared_epsilon_insensitive]}
+      - {name: C, type: float, low: 1.0e-5, high: 100.0, log: true}
+      - {name: tol, type: float, low: 1.0e-8, high: 100.0, log: true}
+      - {name: max_iter, type: fixed, value: 10000}
+      - {name: random_state, type: fixed, value: "{random_seed}"}
+
+  - name: adaboost_reg
+    task: regression
+    import_path: sklearn.ensemble.AdaBoostRegressor
+    thread_strategy: none
+    default_params:
+      n_estimators: 50
+      learning_rate: 1.0
+      loss: linear
+      random_state: "{random_seed}"
+    search_space:
+      - {name: n_estimators, type: int, low: 10, high: 200}
+      - {name: learning_rate, type: float, low: 0.01, high: 1.0, log: true}
+      - {name: loss, type: categorical, choices: [linear, square, exponential]}
+      - {name: random_state, type: fixed, value: "{random_seed}"}
+
+  - name: knn_reg
+    task: regression
+    import_path: sklearn.neighbors.KNeighborsRegressor
+    thread_strategy: n_jobs
+    default_params:
+      n_neighbors: 5
+      weights: uniform
+      leaf_size: 30
+    search_space:
+      - {name: n_neighbors, type: int, low: 1, high: 101, step: 5}
+      - {name: weights, type: categorical, choices: [uniform, distance]}
+      - {name: leaf_size, type: int, low: 30, high: 100}
+
+  - name: rf_reg
+    task: regression
+    import_path: sklearn.ensemble.RandomForestRegressor
+    thread_strategy: n_jobs
+    default_params:
+      n_estimators: 100
+      max_depth: null
+      min_samples_split: 2
+      min_samples_leaf: 1
+      bootstrap: true
+      random_state: "{random_seed}"
+    search_space:
+      - {name: max_depth, type: int, low: 2, high: 6}
+      - {name: n_estimators, type: int, low: 10, high: 800}
+      - {name: min_samples_split, type: int, low: 5, high: 20}
+      - {name: min_samples_leaf, type: int, low: 2, high: 20}
+      - {name: bootstrap, type: categorical, choices: [true, false]}
+      - {name: random_state, type: fixed, value: "{random_seed}"}
+
+  - name: lightgbm_reg
+    task: regression
+    import_path: lightgbm.LGBMRegressor
+    thread_strategy: n_jobs
+    default_params:
+      n_estimators: 100
+      num_leaves: 31
+      learning_rate: 0.1
+      min_child_samples: 20
+      objective: regression
+      random_state: "{random_seed}"
+      verbosity: -1
+    search_space:
+      - {name: max_depth, type: int, low: 3, high: 6}
+      - {name: n_estimators, type: int, low: 50, high: 800, log: true}
+      - {name: max_bin, type: categorical, choices: [63, 127, 255, 511, 1023]}
+      - {name: min_gain_to_split, type: float, low: 0.0, high: 15.0}
+      - {name: lambda_l1, type: float, low: 1.0e-8, high: 10.0, log: true}
+      - {name: lambda_l2, type: float, low: 1.0e-8, high: 10.0, log: true}
+      - {name: num_leaves, type: int, low: 8, high: 64}
+      - {name: feature_fraction, type: float, low: 0.6, high: 1.0}
+      - {name: bagging_fraction, type: float, low: 0.6, high: 1.0}
+      - {name: bagging_freq, type: int, low: 1, high: 7}
+      - {name: min_child_samples, type: int, low: 5, high: 100}
+      - {name: objective, type: fixed, value: regression}
+      - {name: random_state, type: fixed, value: "{random_seed}"}
+      - {name: verbosity, type: fixed, value: -1}
+
+  - name: histgradientboost_reg
+    task: regression
+    import_path: sklearn.ensemble.HistGradientBoostingRegressor
+    thread_strategy: none
+    default_params:
+      max_depth: null
+      max_iter: 100
+      max_leaf_nodes: 31
+      min_samples_leaf: 20
+      learning_rate: 0.1
+      random_state: "{random_seed}"
+    search_space:
+      - {name: loss, type: categorical, choices: [squared_error, absolute_error]}
+      - {name: max_depth, type: int, low: 1, high: 6}
+      - {name: max_iter, type: int, low: 10, high: 500, log: true}
+      - {name: max_leaf_nodes, type: int, low: 8, high: 64}
+      - {name: min_samples_leaf, type: int, low: 5, high: 100}
+      - {name: learning_rate, type: float, low: 1.0e-4, high: 1.0, log: true}
+      - {name: n_iter_no_change, type: fixed, value: 20}
+      - {name: random_state, type: fixed, value: "{random_seed}"}
+
+  - name: gblup_reg
+    task: regression
+    import_path: gpse.models.safe_kernel_ridge.SafeKernelRidge
+    thread_strategy: none
+    default_params:
+      alpha: 1.0
+      kernel: linear
+    search_space:
+      - {name: alpha, type: fixed, value: 1.0}
+      - {name: kernel, type: fixed, value: linear}
+
+  # --- Tier B/C: conditional or dynamic search space (param_func reference) ---
+
+  - name: gbdt_reg
+    task: regression
+    import_path: sklearn.ensemble.GradientBoostingRegressor
+    thread_strategy: none
+    default_params:
+      n_estimators: 100
+      learning_rate: 0.1
+      max_depth: 3
+      min_samples_split: 2
+      min_samples_leaf: 1
+      subsample: 1.0
+      random_state: "{random_seed}"
+    param_func: "builtin:_gbdt_reg_params"
+
+  - name: xgboost_reg
+    task: regression
+    import_path: xgboost.XGBRegressor
+    thread_strategy: [n_jobs, nthread]
+    default_params:
+      n_estimators: 100
+      max_depth: 3
+      learning_rate: 0.1
+      booster: gbtree
+      random_state: "{random_seed}"
+      verbosity: 0
+    param_func: "builtin:_xgboost_reg_params"
+
+  - name: catboost_reg
+    task: regression
+    import_path: catboost.CatBoostRegressor
+    thread_strategy: thread_count
+    extra:
+      catboost_train_dir: true
+    default_params:
+      iterations: 100
+      depth: 6
+      learning_rate: 0.1
+      l2_leaf_reg: 3.0
+      logging_level: Silent
+      random_seed: "{random_seed}"
+    param_func: "builtin:_catboost_reg_params"
+
+  - name: kernelridge_reg
+    task: regression
+    import_path: gpse.models.safe_kernel_ridge.SafeKernelRidge
+    thread_strategy: none
+    default_params:
+      alpha: 1.0
+      kernel: rbf
+      gamma: null
+    param_func: "builtin:_kernelridge_reg_params"
+
+  - name: mlp_reg
+    task: regression
+    import_path: sklearn.neural_network.MLPRegressor
+    thread_strategy: none
+    extra:
+      filter_n_units: true
+    default_params:
+      hidden_layer_sizes: [100]
+      activation: relu
+      solver: adam
+      alpha: 0.0001
+      learning_rate: constant
+      max_iter: 200
+      random_state: "{random_seed}"
+    param_func: "builtin:_mlp_reg_params"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # CLASSIFICATION MODELS
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  # --- Tier A: flat search space ---
+
+  - name: rf_clf
+    task: classification
+    import_path: sklearn.ensemble.RandomForestClassifier
+    thread_strategy: n_jobs
+    default_params:
+      n_estimators: 100
+      max_depth: 10
+      min_samples_split: 2
+      min_samples_leaf: 1
+      bootstrap: true
+      criterion: gini
+      max_features: sqrt
+      random_state: "{random_seed}"
+      n_jobs: "{n_threads}"
+    search_space:
+      - {name: max_depth, type: int, low: 2, high: 6}
+      - {name: n_estimators, type: int, low: 10, high: 800}
+      - {name: min_samples_split, type: int, low: 5, high: 20}
+      - {name: min_samples_leaf, type: int, low: 2, high: 20}
+      - {name: bootstrap, type: categorical, choices: [true, false]}
+      - {name: criterion, type: categorical, choices: [gini, entropy]}
+      - {name: max_features, type: categorical, choices: [sqrt, log2, null]}
+      - {name: random_state, type: fixed, value: "{random_seed}"}
+
+  - name: svm_clf
+    task: classification
+    import_path: sklearn.svm.SVC
+    thread_strategy: none
+    default_params:
+      C: 1.0
+      kernel: rbf
+      gamma: scale
+      degree: 3
+      probability: true
+      random_state: "{random_seed}"
+    search_space:
+      - {name: loss, type: categorical, choices: [hinge, squared_hinge]}
+      - {name: dual, type: categorical, choices: [auto]}
+      - {name: penalty, type: categorical, choices: [l2]}
+      - {name: C, type: float, low: 1.0e-5, high: 100.0, log: true}
+      - {name: tol, type: float, low: 1.0e-8, high: 100.0, log: true}
+      - {name: random_state, type: fixed, value: "{random_seed}"}
+
+  # --- Tier B/C/D: conditional or dynamic search space ---
+
+  - name: xgboost_clf
+    task: classification
+    import_path: xgboost.XGBClassifier
+    thread_strategy: [n_jobs, nthread]
+    extra:
+      inject_num_class: true
+    default_params:
+      n_estimators: 100
+      max_depth: 6
+      learning_rate: 0.1
+      booster: gbtree
+      objective: "multi:softprob"
+      eval_metric: mlogloss
+      random_state: "{random_seed}"
+      n_jobs: "{n_threads}"
+      verbosity: 0
+    param_func: "builtin:_xgboost_clf_params"
+
+  - name: lightgbm_clf
+    task: classification
+    import_path: lightgbm.LGBMClassifier
+    thread_strategy: n_jobs
+    extra:
+      n_classes_objective: true
+    default_params:
+      n_estimators: 300
+      num_leaves: 63
+      learning_rate: 0.05
+      min_child_samples: 20
+      objective: multiclass
+      metric: multi_logloss
+      random_state: "{random_seed}"
+      n_jobs: "{n_threads}"
+      verbosity: -1
+      num_class: "{n_classes}"
+    param_func: "builtin:_lightgbm_clf_params"
+
+  - name: catboost_clf
+    task: classification
+    import_path: catboost.CatBoostClassifier
+    thread_strategy: thread_count
+    extra:
+      catboost_train_dir: true
+    default_params:
+      iterations: 100
+      depth: 6
+      learning_rate: 0.1
+      l2_leaf_reg: 3.0
+      objective: MultiClass
+      eval_metric: MultiClass
+      logging_level: Silent
+      random_seed: "{random_seed}"
+      thread_count: "{n_threads}"
+    param_func: "builtin:_catboost_clf_params"
+
+  - name: mlp_clf
+    task: classification
+    import_path: sklearn.neural_network.MLPClassifier
+    thread_strategy: none
+    extra:
+      filter_n_units: true
+    default_params:
+      hidden_layer_sizes: [100]
+      activation: relu
+      solver: adam
+      alpha: 0.0001
+      learning_rate: constant
+      max_iter: 500
+      random_state: "{random_seed}"
+      early_stopping: true
+      validation_fraction: 0.1
+      n_iter_no_change: 20
+    param_func: "builtin:_mlp_clf_params"

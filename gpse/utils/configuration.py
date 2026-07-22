@@ -190,3 +190,20 @@ def load_topsis_config(
     )
     logger.debug("TOPSIS config: tasks=%d", len(cfg.get("tasks", {})))
     return cfg
+
+
+def load_models_config(
+    user_config_path: str | Path | None = None,
+    *,
+    auto_project_config: bool = False,
+    search_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Load model registry from models.yaml."""
+    cfg = _load_config_with_overrides(
+        "models",
+        user_config_path,
+        auto_project_config=auto_project_config,
+        search_dir=search_dir,
+    )
+    logger.debug("Models config: %d models registered", len(cfg.get("models", [])))
+    return cfg

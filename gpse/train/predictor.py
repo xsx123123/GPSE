@@ -141,6 +141,7 @@ class GenomicPredictorV2:
         genotype_imputation: str = "none",
         missing_genotype_code: float = 3.0,
         topsis_config: str = None,
+        model_config: str = None,
     ):
         """
         Initialize the predictor.
@@ -222,6 +223,7 @@ class GenomicPredictorV2:
             genotype_imputation, missing_genotype_code
         )
         self.topsis_config = topsis_config
+        self.model_config = model_config
         self._optimization_cache = {}
         self.phenotype_scaler = None  # Store phenotype standardization parameters
 
@@ -256,6 +258,7 @@ class GenomicPredictorV2:
             self.model_optimizer = RegressionModelOptimizer(
                 random_seed=random_seed, n_threads=n_threads,
                 catboost_train_dir=str(self.results_dir / "catboost_info"),
+                model_config_path=model_config,
             )
             self.available_models = list(self.model_optimizer.model_configs.keys())
             self.classification_optimizer = None
@@ -266,6 +269,7 @@ class GenomicPredictorV2:
                 results_dir=str(self.results_dir),
                 random_seed=random_seed,
                 n_threads=n_threads,
+                model_config_path=model_config,
             )
             self.classification_optimizer = self.genomic_classifier.classification_optimizer
             self.available_models = self.classification_optimizer.get_available_models()

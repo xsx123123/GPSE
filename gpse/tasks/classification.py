@@ -41,6 +41,7 @@ class GenomicClassifier:
         n_threads: int = 1,
         random_state: int = None,
         classification_optimizer: Optional[ClassificationModelOptimizer] = None,
+        model_config_path: Optional[str] = None,
     ):
         """
         Initialize the classifier.
@@ -50,6 +51,7 @@ class GenomicClassifier:
             results_dir: Directory to save results
             random_seed: Random seed for reproducibility
             n_threads: Number of threads
+            model_config_path: Path to custom model registry YAML
         """
         if random_seed is not None and random_state is not None and random_seed != random_state:
             raise ValueError("random_seed and random_state were both provided with different values")
@@ -68,6 +70,7 @@ class GenomicClassifier:
             n_threads=n_threads,
             n_classes=n_classes,
             catboost_train_dir=str(self.results_dir / "catboost_info"),
+            model_config_path=model_config_path,
         )
         
     def prepare_classification_labels(self, y: pd.Series, results_dir: Path) -> pd.Series:

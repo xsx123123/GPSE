@@ -149,16 +149,20 @@ def _resolve_model_count(args: argparse.Namespace) -> int:
     """Return the number of models that will be trained for the current task."""
     if args.models:
         return len(args.models)
+    model_config = getattr(args, "model_config", None)
     if args.task_type == "regression":
         from gpse.models.regression_model_optimizer import RegressionModelOptimizer
 
-        return len(RegressionModelOptimizer(random_seed=42, n_threads=1).model_configs)
+        return len(RegressionModelOptimizer(
+            random_seed=42, n_threads=1, model_config_path=model_config
+        ).model_configs)
     # Classification
     from gpse.models.classification_model_optimizer import ClassificationModelOptimizer
 
     return len(
         ClassificationModelOptimizer(
-            random_seed=42, n_threads=1, n_classes=args.n_classes or 2
+            random_seed=42, n_threads=1, n_classes=args.n_classes or 2,
+            model_config_path=model_config,
         ).model_configs
     )
 
@@ -387,6 +391,7 @@ def main(
             genotype_imputation=args.genotype_imputation,
             missing_genotype_code=args.missing_genotype_code,
             topsis_config=args.topsis_config,
+            model_config=args.model_config,
         )
 
         predictor.run_all_models(
