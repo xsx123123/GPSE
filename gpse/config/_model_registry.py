@@ -63,18 +63,24 @@ def _inject_threads(params: Dict[str, Any], strategy: List[str], n_threads: int)
     return params
 
 
-def _build_inline_param_func(
-    search_space: List[Dict[str, Any]], context: Dict[str, Any]
-) -> Callable:
-    """Compile a YAML search-space DSL into an Optuna param function."""
+class InlineParamFunc:
+    """Optuna param function compiled from a YAML search-space DSL.
 
-    def param_func(trial) -> Dict[str, Any]:
+    Defined at module level (not as a closure) so that it can be pickled
+    and shipped to ``ProcessPoolExecutor`` model workers.
+    """
+
+    def __init__(self, search_space: List[Dict[str, Any]], context: Dict[str, Any]):
+        self.search_space = search_space
+        self.context = context
+
+    def __call__(self, trial) -> Dict[str, Any]:
         params: Dict[str, Any] = {}
-        for spec in search_space:
+        for spec in self.search_space:
             name = spec["name"]
             ptype = spec["type"]
             if ptype == "fixed":
-                params[name] = _resolve_placeholders(spec["value"], context)
+                params[name] = _resolve_placeholders(spec["value"], self.context)
             elif ptype == "int":
                 kwargs: Dict[str, Any] = {}
                 if spec.get("log"):
@@ -94,7 +100,12 @@ def _build_inline_param_func(
                 raise ValueError(f"Unknown search-space type '{ptype}' for param '{name}'")
         return params
 
-    return param_func
+
+def _build_inline_param_func(
+    search_space: List[Dict[str, Any]], context: Dict[str, Any]
+) -> Callable:
+    """Compile a YAML search-space DSL into an Optuna param function."""
+    return InlineParamFunc(search_space, context)
 
 
 def _resolve_param_func_ref(
