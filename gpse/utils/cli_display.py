@@ -210,23 +210,31 @@ def _build_convert_parser(formatter_class=argparse.HelpFormatter,
         help="Do not auto-load gpse.yaml or gpse.local.yaml from the current directory.",
     )
 
-    # Required arguments (for conversion pipeline)
+    # Genotype source: exactly one of these must be provided for the conversion pipeline
+    geno_src = parser.add_argument_group(
+        "genotype source (choose one)",
+        description="Provide exactly one genotype source for the conversion pipeline. "
+                    "--vcf is the default, but --bfile, --ped-file, and --matrix-file "
+                    "are mutually exclusive alternatives.",
+    )
+    geno_src.add_argument("--vcf", help="Input VCF file path.")
+    geno_src.add_argument("--bfile", help="Input PLINK BED/BIM/FAM prefix.")
+    geno_src.add_argument("--ped-file", help="Input PED/MAP file path (use with --map-file).")
+    geno_src.add_argument("--matrix-file", help="Existing genotype matrix CSV/Parquet.")
+
+    # Required pipeline arguments
     required = parser.add_argument_group(
-        "required arguments (conversion pipeline)",
-        description="Required for the default VCF + phenotype conversion. "
+        "required pipeline arguments",
+        description="Required for the conversion pipeline. "
                     "Some utilities like --check-deps or standalone --run-qc "
                     "do not require all of these.",
     )
-    required.add_argument("--vcf", help="Input VCF file path. [REQUIRED]")
-    required.add_argument("--pheno", help="Phenotype file path. [REQUIRED]")
+    required.add_argument("--pheno", help="Input phenotype file path. [REQUIRED]")
     required.add_argument("--out-prefix", help="Output file prefix. [REQUIRED]")
 
     # Conversion options
     conv = parser.add_argument_group("conversion options")
-    conv.add_argument("--bfile", help="Input PLINK BED/BIM/FAM prefix.")
-    conv.add_argument("--ped-file", help="Input PED file path.")
-    conv.add_argument("--map-file", help="Input MAP file path.")
-    conv.add_argument("--matrix-file", help="Existing genotype matrix CSV.")
+    conv.add_argument("--map-file", help="Input MAP file path (companion to --ped-file).")
     conv.add_argument("--extract", help="SNP ID list file for PLINK --extract.")
     conv.add_argument("--snp-dir", help="Directory containing SNP list .txt files.")
     conv.add_argument("--direct", action="store_true", help="Convert whole bfile to matrix.")

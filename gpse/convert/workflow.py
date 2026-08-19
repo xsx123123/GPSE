@@ -56,10 +56,20 @@ def validate_convert_mode(parser: argparse.ArgumentParser, args: argparse.Namesp
     if args.recode_prefix:
         return "recode"
 
-    # Default pipeline — require core arguments.
+    # Default pipeline — require phenotype, output prefix, and exactly one
+    # supported genotype source. A PLINK bfile is a first-class direct input.
     missing = []
-    if not args.vcf:
-        missing.append("--vcf")
+    genotype_sources = [args.vcf, args.bfile, args.ped_file, args.matrix_file]
+    provided_sources = [src for src in genotype_sources if src]
+    if not provided_sources:
+        missing.append(
+            "one genotype source: --vcf, --bfile, --ped-file, or --matrix-file"
+        )
+    elif len(provided_sources) > 1:
+        parser.error(
+            "Only one genotype source can be provided: "
+            "--vcf, --bfile, --ped-file, or --matrix-file."
+        )
     if not args.pheno:
         missing.append("--pheno")
     if not args.out_prefix:

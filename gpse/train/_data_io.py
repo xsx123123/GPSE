@@ -18,6 +18,13 @@ from loguru import logger as main_logger
 
 from gpse.utils.feature_manifest import write_feature_manifest
 
+# Module-level cache for aligned genotype / phenotype DataFrames.
+# Within a single Python process (e.g. one gpse batch shard) the same geno/pheno
+# files are loaded once per trait; caching the aligned frames after Step 8
+# avoids re-reading the large CSVs and re-doing the expensive wide-frame index
+# alignment for every trait.
+_ALIGNED_DATA_CACHE: Dict[str, Tuple[pd.DataFrame, pd.DataFrame, float, float]] = {}
+
 
 def _read_file_auto(file_path: str) -> pd.DataFrame:
     path = Path(file_path)
@@ -57,6 +64,68 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
     ValueError
         When there are no common samples between genotype and phenotype.
     """
+    # Check the process-level cache for already-aligned geno/pheno frames.
+    # The cache key includes file mtimes so edits to the source files invalidate
+    # the cached copies automatically.
+    geno_mtime = Path(geno_file).stat().st_mtime
+    pheno_mtime = Path(pheno_file).stat().st_mtime
+    cache_key = f"{geno_file}::{pheno_file}"
+    cached = _ALIGNED_DATA_CACHE.get(cache_key)
+    if cached is not None:
+        cached_geno, cached_pheno, cached_gmtime, cached_pmtime = cached
+        if cached_gmtime == geno_mtime and cached_pmtime == pheno_mtime:
+            main_logger.info("Reusing aligned genotype/phenotype cache for this process")
+            geno_data = cached_geno.copy()
+            pheno_data = cached_pheno.copy()
+            # Target validation and extraction are still trait-specific.
+            if target_trait not in pheno_data.columns:
+                error_msg = (
+                    f"Target trait '{target_trait}' does not exist in phenotype data. "
+                    f"Available columns: {list(pheno_data.columns)}"
+                )
+                main_logger.error(error_msg)
+                raise KeyError(error_msg)
+            X = geno_data.copy()
+            y = pheno_data[target_trait].copy()
+            if self.task_type == "regression" and y.dtype == object:
+                y = pd.to_numeric(y, errors="coerce")
+            # Duplicate ID handling is part of the cached alignment.
+            # Validate final dimensions and return.
+            if X.shape[0] != y.shape[0]:
+                raise ValueError(
+                    f"Feature matrix and target variable sample counts do not match: "
+                    f"{X.shape[0]} vs {y.shape[0]}"
+                )
+            null_count = int(pd.isnull(X.to_numpy()).sum())
+            if null_count > 0:
+                main_logger.warning(f"Feature matrix contains {null_count} missing values")
+            if y.isnull().sum() > 0:
+                null_count = int(y.isnull().sum())
+                main_logger.warning(
+                    f"Target variable contains {null_count} missing values; "
+                    f"dropping these samples before training"
+                )
+                valid_mask = y.notna()
+                X = X.loc[valid_mask]
+                y = y.loc[valid_mask]
+                pheno_data = pheno_data.loc[valid_mask]
+            if self.task_type == "classification":
+                y = self.genomic_classifier.prepare_classification_labels(y, self.results_dir)
+            if self.task_type == "regression" and self.standardize_phenotype:
+                main_logger.info(
+                    "Phenotype standardization is deferred until after hold-out splitting "
+                    "so test labels cannot affect scaler parameters"
+                )
+            manifest_path = write_feature_manifest(
+                self.results_dir, X.columns, source_file=geno_file
+            )
+            main_logger.info(f"Feature manifest saved to: {manifest_path}")
+            main_logger.info(f"Final data dimensions - Features: {X.shape[1]}, Samples: {X.shape[0]}")
+            main_logger.info(
+                f"Target variable statistics - Mean: {y.mean():.4f}, Std: {y.std():.4f}"
+            )
+            return X, y, pheno_data
+
     main_logger.info("Loading data...")
 
     # Step 1: Load raw data files
@@ -123,9 +192,14 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
         )
         pheno_data = pheno_data.drop_duplicates(subset=id_col, keep="first")
 
-    # Step 6: Set index and sort to ensure alignment
-    geno_data.set_index(id_col, inplace=True)
-    pheno_data.set_index(id_col, inplace=True)
+    # Step 6: Set index and sort to ensure alignment.
+    # NOTE: use direct index assignment instead of DataFrame.set_index().
+    # set_index() has pathological performance on ultra-wide genotype frames
+    # (94k SNP columns: ~370 s vs ~0.2 s for direct assignment + drop).
+    for frame in (geno_data, pheno_data):
+        frame.index = frame[id_col].to_numpy()
+        frame.index.name = id_col
+        frame.drop(columns=[id_col], inplace=True)
 
     geno_data = geno_data.sort_index()
     pheno_data = pheno_data.sort_index()
@@ -146,6 +220,9 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
     if X.columns.duplicated().any():
         duplicates = X.columns[X.columns.duplicated()].tolist()
         raise ValueError(f"Genotype matrix contains duplicate feature IDs: {duplicates[:5]}")
+
+    # Cache the aligned frames for subsequent traits in the same process.
+    _ALIGNED_DATA_CACHE[cache_key] = (geno_data.copy(), pheno_data.copy(), geno_mtime, pheno_mtime)
 
     main_logger.info("Validating final data quality...")
     # Step 9: Validate final data quality

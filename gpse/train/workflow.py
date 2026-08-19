@@ -303,8 +303,9 @@ def _build_parser(
     stack_group = parser.add_argument_group("stacking ensemble options")
     stack_group.add_argument(
         "--use_stacking",
-        action="store_true",
-        help="Enable Stacking ensemble learning to fuse predictions from multiple models",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable Stacking ensemble learning to fuse predictions from multiple models (default: enabled)",
     )
     stack_group.add_argument(
         "--top_n_models",

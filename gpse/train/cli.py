@@ -259,6 +259,9 @@ def main(
                 main_logger.error("--target_trait is required for training")
                 return 1
 
+        main_logger.info(
+            f"Stacking ensemble: {'enabled' if args.use_stacking else 'disabled'}"
+        )
         _log_config(args)
 
         processed_geno_file = args.geno_file
