@@ -235,7 +235,7 @@ def train_and_evaluate_model_for_repeat(
         )
     else:
         test_indices = np.asarray(test_indices)
-        train_indices = np.setdiff1d(np.arange(len(X)), test_indices, assume_unique=False)
+        train_indices = np.setdiff1d(np.arange(len(X)), test_indices, assume_unique=True)
     X_train, y_train = X.iloc[train_indices], y.iloc[train_indices]
     X_test, y_test = X.iloc[test_indices], y.iloc[test_indices]
     y_test_original = y_test.copy()

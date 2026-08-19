@@ -415,7 +415,7 @@ def run_all_models(
                     structure_clusters=self.structure_clusters,
                 )
             else:
-                train_indices = np.setdiff1d(np.arange(len(X)), fixed_test_indices)
+                train_indices = np.setdiff1d(np.arange(len(X)), fixed_test_indices, assume_unique=True)
             X_train, y_train = X.iloc[train_indices], y.iloc[train_indices]
             X_test, y_test = X.iloc[fixed_test_indices], y.iloc[fixed_test_indices]
             if self.task_type == "regression" and self.standardize_phenotype:

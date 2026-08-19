@@ -19,6 +19,8 @@
 
 GPSE 是一个面向基因组选择与预测的机器学习流水线，覆盖从原始基因组数据（VCF/PLINK）预处理，到超参数优化、模型评估、TOPSIS 排名和 Stacking Ensemble 预测的完整流程。
 
+![GPSE framework](./framework_v2.1.png)
+
 ## 🌟 核心特性
 
 * **完整数据流水线**：支持 VCF 到 PLINK 二进制格式转换、SNP 提取、数值矩阵生成，以及基因型与表型的精确匹配。

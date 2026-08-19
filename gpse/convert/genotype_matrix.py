@@ -256,20 +256,27 @@ def convert_to_matrix(fileprefix, out_file=None, *, out_format="parquet", geno_e
     # Use stable UCSC-style IDs from chromosome and base-pair coordinates.
     snpid_list = canonical_ids_from_map_file(map_path)
 
-    # Read sample IDs and genotypes from .ped.
-    sample_genotypes = []
+    # Read sample IDs and genotypes from .ped using vectorized encoding.
+    import numpy as np
+
+    sample_ids = []
+    raw_rows = []
     with open(ped_path) as ped_file:
         for row in ped_file:
-            row = row.strip().split()
-            sample_id = row[1]
-
-            # Normalize sample IDs produced from VCF conversion.
+            parts = row.split()
+            sample_id = parts[1]
             if sample_id.endswith('_'):
                 sample_id = sample_id.rstrip('_')
+            sample_ids.append(sample_id)
+            raw_rows.append(parts[6:])
 
-            geno = row[6:]  # Genotypes start at column 7.
-            encoded_geno = [geno_dict.get(g, '3') for g in geno]
-            sample_genotypes.append((sample_id, encoded_geno))
+    if raw_rows:
+        geno_array = np.array(raw_rows, dtype='U2')
+        lookup = np.vectorize(lambda g: geno_dict.get(g, '3'), otypes=['U2'])
+        encoded_array = lookup(geno_array)
+        sample_genotypes = list(zip(sample_ids, encoded_array.tolist()))
+    else:
+        sample_genotypes = []
 
     # Write matrix based on format.
     if out_format in ('parquet', 'feather'):

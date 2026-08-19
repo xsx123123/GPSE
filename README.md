@@ -19,6 +19,8 @@
 
 GPSE is a comprehensive, machine-learning-based pipeline for genomic selection and prediction. It provides end-to-end functionalities from raw genomic data (VCF/PLINK) preprocessing to hyperparameter optimization, model evaluation, TOPSIS ranking, and Stacking Ensemble prediction.
 
+![GPSE framework](docs/framework_v2.1.png)
+
 ## 🌟 Key Features
 
 * **Complete Data Pipeline**: Seamlessly convert VCF files to PLINK binary formats, extract specific SNPs, convert to numerical matrices, and accurately match genotypes with phenotypes.
@@ -409,6 +411,49 @@ gpse train \
 > file, `gpse train` reads it automatically and sets `--task_type` and
 > `--n_classes` for you. You only need to pass them explicitly when you want
 > to override the auto-detected values or when no info file is present.
+
+> **💡 Custom TOPSIS ranking criteria: `--topsis_config`**
+>
+> GPSE ranks models using TOPSIS with configurable criteria and weights.
+> By default, regression uses `Test Pearson (0.8) + Test Pearson std (0.2)`
+> and classification uses `Test Accuracy (0.8) + Test Accuracy std (0.2)`.
+> The built-in config (`gpse/config/topsis.yaml`) lists all 11 available
+> metrics per task type; metrics with `weight: 0` are reference-only.
+>
+> To customise ranking (e.g. also consider Spearman or training time):
+>
+> ```bash
+> gpse train \
+>     --geno_file data/train_genotype.csv \
+>     --pheno_file data/train_phenotype.csv \
+>     --target_trait Fruit_Weight \
+>     --task_type regression \
+>     --topsis_config my_topsis.yaml \
+>     --results_dir output_results/
+> ```
+>
+> See [Configuration → TOPSIS](docs/wiki/05-configuration.md#topsis-configuration-topsisyaml)
+> for the full schema and all available criteria.
+
+> **💡 Custom model registry: `--model_config`**
+>
+> GPSE ships 15 regression + 6 classification models defined in
+> `gpse/config/models.yaml`. You can add new models or override existing
+> ones with a custom YAML file — no code changes needed for simple models:
+>
+> ```bash
+> gpse train \
+>     --geno_file data/train_genotype.csv \
+>     --pheno_file data/train_phenotype.csv \
+>     --target_trait Fruit_Weight \
+>     --task_type regression \
+>     --model_config my_models.yaml \
+>     --models bagging_reg \
+>     --results_dir output_results/
+> ```
+>
+> See [Configuration → Model Registry](docs/wiki/05-configuration.md#model-registry-modelsyaml)
+> for the full schema and an example of adding a new model.
 
 #### 2.2 One-Stop: Preprocessing + Training
 
@@ -826,9 +871,11 @@ Configuration constants and packaged YAML defaults.
 | `__init__.py` | Public exports for config dataclasses and constants. |
 | `constants.py` | Dataclasses and immutable model/training constants, including filenames, directory names, precision settings, and thread environment variable names. |
 | `_topsis_config.py` | Loads TOPSIS task configuration, validates criteria/weights, logs runtime settings, and saves representative models. It is consumed by the training predictor. |
+| `_model_registry.py` | YAML-driven model registry engine: loads `models.yaml`, resolves import paths lazily, injects thread params, compiles inline search-space DSL into Optuna callables. |
 | `default.yaml` | Default application/logging configuration. |
 | `software.yaml` | Package metadata and external tool definitions used by conversion/QC dependency checks. |
 | `topsis.yaml` | Task-specific TOPSIS criteria, directions, and weights for regression/classification model ranking. |
+| `models.yaml` | Model registry: 15 regression + 6 classification model definitions (import path, thread strategy, default params, Optuna search space). |
 
 ### `gpse/convert/`
 

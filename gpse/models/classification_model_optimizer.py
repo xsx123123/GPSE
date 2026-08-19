@@ -13,18 +13,20 @@ Contains parameter optimization configurations for 6 major classification models
 - SVM Classifier (svm_clf)
 - Multi-layer Perceptron Classifier (mlp_clf)
 
-Pure classification model configuration extracted from model_optimizers_class.py
+Model registration is driven by ``gpse/config/models.yaml``. The param
+functions below are referenced from that file via ``builtin:_xxx_params``.
 """
 
 from typing import Dict, Any, Optional
 import optuna
 import os
-import numpy as np
 
-from gpse.config import ClassificationModelConfig, ModelConstants
+from gpse.config import ModelConstants
+from gpse.config._model_registry import ModelRegistry
+
 
 class ClassificationModelOptimizer:
-    """Classification Model Optimizer"""
+    """Classification model optimizer backed by the YAML model registry."""
 
     def __init__(
         self,
@@ -33,6 +35,7 @@ class ClassificationModelOptimizer:
         n_classes: int = None,
         random_state: Optional[int] = None,
         catboost_train_dir: Optional[str] = None,
+        model_config_path: Optional[str] = None,
     ):
         if random_seed is not None and random_state is not None and random_seed != random_state:
             raise ValueError("random_seed and random_state were both provided with different values")
@@ -43,56 +46,59 @@ class ClassificationModelOptimizer:
         self.random_state = random_seed
         self.n_threads = n_threads
         self.n_classes = n_classes
-        self.catboost_train_dir = catboost_train_dir  # CatBoost train_dir (catboost_info output)
-        self.model_configs = self._init_classification_model_configs()
+        self.catboost_train_dir = catboost_train_dir
 
-        # Set environment variables for multi-threading (all 6 BLAS/OpenMP backends)
+        builtin_funcs = {
+            name: getattr(self, name)
+            for name in dir(self)
+            if name.endswith("_params") and callable(getattr(self, name))
+        }
+
+        self._registry = ModelRegistry(
+            user_config_path=model_config_path,
+            random_seed=self.random_seed,
+            n_threads=self.n_threads,
+            n_classes=self.n_classes,
+            catboost_train_dir=self.catboost_train_dir,
+            builtin_param_funcs=builtin_funcs,
+            task_filter="classification",
+        )
+
+        self.model_configs = self._registry.model_configs
+
         for _env_var in ModelConstants.thread_env_vars:
             os.environ[_env_var] = str(n_threads)
 
-    def _init_classification_model_configs(self) -> Dict[str, ClassificationModelConfig]:
-        """Initialize classification model configurations"""
-        configs = {
-            'rf_clf': ClassificationModelConfig(
-                model_class='RandomForestClassifier',
-                param_func=self._rf_clf_params
-            ),
-            'xgboost_clf': ClassificationModelConfig(
-                model_class='XGBClassifier',
-                param_func=self._xgboost_clf_params
-            ),
-            'lightgbm_clf': ClassificationModelConfig(
-                model_class='LGBMClassifier',
-                param_func=self._lightgbm_clf_params
-            ),
-            'catboost_clf': ClassificationModelConfig(
-                model_class='CatBoostClassifier',
-                param_func=self._catboost_clf_params
-            ),
-            'svm_clf': ClassificationModelConfig(
-                model_class='SVC',
-                param_func=self._svc_clf_params
-            ),
-            'mlp_clf': ClassificationModelConfig(
-                model_class='MLPClassifier',
-                param_func=self._mlp_clf_params
-            )
-        }
-        return configs
-
-    def get_model_config(self, model_name: str) -> ClassificationModelConfig:
-        """Get model configuration"""
+    def get_model_config(self, model_name: str):
+        """Get model configuration."""
         if model_name not in self.model_configs:
             raise ValueError(f"Classification model {model_name} not found in configurations")
         return self.model_configs[model_name]
 
     def get_param_func(self, model_name: str) -> callable:
-        """Get parameter function"""
-        return self.get_model_config(model_name).param_func
+        """Get parameter function."""
+        return self._registry.get_param_func(model_name)
 
-    # Classification model parameter functions
+    def create_classification_model(self, model_name: str, params: Dict[str, Any]) -> Any:
+        """Create classification model instance via the registry."""
+        return self._registry.create_model(model_name, params)
+
+    def get_classification_default_params(self, model_name: str) -> Dict[str, Any]:
+        """Get default parameters via the registry."""
+        return self._registry.get_default_params(model_name)
+
+    def filter_classification_params(self, model_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Filter auxiliary params via the registry."""
+        return self._registry.filter_model_params(model_name, params)
+
+    def get_available_models(self) -> list:
+        """Get list of available classification models."""
+        return self._registry.get_available_models()
+
+    # ─── Optuna search-space functions (referenced from models.yaml) ───────────
+
     def _rf_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
-        """RandomForest classifier parameters"""
+        """RandomForest classifier parameters."""
         param_dict = {
             'random_state': self.random_seed
         }
@@ -112,7 +118,7 @@ class ClassificationModelOptimizer:
         return param_dict
 
     def _xgboost_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
-        """XGBoost classifier parameters"""
+        """XGBoost classifier parameters."""
         param_dict = {
             'random_state': self.random_seed,
             'verbosity': 0,
@@ -142,7 +148,7 @@ class ClassificationModelOptimizer:
         return param_dict
 
     def _lightgbm_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
-        """LightGBM classifier parameters"""
+        """LightGBM classifier parameters."""
         is_binary = (self.n_classes == 2)
         param_dict = {
             'random_state': self.random_seed,
@@ -151,7 +157,9 @@ class ClassificationModelOptimizer:
             'metric': 'binary_logloss' if is_binary else 'multi_logloss',
         }
         param_dict['max_depth'] = trial.suggest_int('max_depth', 3, 6)
-        max_n_estimators = 800; min_learning_rate = 1e-3; max_leaves = 64
+        max_n_estimators = 800
+        min_learning_rate = 1e-3
+        max_leaves = 64
 
         param_dict.update({
             'n_estimators': trial.suggest_int('n_estimators', 50, max_n_estimators, log=True),
@@ -163,16 +171,14 @@ class ClassificationModelOptimizer:
         })
 
         if is_binary:
-            # Automatic weights for binary classification
             param_dict['is_unbalance'] = True
         else:
-            # Optional weights for multi-class classification
             param_dict['class_weight'] = trial.suggest_categorical('class_weight', [None, 'balanced'])
 
         return param_dict
 
     def _catboost_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
-        """CatBoost classifier parameters"""
+        """CatBoost classifier parameters."""
         param_dict = {
             'logging_level': 'Silent',
             'random_seed': self.random_seed,
@@ -203,7 +209,7 @@ class ClassificationModelOptimizer:
         return param_dict
 
     def _svc_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
-        """SVM classifier parameters"""
+        """SVM classifier parameters."""
         return {
             'loss': trial.suggest_categorical('loss', ['hinge', 'squared_hinge']),
             'dual': trial.suggest_categorical('dual', ['auto']),
@@ -214,7 +220,7 @@ class ClassificationModelOptimizer:
         }
 
     def _mlp_clf_params(self, trial: optuna.Trial) -> Dict[str, Any]:
-        """Multi-layer Perceptron classifier parameters"""
+        """Multi-layer Perceptron classifier parameters."""
         n_layers = trial.suggest_int('n_layers', 1, 3)
         layers = []
         for i in range(n_layers):
@@ -229,165 +235,3 @@ class ClassificationModelOptimizer:
             'max_iter': trial.suggest_int('max_iter', 100, 1000),
             'random_state': self.random_seed
         }
-
-    def filter_classification_params(self, model_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Filter classification model parameters"""
-        # Copy parameter dictionary to avoid modifying original
-        filtered_params = params.copy()
-
-        # General filtering: remove all auxiliary parameters starting with an underscore
-        filtered_params = {k: v for k, v in filtered_params.items() if not k.startswith('_')}
-
-        # Model-specific filtering
-        if model_name == 'mlp_clf':
-            # Remove MLP-specific auxiliary parameters
-            if 'n_layers' in filtered_params:
-                del filtered_params['n_layers']
-
-            # Remove all parameters in the form of n_units_lX
-            filtered_params = {k: v for k, v in filtered_params.items()
-                              if not k.startswith('n_units_l')}
-
-        return filtered_params
-
-    def create_classification_model(self, model_name: str, params: Dict[str, Any]) -> Any:
-        """Create classification model instance"""
-        params = params.copy()
-
-        if model_name == 'rf_clf':
-            from sklearn.ensemble import RandomForestClassifier
-            params['n_jobs'] = self.n_threads
-            return RandomForestClassifier(**params)
-        elif model_name == 'xgboost_clf':
-            from xgboost import XGBClassifier
-            params['n_jobs'] = self.n_threads
-            params['nthread'] = self.n_threads
-            # Add number of classes parameter
-            if self.n_classes is not None and self.n_classes > 1:
-                params['num_class'] = self.n_classes
-            return XGBClassifier(**params)
-        elif model_name == 'lightgbm_clf':
-            from lightgbm import LGBMClassifier
-            p = params.copy()
-            p['n_jobs'] = self.n_threads
-            # Pass num_class only for multi-class classification
-            if self.n_classes is not None and self.n_classes > 2:
-                p['num_class'] = self.n_classes
-            else:
-                p.pop('num_class', None)
-                # Ensure target/metric is set for binary classification (if not overridden by external default params)
-                p.setdefault('objective', 'binary')
-                p.setdefault('metric', 'binary_logloss')
-                p.setdefault('is_unbalance', True)
-            return LGBMClassifier(**p)
-        elif model_name == 'catboost_clf':
-            from catboost import CatBoostClassifier
-            params['thread_count'] = self.n_threads
-            # 将 catboost_info 日志目录导向结果目录；未指定时禁止写文件
-            if self.catboost_train_dir:
-                params.setdefault('train_dir', self.catboost_train_dir)
-            else:
-                params.setdefault('allow_writing_files', False)
-            return CatBoostClassifier(**params)
-        elif model_name == 'svm_clf':
-            from sklearn.svm import SVC
-            return SVC(**params)
-        elif model_name == 'mlp_clf':
-            from sklearn.neural_network import MLPClassifier
-            return MLPClassifier(**params)
-        else:
-            raise ValueError(f"Unsupported classification model type: {model_name}")
-
-    def get_classification_default_params(self, model_name: str) -> Dict[str, Any]:
-        """Get default parameters for classification models"""
-        if model_name == 'rf_clf':
-            return {
-                'n_estimators': 100,
-                'max_depth': 10,
-                'min_samples_split': 2,
-                'min_samples_leaf': 1,
-                'bootstrap': True,
-                'criterion': 'gini',
-                'max_features': 'sqrt',
-                'random_state': self.random_seed,
-                'n_jobs': self.n_threads
-            }
-        elif model_name == 'xgboost_clf':
-            return {
-                'n_estimators': 100,
-                'max_depth': 6,
-                'learning_rate': 0.1,
-                'booster': 'gbtree',
-                'objective': 'multi:softprob',
-                'eval_metric': 'mlogloss',
-                'random_state': self.random_seed,
-                'n_jobs': self.n_threads,
-                'verbosity': 0
-            }
-        elif model_name == 'lightgbm_clf':
-            if self.n_classes == 2:
-                return {
-                    'n_estimators': 300,
-                    'num_leaves': 63,
-                    'learning_rate': 0.05,
-                    'min_child_samples': 20,
-                    'objective': 'binary',
-                    'metric': 'binary_logloss',
-                    'is_unbalance': True,
-                    'random_state': self.random_seed,
-                    'n_jobs': self.n_threads,
-                    'verbosity': -1
-                }
-            else:
-                return {
-                    'n_estimators': 300,
-                    'num_leaves': 63,
-                    'learning_rate': 0.05,
-                    'min_child_samples': 20,
-                    'objective': 'multiclass',
-                    'metric': 'multi_logloss',
-                    'random_state': self.random_seed,
-                    'n_jobs': self.n_threads,
-                    'verbosity': -1,
-                    'num_class': self.n_classes
-                }
-        elif model_name == 'catboost_clf':
-            return {
-                'iterations': 100,
-                'depth': 6,
-                'learning_rate': 0.1,
-                'l2_leaf_reg': 3.0,
-                'objective': 'MultiClass',
-                'eval_metric': 'MultiClass',
-                'logging_level': 'Silent',
-                'random_seed': self.random_seed,
-                'thread_count': self.n_threads
-            }
-        elif model_name == 'svm_clf':
-            return {
-                'C': 1.0,
-                'kernel': 'rbf',
-                'gamma': 'scale',
-                'degree': 3,
-                'probability': True,
-                'random_state': self.random_seed
-            }
-        elif model_name == 'mlp_clf':
-            return {
-                'hidden_layer_sizes': (100,),
-                'activation': 'relu',
-                'solver': 'adam',
-                'alpha': 0.0001,
-                'learning_rate': 'constant',
-                'max_iter': 500,
-                'random_state': self.random_seed,
-                'early_stopping': True,
-                'validation_fraction': 0.1,
-                'n_iter_no_change': 20
-            }
-        else:
-            return {}
-
-    def get_available_models(self) -> list:
-        """Get list of available classification models"""
-        return list(self.model_configs.keys())
