@@ -121,7 +121,7 @@ gpse convert \
 * `data/train_{trait}_phenotype.csv` — 清洗并匹配后的表型文件（ID + 性状值）
 * `data/train_{trait}_phenotype_info.json` — 自动检测的任务类型（`regression`/`classification`）、类别数、样本量和类别分布（如适用）
 
-SNP 列名统一为 canonical `chr<chrom>_<chromStart>_<chromEnd>` 格式，采用零基、半开（half-open）坐标。例如 VCF 的 `chr1:100`（REF 长度为 1）会转换为 `chr1_99_100`。
+SNP 列名统一为 canonical `chr<chrom>_<chromStart>_<chromEnd>` 格式，采用零基、半开（half-open）坐标。例如 VCF 的 `chr1:100`（REF 长度为 1）会转换为 `chr1_99_100`。如果旧流程需要保留 VCF 的 `ID` 列，可在 `gpse convert`（或训练预处理）中使用 `--preserve-vcf-snp-ids`，并在 `gpse predict` 读取 VCF 时再次使用该参数；该模式会写入 feature manifest，并在转换和建模日志中提示。
 
 #### 1.2 VCF + 表型（非标准染色体，园艺作物常用）
 

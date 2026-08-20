@@ -33,6 +33,27 @@ def test_convert_to_matrix_uses_canonical_ids_and_manifest(tmp_path):
     assert manifest["feature_names"] == ["chr1_99_100", "chr2_199_200"]
 
 
+def test_convert_to_matrix_can_preserve_vcf_ids(tmp_path):
+    prefix = tmp_path / "compat"
+    prefix.with_suffix(".map").write_text(
+        "1 rs100 0 100\n2 rs200 0 200\n", encoding="utf-8"
+    )
+    prefix.with_suffix(".ped").write_text(
+        "f1 s1 0 0 1 1 00 11\n", encoding="utf-8"
+    )
+
+    output = tmp_path / "compat.csv"
+    convert_to_matrix(
+        str(prefix), str(output), out_format="csv", preserve_vcf_snp_ids=True
+    )
+
+    matrix = pd.read_csv(output)
+    assert list(matrix.columns) == ["ID", "rs100", "rs200"]
+    manifest = json.loads((tmp_path / "compat.features.json").read_text(encoding="utf-8"))
+    assert manifest["feature_names"] == ["rs100", "rs200"]
+    assert manifest["feature_id_mode"] == "vcf"
+
+
 def test_predict_aligns_matrix_and_reports_missing_features(tmp_path):
     feature_names = ["chr1_99_100", "chr2_199_200"]
     train = pd.DataFrame([[0, 1], [1, 2], [2, 0]], columns=feature_names)

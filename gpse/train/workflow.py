@@ -364,6 +364,11 @@ def _build_parser(
     pre_group.add_argument("--map_file", type=str, help="Path to the PLINK MAP file")
     pre_group.add_argument("--plink_path", type=str, default="plink", help="Path to the PLINK executable (default: plink)")
     pre_group.add_argument("--plink_out", type=str, help="Output prefix for PLINK when converting VCF to PLINK format")
+    pre_group.add_argument(
+        "--preserve-vcf-snp-ids",
+        action="store_true",
+        help="Compatibility mode: preserve VCF variant IDs during preprocessing; prediction must use the same mode.",
+    )
     pre_group.add_argument("--extract_file", type=str, help="File containing a list of SNP IDs to extract (one per line)")
     pre_group.add_argument("--snp_dir", type=str, help="Directory containing multiple SNP-list files for batch extraction")
     pre_group.add_argument(

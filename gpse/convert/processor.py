@@ -179,12 +179,13 @@ class GenomicDataProcessor:
         return _convert_bfile_to_ped(bfile, out_prefix, **self._plink_kwargs())
 
     def convert_to_matrix(self, fileprefix, out_file=None, out_format="parquet",
-                          geno_encoding="012"):
+                          geno_encoding="012", preserve_vcf_snp_ids=False):
         """Wrapper method."""
         return _convert_to_matrix(
             fileprefix, out_file,
             out_format=out_format,
             geno_encoding=geno_encoding,
+            preserve_vcf_snp_ids=preserve_vcf_snp_ids,
             logger=self.logger,
         )
 
@@ -539,7 +540,11 @@ class GenomicDataProcessor:
                         ped_prefix = temp_prefix
 
                     ext = '.parquet' if out_format == 'parquet' else '.feather' if out_format == 'feather' else '.csv'
-                    geno_matrix_file = self.convert_to_matrix(ped_prefix, out_prefix + ext, out_format=out_format, geno_encoding=geno_encoding)
+                    geno_matrix_file = self.convert_to_matrix(
+                        ped_prefix, out_prefix + ext, out_format=out_format,
+                        geno_encoding=geno_encoding,
+                        preserve_vcf_snp_ids=kwargs.get('preserve_vcf_snp_ids', False),
+                    )
                     if kwargs.get('load') and geno_matrix_file:
                         self.load_matrix(geno_matrix_file)
 
@@ -597,13 +602,21 @@ class GenomicDataProcessor:
                             geno_matrix_file = os.path.join(os.path.dirname(out_prefix), first_phenotype + ext)
                     elif kwargs.get('extract'):
                         out_prefix_temp = self.extract_snps(bfile, kwargs['extract'], out_prefix)
-                        geno_matrix_file = self.convert_to_matrix(out_prefix_temp, out_format=out_format, geno_encoding=geno_encoding)
+                        geno_matrix_file = self.convert_to_matrix(
+                            out_prefix_temp, out_format=out_format,
+                            geno_encoding=geno_encoding,
+                            preserve_vcf_snp_ids=kwargs.get('preserve_vcf_snp_ids', False),
+                        )
                         if kwargs.get('load') and geno_matrix_file:
                             self.load_matrix(geno_matrix_file)
                     elif kwargs.get('direct') or kwargs.get('pheno'):
                         self.logger.info("Converting the full bfile to a genotype matrix...")
                         out_prefix_temp = self.convert_bfile_to_ped(bfile, out_prefix)
-                        geno_matrix_file = self.convert_to_matrix(out_prefix_temp, out_format=out_format, geno_encoding=geno_encoding)
+                        geno_matrix_file = self.convert_to_matrix(
+                            out_prefix_temp, out_format=out_format,
+                            geno_encoding=geno_encoding,
+                            preserve_vcf_snp_ids=kwargs.get('preserve_vcf_snp_ids', False),
+                        )
                         if kwargs.get('load') and geno_matrix_file:
                             self.load_matrix(geno_matrix_file)
                     else:
@@ -765,10 +778,12 @@ def convert_bfile_to_ped(bfile, out_prefix, plink_path="plink"):
     return processor.convert_bfile_to_ped(bfile, out_prefix)
 
 
-def convert_to_matrix(fileprefix, out_file=None):
+def convert_to_matrix(fileprefix, out_file=None, preserve_vcf_snp_ids=False):
     """Backward-compatible wrapper."""
     processor = GenomicDataProcessor()
-    return processor.convert_to_matrix(fileprefix, out_file)
+    return processor.convert_to_matrix(
+        fileprefix, out_file, preserve_vcf_snp_ids=preserve_vcf_snp_ids
+    )
 
 
 def process_snp_dir(bfile, snp_dir, out_dir, plink_path="plink"):

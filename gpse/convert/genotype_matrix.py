@@ -10,11 +10,12 @@ numeric CSV matrix formats.  No class state required — the caller
 
 import os
 import glob
+import json
 from datetime import datetime
 
 from gpse.convert.external import resolve_configured_tool, run_command, ensure_log_dir
 from gpse.utils.feature_manifest import write_feature_manifest
-from gpse.utils.snp_ids import canonical_ids_from_map_file
+from gpse.utils.snp_ids import canonical_ids_from_map_file, vcf_ids_from_map_file
 
 try:
     from gpse.utils.log_utils import logger as _default_logger
@@ -196,7 +197,15 @@ def convert_bfile_to_ped(
 # PED/MAP → numeric CSV matrix
 # ---------------------------------------------------------------------------
 
-def convert_to_matrix(fileprefix, out_file=None, *, out_format="parquet", geno_encoding="012", logger=None):
+def convert_to_matrix(
+    fileprefix,
+    out_file=None,
+    *,
+    out_format="parquet",
+    geno_encoding="012",
+    preserve_vcf_snp_ids=False,
+    logger=None,
+):
     """Convert PLINK PED/MAP genotype data to a numeric CSV or binary matrix.
 
     Encoding (``geno_encoding="012"``): ``00→0, 01→1, 10→1, 11→2``,
@@ -244,17 +253,36 @@ def convert_to_matrix(fileprefix, out_file=None, *, out_format="parquet", geno_e
 
     manifest_file = os.path.splitext(out_file)[0] + ".features.json"
     if os.path.exists(out_file) and os.path.exists(manifest_file):
-        log.info(f"Matrix file already exists: {out_file}")
-        log.info("Skipping conversion step...")
-        return out_file
-    if os.path.exists(out_file):
-        log.warning("Existing matrix has no feature manifest; regenerating it with canonical SNP IDs.")
+        try:
+            with open(manifest_file, encoding="utf-8") as manifest_handle:
+                existing_mode = json.load(manifest_handle).get("feature_id_mode", "canonical")
+        except (OSError, json.JSONDecodeError):
+            existing_mode = None
+        requested_mode = "vcf" if preserve_vcf_snp_ids else "canonical"
+        if existing_mode == requested_mode:
+            log.info(f"Matrix file already exists: {out_file}")
+            log.info("Skipping conversion step...")
+            return out_file
+        log.warning(
+            f"Existing matrix uses SNP ID mode '{existing_mode or 'unknown'}'; "
+            f"requested '{requested_mode}'. Regenerating the matrix."
+        )
+    if os.path.exists(out_file) and not os.path.exists(manifest_file):
+        log.warning("Existing matrix has no feature manifest; regenerating it.")
 
     if not os.path.exists(ped_path) or not os.path.exists(map_path):
         raise FileNotFoundError(f"Input file not found: {ped_path} or {map_path}")
 
-    # Use stable UCSC-style IDs from chromosome and base-pair coordinates.
-    snpid_list = canonical_ids_from_map_file(map_path)
+    if preserve_vcf_snp_ids:
+        log.warning(
+            "Compatibility mode enabled: preserving VCF default SNP IDs from MAP/BIM. "
+            "Use --preserve-vcf-snp-ids during prediction too."
+        )
+        snpid_list = vcf_ids_from_map_file(map_path)
+        feature_id_mode = "vcf"
+    else:
+        snpid_list = canonical_ids_from_map_file(map_path)
+        feature_id_mode = "canonical"
 
     # Read sample IDs and genotypes from .ped using vectorized encoding.
     import numpy as np
@@ -301,6 +329,7 @@ def convert_to_matrix(fileprefix, out_file=None, *, out_format="parquet", geno_e
         snpid_list,
         source_file=out_file,
         filename=os.path.basename(manifest_file),
+        feature_id_mode=feature_id_mode,
     )
     log.info(f"Feature manifest written: {manifest_path}")
     log.info(f"Matrix conversion completed: {out_file}")

@@ -18,6 +18,7 @@ def write_feature_manifest(
     *,
     source_file: str | None = None,
     filename: str = FEATURE_MANIFEST_NAME,
+    feature_id_mode: str | None = None,
 ) -> Path:
     """Write an ordered feature manifest and return its path."""
     names = [str(name) for name in feature_names]
@@ -37,6 +38,8 @@ def write_feature_manifest(
     }
     if source_file:
         payload["source_file"] = str(source_file)
+    if feature_id_mode:
+        payload["feature_id_mode"] = feature_id_mode
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return path
 

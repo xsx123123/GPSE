@@ -138,6 +138,8 @@ def _log_config(args) -> None:
         _append_config_line(text, "VCF", _short_path(ns.get("vcf_file")))
         _append_config_line(text, "BFILE", _short_path(ns.get("bfile")))
         _append_config_line(text, "Raw Pheno", _short_path(ns.get("raw_pheno_file")))
+        if ns.get("preserve_vcf_snp_ids"):
+            _append_config_line(text, "SNP IDs", "VCF default IDs (compatibility mode)")
 
     _CONFIG_CONSOLE.print(
         Panel(text, title="[bold]GPSE Configuration[/bold]", border_style="cyan", expand=False)
@@ -287,6 +289,7 @@ def main(
                 "matrix_file": args.matrix_file,
                 "pheno": args.raw_pheno_file,
                 "plink_out": args.plink_out,
+                "preserve_vcf_snp_ids": args.preserve_vcf_snp_ids,
                 "skip_matrix": args.skip_matrix_conversion,
                 "skip_match": args.skip_phenotype_match,
                 "skip_clean": args.skip_data_clean,
@@ -299,6 +302,11 @@ def main(
                 main_logger.info(
                     "Deferring phenotype standardization until after hold-out splitting; "
                     "preprocessing will preserve raw phenotype values"
+                )
+            if args.preserve_vcf_snp_ids:
+                main_logger.warning(
+                    "Compatibility mode enabled: preserving VCF default SNP IDs. "
+                    "Use --preserve-vcf-snp-ids when predicting from a VCF."
                 )
 
             try:
@@ -360,6 +368,20 @@ def main(
         _log_stage("Starting model training")
         main_logger.info(f"Genotype file: {processed_geno_file}")
         main_logger.info(f"Phenotype file: {processed_pheno_file}")
+        if not args.preserve_vcf_snp_ids:
+            manifest_path = os.path.splitext(processed_geno_file)[0] + ".features.json"
+            if os.path.exists(manifest_path):
+                try:
+                    import json
+                    with open(manifest_path, encoding="utf-8") as manifest_handle:
+                        feature_id_mode = json.load(manifest_handle).get("feature_id_mode")
+                except (OSError, ValueError):
+                    feature_id_mode = None
+                if feature_id_mode == "vcf":
+                    main_logger.warning(
+                        "Training with VCF default SNP IDs detected in the input feature manifest. "
+                        "Keep --preserve-vcf-snp-ids for matching VCF inputs during prediction."
+                    )
 
         training_standardize = args.standardize_phenotype
 
@@ -395,6 +417,7 @@ def main(
             missing_genotype_code=args.missing_genotype_code,
             topsis_config=args.topsis_config,
             model_config=args.model_config,
+            feature_id_mode="vcf" if args.preserve_vcf_snp_ids else None,
         )
 
         predictor.run_all_models(

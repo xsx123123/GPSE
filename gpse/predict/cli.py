@@ -49,6 +49,11 @@ def _build_parser(
         default=0.0,
         help="Reject prediction when matched model-SNP coverage is below this 0-1 threshold (default: 0).",
     )
+    parser.add_argument(
+        "--preserve-vcf-snp-ids",
+        action="store_true",
+        help="Compatibility mode: use original VCF variant IDs when reading VCF input.",
+    )
     return parser
 
 
@@ -68,6 +73,11 @@ def main(
     )
     args = parser.parse_args(argv)
     try:
+        if args.preserve_vcf_snp_ids:
+            print(
+                "WARNING: Compatibility mode enabled; preserving VCF default SNP IDs.",
+                file=sys.stderr,
+            )
         report = predict(
             args.model,
             args.genotype_file,
@@ -75,6 +85,7 @@ def main(
             missing_value=args.missing_value,
             report_file=args.report,
             min_feature_coverage=args.min_feature_coverage,
+            preserve_vcf_snp_ids=args.preserve_vcf_snp_ids,
         )
         print(json.dumps(report, indent=2))
         if report["missing_model_snp_count"]:

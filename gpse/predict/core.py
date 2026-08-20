@@ -74,8 +74,8 @@ def load_genotype_matrix(path: str | Path) -> pd.DataFrame:
     return data.set_index(id_column)
 
 
-def load_vcf_matrix(path: str | Path) -> tuple[pd.DataFrame, list[str]]:
-    """Load VCF genotypes using canonical IDs and additive genotype coding."""
+def load_vcf_matrix(path: str | Path, *, preserve_vcf_snp_ids=False) -> tuple[pd.DataFrame, list[str]]:
+    """Load VCF genotypes using canonical or original VCF IDs."""
     try:
         from cyvcf2 import VCF
     except ImportError as exc:  # pragma: no cover - dependency is project-required
@@ -87,7 +87,11 @@ def load_vcf_matrix(path: str | Path) -> tuple[pd.DataFrame, list[str]]:
     values: list[np.ndarray] = []
     seen: set[str] = set()
     for variant in reader:
-        feature_id = canonical_snp_id(variant.CHROM, variant.POS, variant.REF)
+        feature_id = (
+            str(variant.ID).strip()
+            if preserve_vcf_snp_ids and variant.ID and str(variant.ID).strip() not in {".", "None"}
+            else canonical_snp_id(variant.CHROM, variant.POS, variant.REF)
+        )
         if feature_id in seen:
             raise ValueError(f"VCF contains duplicate canonical SNP ID: {feature_id}")
         seen.add(feature_id)
@@ -164,14 +168,17 @@ def predict(
     missing_value: float = 3.0,
     report_file: str | Path | None = None,
     min_feature_coverage: float = 0.0,
+    preserve_vcf_snp_ids: bool = False,
 ) -> dict[str, Any]:
-    """Predict from a matrix or VCF after canonical SNP-ID alignment."""
+    """Predict from a matrix or VCF after SNP-ID alignment."""
     if not 0.0 <= min_feature_coverage <= 1.0:
         raise ValueError("min_feature_coverage must be between 0 and 1")
     model_path, artifact, model_features, manifest_path = _load_model_and_features(model)
     genotype_path = Path(genotype_file)
     if genotype_path.suffix.lower() == ".vcf" or genotype_path.name.lower().endswith(".vcf.gz"):
-        genotype, input_features = load_vcf_matrix(genotype_path)
+        genotype, input_features = load_vcf_matrix(
+            genotype_path, preserve_vcf_snp_ids=preserve_vcf_snp_ids
+        )
     else:
         genotype = load_genotype_matrix(genotype_path)
         input_features = [str(column) for column in genotype.columns]

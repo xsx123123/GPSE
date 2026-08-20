@@ -2,7 +2,7 @@
 
 > GPSE (Genomic Prediction with Stacking Ensemble) — a machine learning pipeline for genomic selection in horticultural crops.
 
-This Wiki describes the current version (v0.0.3a1, Alpha): what the software does, what each subcommand offers, and the Python API.
+This Wiki describes the current version (v0.0.4a, Alpha): what the software does, what each subcommand offers, and the Python API.
 
 ## Contents
 

@@ -262,6 +262,11 @@ def _build_convert_parser(formatter_class=argparse.HelpFormatter,
              "'-101' = -1/0/1 centered coding as in Azodi et al. 2019 "
              "([-1,0,1] = [aa, Aa, AA]).",
     )
+    conv.add_argument(
+        "--preserve-vcf-snp-ids",
+        action="store_true",
+        help="Compatibility mode: preserve VCF variant IDs instead of canonical chr_start_end IDs.",
+    )
 
 
     # Phenotype options

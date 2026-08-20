@@ -123,7 +123,9 @@ Output files:
 - `data/train_{trait}_phenotype.csv` — cleaned, sample-matched phenotype (ID + trait value)
 - `data/train_{trait}_phenotype_info.json` — auto-detected task type (`regression`/`classification`), `n_classes`, sample count, and class distribution (when applicable)
 
-SNP columns use the canonical `chr<chrom>_<chromStart>_<chromEnd>` format with zero-based, half-open coordinates. For example, VCF `chr1:100` with a one-base REF allele becomes `chr1_99_100`.
+SNP columns use the canonical `chr<chrom>_<chromStart>_<chromEnd>` format with zero-based, half-open coordinates by default. For example, VCF `chr1:100` with a one-base REF allele becomes `chr1_99_100`.
+
+The optional `--preserve-vcf-snp-ids` compatibility mode is **disabled by default**. When enabled, GPSE preserves the original VCF `ID` column instead of generating canonical coordinate IDs. Use this option in `gpse convert` (or training preprocessing) and again in `gpse predict` for VCF input. The selected mode is recorded in the feature manifest, and conversion/training logs warn that the same mode must be used for prediction.
 
 #### 1.2 VCF + Phenotype with Extra Chromosomes (Horticultural Crops)
 

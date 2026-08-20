@@ -142,6 +142,7 @@ class GenomicPredictorV2:
         missing_genotype_code: float = 3.0,
         topsis_config: str = None,
         model_config: str = None,
+        feature_id_mode: str | None = None,
     ):
         """
         Initialize the predictor.
@@ -206,6 +207,7 @@ class GenomicPredictorV2:
         self.task_type = task_type
         self.n_classes = n_classes
         self.standardize_phenotype = standardize_phenotype
+        self.feature_id_mode = feature_id_mode
         if cv_stability_penalty < 0:
             raise ValueError("cv_stability_penalty must be non-negative")
         self.cv_stability_penalty = cv_stability_penalty

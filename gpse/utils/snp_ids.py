@@ -59,3 +59,26 @@ def canonical_ids_from_map_file(map_file: str | Path) -> list[str]:
                 raise ValueError(f"Malformed MAP/BIM row {line_number}: expected 4 columns")
             feature_ids.append(canonical_snp_id_from_map(fields[0], fields[3]))
     return ensure_unique_feature_ids(feature_ids, source=str(map_file))
+
+
+def vcf_ids_from_map_file(map_file: str | Path) -> list[str]:
+    """Read original VCF/PLINK variant IDs from MAP/BIM rows.
+
+    Missing VCF IDs fall back to canonical coordinates so partially annotated
+    VCF files still produce valid, unique feature names.
+    """
+    feature_ids: list[str] = []
+    with open(map_file, encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            fields = line.strip().split()
+            if not fields:
+                continue
+            if len(fields) < 4:
+                raise ValueError(f"Malformed MAP/BIM row {line_number}: expected 4 columns")
+            variant_id = fields[1].strip()
+            feature_ids.append(
+                variant_id
+                if variant_id and variant_id != "."
+                else canonical_snp_id_from_map(fields[0], fields[3])
+            )
+    return ensure_unique_feature_ids(feature_ids, source=str(map_file))

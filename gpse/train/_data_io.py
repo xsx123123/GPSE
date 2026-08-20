@@ -117,7 +117,8 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
                     "so test labels cannot affect scaler parameters"
                 )
             manifest_path = write_feature_manifest(
-                self.results_dir, X.columns, source_file=geno_file
+                self.results_dir, X.columns, source_file=geno_file,
+                feature_id_mode=getattr(self, "feature_id_mode", None),
             )
             main_logger.info(f"Feature manifest saved to: {manifest_path}")
             main_logger.info(f"Final data dimensions - Features: {X.shape[1]}, Samples: {X.shape[0]}")
@@ -275,7 +276,8 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
 
     # Step 12: Persist the exact feature order used by every trained model.
     manifest_path = write_feature_manifest(
-        self.results_dir, X.columns, source_file=geno_file
+        self.results_dir, X.columns, source_file=geno_file,
+        feature_id_mode=getattr(self, "feature_id_mode", None),
     )
     main_logger.info(f"Feature manifest saved to: {manifest_path}")
 
