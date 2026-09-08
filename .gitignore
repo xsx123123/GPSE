@@ -106,3 +106,5 @@ tests/**/*.md
 tests/*.md
 .claude
 .antigravitycli
+.vscode
+.pytest_cache
