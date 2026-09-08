@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "gpse"
-version = "0.0.4a"
+version = "0.0.4a1"
 description = "Genomic Prediction with Stacking Ensemble for horticultural crops"
 readme = "README.md"
 license = "MIT"
@@ -60,6 +60,7 @@ PyYAML = "^6.0.3"
 rich-gradient = "^0.3.12"
 loguru = "^0.7.0"
 pyarrow = "^24.0.0"
+mcp = ">=1.12,<2.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
@@ -69,6 +70,7 @@ mypy = "^1.0"
 
 [tool.poetry.scripts]
 gpse = "gpse.cli:main"
+gpse-mcp = "gpse.mcp.server:main"
 
 [tool.black]
 line-length = 100

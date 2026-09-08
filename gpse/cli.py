@@ -97,9 +97,9 @@ def main(argv: list[str] | None = None) -> int:
     if not raw_args:
         show_gpse_logo()
         if _console is not None:
-            _console.print("\n[bold red][ERROR] No command provided. Use convert, train, predict, batch, or tools.[/bold red]\n")
+            _console.print("\n[bold red][ERROR] No command provided. Use convert, train, predict, batch, tools, or mcp.[/bold red]\n")
         else:
-            print("\n[ERROR] No command provided. Use convert, train, predict, batch, or tools.\n")
+            print("\n[ERROR] No command provided. Use convert, train, predict, batch, tools, or mcp.\n")
         root_parser.print_help()
         return 1
 
@@ -224,8 +224,16 @@ def main(argv: list[str] | None = None) -> int:
             parents=[_common_parent],
         )
 
+    # MCP server: expose GPSE workflows to AI agents over stdio. The stdio
+    # transport requires pure JSON-RPC on stdout, so no logo is printed here.
+    if command == "mcp":
+        from gpse.mcp.server import main as mcp_main
+
+        mcp_main()
+        return 0
+
     # Any other first token is not a supported workflow command.
-    root_parser.error(f"Unknown command: {command}. Use train, convert, predict, batch, or tools.")
+    root_parser.error(f"Unknown command: {command}. Use train, convert, predict, batch, tools, or mcp.")
     return 2
 
 
