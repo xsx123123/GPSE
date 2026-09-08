@@ -104,3 +104,5 @@ scripts
 # ---- Markdown reports / notes under tests ----
 tests/**/*.md
 tests/*.md
+.claude
+.antigravitycli

@@ -30,7 +30,7 @@ from gpse.utils.genomic_utils import (
     calculate_repeat_statistics,
 )
 from gpse.utils.log_utils import logger_init, setup_subprocess_logging, collect_subprocess_logs, shorten_path
-from gpse.utils.paralle import graceful_process_pool
+from gpse.utils.parallel import graceful_process_pool
 
 
 def _init_worker_threads(n_threads: int) -> None:

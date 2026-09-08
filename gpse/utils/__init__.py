@@ -31,7 +31,7 @@ def __getattr__(name: str):
         }[name]
 
     if name in ("get_available_cpu_cores", "validate_parallelism"):
-        from .paralle import get_available_cpu_cores, validate_parallelism
+        from .parallel import get_available_cpu_cores, validate_parallelism
 
         return {
             "get_available_cpu_cores": get_available_cpu_cores,

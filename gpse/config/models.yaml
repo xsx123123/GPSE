@@ -301,11 +301,11 @@ models:
       probability: true
       random_state: "{random_seed}"
     search_space:
-      - {name: loss, type: categorical, choices: [hinge, squared_hinge]}
-      - {name: dual, type: categorical, choices: [auto]}
-      - {name: penalty, type: categorical, choices: [l2]}
-      - {name: C, type: float, low: 1.0e-5, high: 100.0, log: true}
-      - {name: tol, type: float, low: 1.0e-8, high: 100.0, log: true}
+      - {name: kernel, type: categorical, choices: [rbf, linear, poly, sigmoid]}
+      - {name: C, type: float, low: 1.0e-3, high: 100.0, log: true}
+      - {name: gamma, type: categorical, choices: [scale, auto]}
+      - {name: degree, type: int, low: 2, high: 5}
+      - {name: tol, type: float, low: 1.0e-5, high: 1.0e-2, log: true}
       - {name: random_state, type: fixed, value: "{random_seed}"}
 
   # --- Tier B/C/D: conditional or dynamic search space ---

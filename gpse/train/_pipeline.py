@@ -20,7 +20,7 @@ from loguru import logger as main_logger
 
 from gpse.config import ModelConstants
 from gpse.utils.genomic_utils import create_comparison_table, call_topsis_evaluator
-from gpse.utils.paralle import graceful_process_pool
+from gpse.utils.parallel import graceful_process_pool
 from gpse.train.stacking import StackingEnsemble
 from gpse.train._repeat_training import create_holdout_indices
 from gpse.train._results import write_result_bundle

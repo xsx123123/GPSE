@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import pytest
 
-from gpse.utils.paralle import (
+from gpse.utils.parallel import (
     derive_parallelism_from_threads,
     get_available_cpu_cores,
     graceful_process_pool,

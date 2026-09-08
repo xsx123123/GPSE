@@ -151,7 +151,7 @@ def _dry_run_trait_summary(argv: list[str]) -> list[str]:
     from gpse.config import ModelConstants
     from gpse.train.cli import _resolve_model_count
     from gpse.train.workflow import _build_parser
-    from gpse.utils.paralle import derive_parallelism_from_threads
+    from gpse.utils.parallel import derive_parallelism_from_threads
 
     args = _build_parser().parse_args(argv)
     n_jobs, max_workers, repeat_workers = (

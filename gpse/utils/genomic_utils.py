@@ -37,14 +37,14 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float
             pearson_corr = pearsonr(y_true, y_pred)[0]
             if np.isnan(pearson_corr):
                 pearson_corr = 0.0
-        except:
+        except Exception:
             pearson_corr = 0.0
 
         try:
             spearman_corr = spearmanr(y_true, y_pred)[0]
             if np.isnan(spearman_corr):
                 spearman_corr = 0.0
-        except:
+        except Exception:
             spearman_corr = 0.0
         
     return {

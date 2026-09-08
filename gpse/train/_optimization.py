@@ -71,9 +71,10 @@ def optimize_model_parameters(
     # Get CV folds
     folds = self.generate_cv_folds_from_file(X, y, cv_pheno_data, repeat_idx, task_logger)
 
-    # Set random seed
+    # Determinism comes from the TPESampler seed and per-model random_state
+    # (merged from YAML default_params); avoid mutating global numpy RNG state
+    # here because repeat workers run concurrently.
     opt_seed = generate_optimization_seed(self.random_seed, repeat_idx)
-    np.random.seed(opt_seed)
 
     # Define optimization objective
     def objective(trial):
@@ -163,19 +164,23 @@ def optimize_model_parameters(
             best_value = study.best_value
             recent_trials = [
                 t.value
-                for t in study.trials[-self.patience : -1]
+                for t in study.trials[-self.patience :]
                 if t.value is not None
             ]
             if not recent_trials:
-                recent_best_value = float("-inf")
-            else:
-                recent_best_value = max(recent_trials)
+                return False
+            recent_best_value = max(recent_trials)
 
-            if best_value is not None and recent_best_value is not None:
-                if best_value <= recent_best_value:
-                    log.info("")
-                    log.info(f"Early stopping: no improvement within {self.patience} trials")
-                    study.stop()
+            if best_value is None:
+                return False
+
+            if recent_best_value <= best_value - 1e-9:
+                log.info("")
+                log.info(
+                    f"Early stopping: no improvement over best={best_value:.6f} "
+                    f"in last {self.patience} trials (recent best={recent_best_value:.6f})"
+                )
+                study.stop()
         return False
 
     # Create Optuna study and optimize
@@ -190,7 +195,7 @@ def optimize_model_parameters(
         sampler=optuna.samplers.TPESampler(seed=opt_seed),
     )
 
-    max_trials = min(self.n_trials, 100)
+    max_trials = self.n_trials
     log.info(
         "Starting robust parameter optimization, max trials: "
         f"{max_trials}, objective=mean(CV)-{self.cv_stability_penalty}*std(CV)"

@@ -262,38 +262,47 @@ class ModelRegistry:
         return params
 
     def create_model(self, model_name: str, params: Dict[str, Any]) -> Any:
-        """Instantiate a model with thread injection and special-case handling."""
+        """Instantiate a model with thread injection and special-case handling.
+
+        YAML ``default_params`` (including ``type: fixed`` search-space entries
+        such as ``random_state``) are merged first, then caller-supplied
+        ``params`` override them. Without this merge, Optuna ``best_params``
+        alone would silently drop the fixed parameters and break
+        reproducibility.
+        """
         if model_name not in self._entries:
             raise ValueError(f"Model {model_name} not found in configurations")
         entry = self._entries[model_name]
-        params = params.copy()
 
-        if isinstance(params.get("hidden_layer_sizes"), list):
-            params["hidden_layer_sizes"] = tuple(params["hidden_layer_sizes"])
+        merged = _resolve_placeholders(entry.default_params, self._context)
+        merged.update(params)
 
-        params = _inject_threads(params, entry.thread_strategy, self.n_threads)
+        if isinstance(merged.get("hidden_layer_sizes"), list):
+            merged["hidden_layer_sizes"] = tuple(merged["hidden_layer_sizes"])
+
+        merged = _inject_threads(merged, entry.thread_strategy, self.n_threads)
 
         if entry.extra.get("catboost_train_dir"):
             if self.catboost_train_dir:
-                params.setdefault("train_dir", self.catboost_train_dir)
+                merged.setdefault("train_dir", self.catboost_train_dir)
             else:
-                params.setdefault("allow_writing_files", False)
+                merged.setdefault("allow_writing_files", False)
 
         if entry.extra.get("inject_num_class"):
             if self.n_classes is not None and self.n_classes > 1:
-                params["num_class"] = self.n_classes
+                merged["num_class"] = self.n_classes
 
         if entry.extra.get("n_classes_objective"):
             if self.n_classes is not None and self.n_classes > 2:
-                params.setdefault("num_class", self.n_classes)
+                merged.setdefault("num_class", self.n_classes)
             else:
-                params.pop("num_class", None)
-                params.setdefault("objective", "binary")
-                params.setdefault("metric", "binary_logloss")
-                params.setdefault("is_unbalance", True)
+                merged.pop("num_class", None)
+                merged.setdefault("objective", "binary")
+                merged.setdefault("metric", "binary_logloss")
+                merged.setdefault("is_unbalance", True)
 
         cls = _resolve_import_path(entry.import_path)
-        return cls(**params)
+        return cls(**merged)
 
     def filter_model_params(self, model_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Strip auxiliary params that are not valid model constructor args."""

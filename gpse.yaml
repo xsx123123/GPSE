@@ -12,4 +12,6 @@ external_tools:
 
 convert:
   # Optional Beagle jar used only when imputation is enabled.
-  beagle_jar_path: /home/jzhang/software/Beagle/beagle.27Jan18.7e1.jar
+  # Replace this placeholder with the path on your machine, or override in
+  # `gpse.local.yaml` (gitignored) to keep local paths out of version control.
+  beagle_jar_path: /path/to/beagle.jar
