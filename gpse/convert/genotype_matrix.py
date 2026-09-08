@@ -15,7 +15,12 @@ from datetime import datetime
 
 from gpse.convert.external import resolve_configured_tool, run_command, ensure_log_dir
 from gpse.utils.feature_manifest import write_feature_manifest
-from gpse.utils.snp_ids import canonical_ids_from_map_file, vcf_ids_from_map_file
+from gpse.utils.snp_ids import (
+    canonical_ids_from_map_file,
+    vcf_ids_from_map_file,
+    canonical_snp_id,
+    ensure_unique_feature_ids,
+)
 
 try:
     from gpse.utils.log_utils import logger as _default_logger
@@ -335,6 +340,218 @@ def convert_to_matrix(
     log.info(f"Matrix conversion completed: {out_file}")
     return out_file
 
+
+
+# ---------------------------------------------------------------------------
+# VCF with pre-encoded numeric genotypes (0/1/2) → direct matrix extraction
+# ---------------------------------------------------------------------------
+
+# Genotype tokens that indicate an already-recoded numeric VCF.
+_NUMERIC_GT_VALUES = {"0", "1", "2", "."}
+
+# Missing-genotype token used by the numeric matrices (same as PED conversion).
+_NUMERIC_MISSING = "3"
+
+# Re-encoding of already-numeric dosages for the supported encodings.
+_NUMERIC_GT_ENCODINGS = {
+    "012": {"0": "0", "1": "1", "2": "2"},
+    "-101": {"0": "-1", "1": "0", "2": "1"},
+}
+
+
+def _open_vcf_text(vcf_file):
+    """Open a plain or bgzip/gzip-compressed VCF as a text stream."""
+    if vcf_file.endswith((".gz", ".bgz")):
+        import gzip
+        return gzip.open(vcf_file, "rt", encoding="utf-8", errors="replace")
+    return open(vcf_file, encoding="utf-8", errors="replace")
+
+
+def vcf_genotypes_are_numeric(vcf_file, max_records=4000, logger=None):
+    """Return True when the VCF already stores genotypes as 0/1/2 dosages.
+
+    Scans up to ``max_records`` variant records.  A VCF qualifies when every
+    observed GT subfield is one of ``0``, ``1``, ``2`` or ``.`` — i.e. the
+    file was already recoded to additive dosages and no allele-style
+    conversion (``0/0`` → ``0`` etc.) is needed.  Any genotype containing
+    ``/`` or ``|`` allele separators, or a value outside the 0/1/2 range,
+    disqualifies the file.
+    """
+    log = logger or _default_logger
+    records_seen = 0
+    genotypes_seen = 0
+    try:
+        with _open_vcf_text(vcf_file) as handle:
+            for line in handle:
+                if line.startswith("#"):
+                    continue
+                fields = line.rstrip("\n").split("\t")
+                if len(fields) < 10:
+                    return False
+                for sample_col in fields[9:]:
+                    gt = sample_col.split(":", 1)[0]
+                    if "/" in gt or "|" in gt or gt not in _NUMERIC_GT_VALUES:
+                        return False
+                    genotypes_seen += 1
+                records_seen += 1
+                if records_seen >= max_records:
+                    break
+    except OSError as exc:
+        log.warning(f"Could not scan VCF for numeric genotypes ({exc}); assuming allele-style genotypes")
+        return False
+    return records_seen > 0 and genotypes_seen > 0
+
+
+def vcf_numeric_to_matrix(
+    vcf_file,
+    out_file=None,
+    *,
+    out_format="parquet",
+    geno_encoding="012",
+    preserve_vcf_snp_ids=False,
+    extract_file=None,
+    logger=None,
+):
+    """Extract genotypes directly from a numeric (0/1/2) VCF into a matrix.
+
+    Used when :func:`vcf_genotypes_are_numeric` detects that the VCF already
+    stores additive dosages, so the PLINK VCF→BED→PED round-trip is skipped
+    entirely.  Missing genotypes (``.``) are encoded as ``3``, matching the
+    PED-based conversion path.  ``extract_file`` optionally restricts the
+    output to the SNP IDs listed in that file (matched against both the VCF
+    ID column and canonical ``chr<chrom>_<start>_<end>`` coordinates).
+    """
+    log = logger or _default_logger
+    if geno_encoding not in _NUMERIC_GT_ENCODINGS:
+        raise ValueError(
+            f"Unknown geno_encoding '{geno_encoding}'. "
+            f"Supported: {sorted(_NUMERIC_GT_ENCODINGS)}"
+        )
+    gt_map = _NUMERIC_GT_ENCODINGS[geno_encoding]
+
+    log.info(
+        f"VCF {vcf_file} already contains numeric 0/1/2 genotypes; "
+        "skipping PLINK conversion and extracting genotypes directly."
+    )
+
+    # Detect pyarrow
+    out_format = out_format.lower()
+    if out_format in ('parquet', 'feather'):
+        try:
+            import pyarrow
+        except ImportError:
+            log.warning(
+                f"Output format '{out_format}' requires the 'pyarrow' package, which is not installed. "
+                "Falling back to 'csv'. Please run 'pip install pyarrow' to enable highly optimized binary formats."
+            )
+            out_format = 'csv'
+
+    if out_file is None:
+        base = vcf_file
+        for suffix in ('.vcf.gz', '.vcf.bgz', '.vcf'):
+            if base.endswith(suffix):
+                base = base[: -len(suffix)]
+                break
+        ext = '.parquet' if out_format == 'parquet' else '.feather' if out_format == 'feather' else '.csv'
+        out_file = base + ext
+
+    manifest_file = os.path.splitext(out_file)[0] + ".features.json"
+    if os.path.exists(out_file) and os.path.exists(manifest_file):
+        try:
+            with open(manifest_file, encoding="utf-8") as manifest_handle:
+                existing_mode = json.load(manifest_handle).get("feature_id_mode", "canonical")
+        except (OSError, json.JSONDecodeError):
+            existing_mode = None
+        requested_mode = "vcf" if preserve_vcf_snp_ids else "canonical"
+        if existing_mode == requested_mode:
+            log.info(f"Matrix file already exists: {out_file}")
+            log.info("Skipping conversion step...")
+            return out_file
+        log.warning(
+            f"Existing matrix uses SNP ID mode '{existing_mode or 'unknown'}'; "
+            f"requested '{requested_mode}'. Regenerating the matrix."
+        )
+    if os.path.exists(out_file) and not os.path.exists(manifest_file):
+        log.warning("Existing matrix has no feature manifest; regenerating it.")
+
+    # Optional SNP filter list.
+    extract_ids = None
+    if extract_file:
+        with open(extract_file, encoding="utf-8") as extract_handle:
+            extract_ids = {line.strip() for line in extract_handle if line.strip()}
+        log.info(f"Restricting extraction to {len(extract_ids)} SNP(s) from {extract_file}")
+
+    sample_ids = None
+    snpid_list = []
+    columns = []  # per-variant list of encoded genotypes in sample order
+    with _open_vcf_text(vcf_file) as handle:
+        for line in handle:
+            if line.startswith("##"):
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if line.startswith("#CHROM"):
+                sample_ids = [s.rstrip('_') if s.endswith('_') else s for s in fields[9:]]
+                continue
+            if sample_ids is None:
+                raise ValueError(f"VCF header (#CHROM line) not found in {vcf_file}")
+            if len(fields) < 10:
+                continue
+            chrom, pos, variant_id, ref = fields[0], fields[1], fields[2].strip(), fields[3]
+            canonical_id = canonical_snp_id(chrom, pos, ref)
+            if extract_ids is not None and variant_id not in extract_ids and canonical_id not in extract_ids:
+                continue
+            if preserve_vcf_snp_ids and variant_id and variant_id != ".":
+                snpid_list.append(variant_id)
+            else:
+                snpid_list.append(canonical_id)
+            columns.append([
+                gt_map.get(sample_col.split(":", 1)[0], _NUMERIC_MISSING)
+                for sample_col in fields[9:]
+            ])
+
+    if sample_ids is None:
+        raise ValueError(f"VCF header (#CHROM line) not found in {vcf_file}")
+    if not columns:
+        raise ValueError(
+            f"No variants extracted from {vcf_file}"
+            + (f" using SNP list {extract_file}" if extract_file else "")
+        )
+    snpid_list = ensure_unique_feature_ids(snpid_list, source=vcf_file)
+
+    sample_genotypes = list(zip(sample_ids, map(list, zip(*columns))))
+
+    # Write matrix based on format.
+    if out_format in ('parquet', 'feather'):
+        import pandas as pd
+        data = {sample_id: genotypes for sample_id, genotypes in sample_genotypes}
+        df = pd.DataFrame.from_dict(data, orient='index', columns=snpid_list)
+        df.index.name = 'ID'
+        df_reset = df.reset_index()
+        if out_format == 'parquet':
+            df_reset.to_parquet(out_file, index=False)
+        else:
+            df_reset.to_feather(out_file)
+    else:
+        # Write CSV matrix.
+        with open(out_file, 'w') as csv_file:
+            csv_file.write("ID," + ",".join(snpid_list) + '\n')
+            for sample_id, genotypes in sample_genotypes:
+                csv_file.write(sample_id + "," + ",".join(genotypes) + '\n')
+
+    feature_id_mode = "vcf" if preserve_vcf_snp_ids else "canonical"
+    manifest_path = write_feature_manifest(
+        os.path.dirname(out_file) or ".",
+        snpid_list,
+        source_file=out_file,
+        filename=os.path.basename(manifest_file),
+        feature_id_mode=feature_id_mode,
+    )
+    log.info(f"Feature manifest written: {manifest_path}")
+    log.info(
+        f"Direct numeric VCF extraction completed: {out_file} "
+        f"({len(sample_ids)} samples x {len(snpid_list)} SNPs)"
+    )
+    return out_file
 
 
 # ---------------------------------------------------------------------------

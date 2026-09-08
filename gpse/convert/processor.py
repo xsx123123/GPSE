@@ -29,6 +29,8 @@ from gpse.convert.genotype_matrix import (
     convert_bfile_to_ped as _convert_bfile_to_ped,
     convert_to_matrix as _convert_to_matrix,
     process_snp_dir as _process_snp_dir,
+    vcf_genotypes_are_numeric as _vcf_genotypes_are_numeric,
+    vcf_numeric_to_matrix as _vcf_numeric_to_matrix,
     GENO_DICT,
 )
 from gpse.convert.qc import analyze_and_prune as _analyze_and_prune
@@ -186,6 +188,19 @@ class GenomicDataProcessor:
             out_format=out_format,
             geno_encoding=geno_encoding,
             preserve_vcf_snp_ids=preserve_vcf_snp_ids,
+            logger=self.logger,
+        )
+
+    def vcf_numeric_to_matrix(self, vcf_file, out_file=None, out_format="parquet",
+                              geno_encoding="012", preserve_vcf_snp_ids=False,
+                              extract_file=None):
+        """Extract genotypes directly from a pre-encoded numeric (0/1/2) VCF."""
+        return _vcf_numeric_to_matrix(
+            vcf_file, out_file,
+            out_format=out_format,
+            geno_encoding=geno_encoding,
+            preserve_vcf_snp_ids=preserve_vcf_snp_ids,
+            extract_file=extract_file,
             logger=self.logger,
         )
 
@@ -551,7 +566,48 @@ class GenomicDataProcessor:
                 # Convert VCF input to PLINK format first.
                 elif kwargs.get('vcf'):
                     vcf_file = kwargs['vcf']
-                    if not kwargs.get('bfile'):
+                    if not kwargs.get('bfile') and _vcf_genotypes_are_numeric(vcf_file, logger=self.logger):
+                        # The VCF already stores genotypes as numeric 0/1/2
+                        # dosages — skip the PLINK round-trip entirely.
+                        self.logger.info(
+                            "Pre-encoded numeric genotypes (0/1/2) detected in VCF input; "
+                            "PLINK conversion is not needed and will be skipped."
+                        )
+                        if kwargs.get('run_qc') or kwargs.get('impute'):
+                            self.logger.warning(
+                                "QC/LD pruning and imputation require PLINK binary files and are "
+                                "skipped for pre-encoded numeric VCF input."
+                            )
+                        ext = '.parquet' if out_format == 'parquet' else '.feather' if out_format == 'feather' else '.csv'
+                        if kwargs.get('snp_dir'):
+                            snp_files = glob.glob(os.path.join(kwargs['snp_dir'], "*.txt"))
+                            if not snp_files:
+                                self.logger.warning(f"No .txt files found in {kwargs['snp_dir']}")
+                            for snp_file in snp_files:
+                                phenotype = os.path.basename(snp_file).replace('.txt', '')
+                                self.logger.info(f"Processing SNP list: {phenotype}")
+                                self.vcf_numeric_to_matrix(
+                                    vcf_file,
+                                    os.path.join(os.path.dirname(out_prefix), phenotype + ext),
+                                    out_format=out_format,
+                                    geno_encoding=geno_encoding,
+                                    preserve_vcf_snp_ids=kwargs.get('preserve_vcf_snp_ids', False),
+                                    extract_file=snp_file,
+                                )
+                            if snp_files:
+                                first_phenotype = os.path.basename(snp_files[0]).replace('.txt', '')
+                                geno_matrix_file = os.path.join(os.path.dirname(out_prefix), first_phenotype + ext)
+                        else:
+                            geno_matrix_file = self.vcf_numeric_to_matrix(
+                                vcf_file, out_prefix + ext,
+                                out_format=out_format,
+                                geno_encoding=geno_encoding,
+                                preserve_vcf_snp_ids=kwargs.get('preserve_vcf_snp_ids', False),
+                                extract_file=kwargs.get('extract'),
+                            )
+                            if kwargs.get('load') and geno_matrix_file:
+                                self.load_matrix(geno_matrix_file)
+                    elif not kwargs.get('bfile'):
                         if kwargs.get('plink_out'):
                             plink_prefix = kwargs['plink_out']
                         else:
