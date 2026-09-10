@@ -46,7 +46,8 @@ def test_convert_to_matrix_vectorized_encoding_012(tmp_path):
     assert df.loc["s2"].tolist() == ["2", "1", "0", "1"]
 
     on_disk = pd.read_parquet(out_file).set_index("ID")
-    pd.testing.assert_frame_equal(on_disk, df)
+    # Binary formats store genotype dosages as numeric (int8) columns.
+    pd.testing.assert_frame_equal(on_disk, df.astype("int8"))
 
 
 def test_convert_to_matrix_vectorized_encoding_centered(tmp_path):
@@ -91,7 +92,8 @@ def test_vcf_numeric_to_matrix_collects_df(tmp_path):
     assert df.loc["s2"].tolist() == ["1", "3"]
 
     on_disk = pd.read_parquet(out_file).set_index("ID")
-    pd.testing.assert_frame_equal(on_disk, df)
+    # Binary formats store genotype dosages as numeric (int8) columns.
+    pd.testing.assert_frame_equal(on_disk, df.astype("int8"))
 
 
 def _run_ped_map_workflow(tmp_path, threads=1):

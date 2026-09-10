@@ -81,6 +81,11 @@ def _build_matrix_frame(sample_ids, encoded_array, snpid_list):
 def _write_matrix(df, out_file, out_format):
     """Write the genotype matrix frame in the requested format."""
     if out_format in ('parquet', 'feather'):
+        import numpy as np
+
+        # Genotype dosages are small integers (-1/0/1/2/3); store them as a
+        # numeric dtype so binary formats do not round-trip as object columns.
+        df = df.astype(np.int8)
         df_reset = df.reset_index()
         if out_format == 'parquet':
             df_reset.to_parquet(out_file, index=False)
