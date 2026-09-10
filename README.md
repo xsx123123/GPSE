@@ -1242,6 +1242,16 @@ live in the corresponding workflow package.
   * All Chinese comments, docstrings, and log messages translated to **English**.
   * Moved `ModelConfig`, `ClassificationModelConfig`, `NumpyEncoder` into `config/constants.py`.
 
+## 🗂️ TODO
+
+Performance follow-ups for the convert stage (after the in-memory handoff, vectorized encoding, and per-trait genotype dedup landed in 0.0.5):
+
+* **Read PLINK BED directly, skip the PED text round-trip.** The current VCF path goes VCF → BED → PED (text, several GB) → matrix. Reading the binary `.bed` (2 bits per genotype) with numpy removes the PED intermediate and the line-by-line Python parse entirely — the single largest remaining I/O win. Requires carefully validating the BED 2-bit allele codes against the current PLINK `--recode compound-genotypes 01` semantics so 0/1/2 additive encoding stays identical, with side-by-side unit tests on the same input.
+* **Speed up numeric-VCF parsing.** `vcf_numeric_to_matrix` still parses the VCF line by line in Python; switch to `cyvcf2` (already an optional dependency) or chunked/vectorized parsing for large VCFs.
+* **Skip the intermediate full-matrix write when matching follows.** When phenotype matching runs right after conversion, the full `{prefix}.{ext}` matrix is written but only the per-trait subsets are consumed downstream. Make the full-matrix write optional (opt-in flag) once the resume/`--matrix-file` reuse paths are decoupled from it.
+* **Write numeric dtypes instead of strings.** Genotype matrices are currently stored as strings (`'0'/'1'/'2'/'3'`); `int8`/`float32` would shrink parquet files and speed up train-side loading. Verify `gpse train` / `gpse predict` readers first, since this changes the output contract.
+* **Evaluate PLINK2 support.** PLINK2 conversion commands are multi-threaded and noticeably faster than PLINK 1.9 on large cohorts; add it as an alternative backend for the VCF/BED steps.
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the `LICENSE` file for details.
