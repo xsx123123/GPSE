@@ -209,6 +209,20 @@ def load_data(self, geno_file: str, pheno_file: str, target_trait: str) -> Tuple
     X = geno_data
     y = pheno_data[target_trait].copy()
 
+    # Genotype matrices written by `gpse convert` store genotype calls as
+    # strings ('0'/'1'/'2'/'3'); XGBoost >= 3 and LightGBM >= 4 reject
+    # non-numeric dtypes outright. Coerce every feature column to numeric so
+    # all model backends accept the matrix regardless of the file format
+    # (csv/parquet/feather). Non-numeric cells become NaN and are surfaced by
+    # the missing-value validation below.
+    non_numeric_cols = X.columns[X.dtypes.map(lambda dt: not pd.api.types.is_numeric_dtype(dt))]
+    if len(non_numeric_cols) > 0:
+        main_logger.info(
+            f"Coercing {len(non_numeric_cols)} genotype columns "
+            f"from dtype '{X[non_numeric_cols[0]].dtype}' to numeric..."
+        )
+        X[non_numeric_cols] = X[non_numeric_cols].apply(pd.to_numeric, errors="coerce")
+
     # Step 7b: For regression, coerce the target to numeric so that string
     # placeholders like "--" or "" become NaN instead of crashing later stats.
     if self.task_type == "regression" and y.dtype == object:
