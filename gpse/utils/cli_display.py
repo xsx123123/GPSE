@@ -87,7 +87,7 @@ def _build_root_parser(formatter_class: type[argparse.HelpFormatter] = argparse.
     )
     subparsers = parser.add_subparsers(
         dest="command",
-        metavar="{convert,train,predict,batch,tools,mcp}",
+        metavar="{convert,train,predict,batch,tools,mcp,pipeline}",
         title="workflow commands",
         description="Run one of the GPSE workflows",
     )
@@ -138,6 +138,14 @@ def _build_root_parser(formatter_class: type[argparse.HelpFormatter] = argparse.
         add_help=False,
         help="Start the GPSE MCP server (stdio) for AI agent integration",
         description="Start the GPSE MCP server over stdio.",
+    )
+
+    # Add the pipeline subcommand
+    subparsers.add_parser(
+        "pipeline",
+        add_help=False,
+        help="Chain convert and train in a single command",
+        description="Run the convert workflow and then train on the converted outputs.",
     )
 
     # Put workflow commands above options in help output.
@@ -347,6 +355,79 @@ def _build_convert_parser(formatter_class=argparse.HelpFormatter,
     qc.add_argument("--ld-window", type=int, default=50, help="LD pruning window size in kb (default: 50).")
     qc.add_argument("--ld-step", type=int, default=10, help="LD pruning step size in SNPs (default: 10).")
     qc.add_argument("--impute", action="store_true", help="Use Beagle imputation before pruning.")
+
+    return parser
+
+
+def _build_pipeline_parser(formatter_class=argparse.HelpFormatter,
+                           prog: str = "gpse pipeline",
+                           help_action=None,
+                           parents: list[argparse.ArgumentParser] | None = None) -> argparse.ArgumentParser:
+    """
+    Build the parser for ``gpse pipeline`` (convert + train chained).
+
+    The convert stage reuses the full ``gpse convert`` option set. Any option
+    the pipeline parser does not recognize is forwarded verbatim to the train
+    stage, so all ``gpse train`` flags keep their own spelling.
+    """
+    parser = _build_convert_parser(
+        formatter_class=formatter_class,
+        prog=prog,
+        help_action=help_action,
+        parents=parents,
+    )
+
+    parser.description = (
+        "Chain 'gpse convert' and 'gpse train' in a single command: raw genotype\n"
+        "inputs are converted to training-ready matrices first, then model\n"
+        "training starts on the converted files.\n"
+        "\n"
+        "All convert options work exactly as in 'gpse convert'. Any option not\n"
+        "listed here is forwarded verbatim to 'gpse train' (e.g. --trials,\n"
+        "--threads, --models, --use_stacking), so train flags keep their own\n"
+        "spelling. Note: '--threads' is the train-stage parallelism budget; use\n"
+        "'--convert-threads' to tune the convert stage.\n"
+        "\n"
+        "Example:\n"
+        "  gpse pipeline --vcf in.vcf --pheno pheno.tsv --out-prefix work/run1 \\\n"
+        "      --target_trait yield --task_type regression --threads 32"
+    )
+
+    # Train-only options must reach the train stage untouched. With
+    # allow_abbrev=False, unknown long options land in the forwarded extras
+    # instead of being matched as prefixes of convert options.
+    parser.allow_abbrev = False
+
+    # Repurpose convert's '-t/--threads' as '--convert-threads' so that
+    # '--threads' keeps its 'gpse train' meaning (total parallelism budget)
+    # and is forwarded to the train stage.
+    for action in parser._actions:
+        if action.dest == "threads" and "--threads" in action.option_strings:
+            for opt in action.option_strings:
+                parser._option_string_actions.pop(opt, None)
+            action.option_strings[:] = ["--convert-threads"]
+            action.help = (
+                "Number of parallel threads for the convert stage (default: 10). "
+                "'--threads' is forwarded to the train stage."
+            )
+            parser._option_string_actions["--convert-threads"] = action
+            break
+
+    train_group = parser.add_argument_group(
+        "train stage (required)",
+        description="Required training arguments. Every other 'gpse train' option "
+                    "can be passed as-is and is forwarded to the train stage.",
+    )
+    train_group.add_argument(
+        "--target_trait",
+        help="Target trait to train on; must be a trait column in the phenotype "
+             "file (or match --trait-name). [REQUIRED]",
+    )
+    train_group.add_argument(
+        "--task_type",
+        choices=["regression", "classification"],
+        help="Task type: regression or classification. [REQUIRED]",
+    )
 
     return parser
 

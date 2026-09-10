@@ -97,9 +97,9 @@ def main(argv: list[str] | None = None) -> int:
     if not raw_args:
         show_gpse_logo()
         if _console is not None:
-            _console.print("\n[bold red][ERROR] No command provided. Use convert, train, predict, batch, tools, or mcp.[/bold red]\n")
+            _console.print("\n[bold red][ERROR] No command provided. Use convert, train, predict, batch, tools, mcp, or pipeline.[/bold red]\n")
         else:
-            print("\n[ERROR] No command provided. Use convert, train, predict, batch, tools, or mcp.\n")
+            print("\n[ERROR] No command provided. Use convert, train, predict, batch, tools, mcp, or pipeline.\n")
         root_parser.print_help()
         return 1
 
@@ -224,6 +224,24 @@ def main(argv: list[str] | None = None) -> int:
             parents=[_common_parent],
         )
 
+    # Pipeline workflow: convert + train chained in a single command.
+    if command == "pipeline":
+        _show_logo_for_command(command_args)
+
+        from gpse.pipeline.cli import main as pipeline_main
+
+        if command_args and command_args[0] in {"-v", "--version"}:
+            from gpse.train.cli import main as train_main
+
+            return train_main(["--version"], prog="gpse pipeline")
+        return pipeline_main(
+            command_args,
+            formatter_class=RichHelpFormatter,
+            prog="gpse pipeline",
+            help_action=_LogoHelpAction,
+            parents=[_common_parent],
+        )
+
     # MCP server: expose GPSE workflows to AI agents over stdio. The stdio
     # transport requires pure JSON-RPC on stdout, so no logo is printed here.
     if command == "mcp":
@@ -233,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # Any other first token is not a supported workflow command.
-    root_parser.error(f"Unknown command: {command}. Use train, convert, predict, batch, tools, or mcp.")
+    root_parser.error(f"Unknown command: {command}. Use train, convert, predict, batch, tools, mcp, or pipeline.")
     return 2
 
 

@@ -219,6 +219,12 @@ def main(
     if not raw_args:
         parser.error("train requires arguments. Use 'gpse train -h' for help.")
 
+    # Version is a standalone flag: handle it before full parsing so required
+    # training arguments (e.g. --task_type) are not enforced for `-v`.
+    if raw_args[0] in {"-v", "--version"}:
+        _show_version()
+        return 0
+
     args = parser.parse_args(raw_args)
 
     try:
