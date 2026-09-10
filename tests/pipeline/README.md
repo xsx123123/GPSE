@@ -33,6 +33,12 @@ train 阶段正常运行。
 bash tests/pipeline/run_cucumber_pipeline_test.sh
 ```
 
+补充：若完整运行因时长被中断（xgboost 在 113k SNP 上很慢），可用
+`run_cucumber_stacking_smoke.sh` 直接复用已转换的矩阵，以 3 个快速模型
+（rf_reg / knn_reg / elasticnet_reg，2 trials / 2 folds / 1 repeat）
+验证 train + TOPSIS + stacking 集成链路，结果写入
+`train_results_stacking_smoke/`。
+
 脚本内核心命令（为缩短冒烟测试时间，模型/轮次都做了缩减）：
 
 ```bash
