@@ -15,7 +15,9 @@ validation by delegating to specialised sub-modules:
 import os
 import re
 import glob
+import shutil
 import subprocess
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 try:
@@ -154,6 +156,13 @@ class GenomicDataProcessor:
         self.config_path = config_path
         self.auto_project_config = auto_project_config
         self.allow_extra_chr = allow_extra_chr
+        # In-memory genotype matrices produced by the conversion stage, keyed
+        # by output path; lets the matching stage skip re-reading from disk.
+        self._matrix_df_cache = {}
+        # Per-(sample set, SNP count) genotype files already written this run,
+        # so identical per-trait genotype copies are linked, not rewritten.
+        self._trait_geno_files = {}
+        self._trait_geno_lock = threading.Lock()
 
     # -- Shared tool-path kwargs used when delegating to genotype_matrix --
 
@@ -182,27 +191,35 @@ class GenomicDataProcessor:
 
     def convert_to_matrix(self, fileprefix, out_file=None, out_format="parquet",
                           geno_encoding="012", preserve_vcf_snp_ids=False):
-        """Wrapper method."""
-        return _convert_to_matrix(
+        """Wrapper method; caches the converted matrix in memory for stage 3."""
+        out_file, df = _convert_to_matrix(
             fileprefix, out_file,
             out_format=out_format,
             geno_encoding=geno_encoding,
             preserve_vcf_snp_ids=preserve_vcf_snp_ids,
+            collect_df=True,
             logger=self.logger,
         )
+        if df is not None:
+            self._matrix_df_cache[out_file] = df
+        return out_file
 
     def vcf_numeric_to_matrix(self, vcf_file, out_file=None, out_format="parquet",
                               geno_encoding="012", preserve_vcf_snp_ids=False,
                               extract_file=None):
         """Extract genotypes directly from a pre-encoded numeric (0/1/2) VCF."""
-        return _vcf_numeric_to_matrix(
+        out_file, df = _vcf_numeric_to_matrix(
             vcf_file, out_file,
             out_format=out_format,
             geno_encoding=geno_encoding,
             preserve_vcf_snp_ids=preserve_vcf_snp_ids,
             extract_file=extract_file,
+            collect_df=True,
             logger=self.logger,
         )
+        if df is not None:
+            self._matrix_df_cache[out_file] = df
+        return out_file
 
     def process_snp_dir(self, bfile, snp_dir, out_dir, geno_encoding="012"):
         """Process all SNP list files in a directory."""
@@ -402,17 +419,38 @@ class GenomicDataProcessor:
             pheno_filtered.to_csv(final_pheno_file, index=False)
         self.logger.info("Phenotype file written successfully.")
 
-        self.logger.info(
-            f"Writing genotype matrix ({geno_filtered.shape[0]} samples x "
-            f"{geno_filtered.shape[1]} SNPs) to {os.path.basename(final_geno_file)} ..."
-        )
-        if out_format == 'parquet':
-            geno_filtered.reset_index().to_parquet(final_geno_file, index=False)
-        elif out_format == 'feather':
-            geno_filtered.reset_index().to_feather(final_geno_file)
+        # Traits sharing the same matched sample set produce byte-identical
+        # genotype matrices; write the first one and link the rest instead of
+        # rewriting the same large file once per trait.
+        geno_fingerprint = (tuple(common_samples), geno_filtered.shape[1])
+        with self._trait_geno_lock:
+            linked_from = self._trait_geno_files.get(geno_fingerprint)
+            if linked_from is None:
+                self._trait_geno_files[geno_fingerprint] = final_geno_file
+
+        if linked_from is not None and os.path.exists(linked_from):
+            if os.path.exists(final_geno_file):
+                os.remove(final_geno_file)
+            try:
+                os.link(linked_from, final_geno_file)
+            except OSError:
+                shutil.copy2(linked_from, final_geno_file)
+            self.logger.info(
+                f"Genotype matrix identical to {os.path.basename(linked_from)}; "
+                "linked instead of rewritten."
+            )
         else:
-            _write_large_csv(geno_filtered, final_geno_file, logger=self.logger)
-        self.logger.info("Genotype matrix written successfully.")
+            self.logger.info(
+                f"Writing genotype matrix ({geno_filtered.shape[0]} samples x "
+                f"{geno_filtered.shape[1]} SNPs) to {os.path.basename(final_geno_file)} ..."
+            )
+            if out_format == 'parquet':
+                geno_filtered.reset_index().to_parquet(final_geno_file, index=False)
+            elif out_format == 'feather':
+                geno_filtered.reset_index().to_feather(final_geno_file)
+            else:
+                _write_large_csv(geno_filtered, final_geno_file, logger=self.logger)
+            self.logger.info("Genotype matrix written successfully.")
 
         self.logger.info(f"Trait '{trait}' completed:")
         self.logger.info(f"  Phenotype: {os.path.basename(final_pheno_file)}")
@@ -446,6 +484,10 @@ class GenomicDataProcessor:
             Processing parameters.
         """
         import pandas as pd
+        # Fresh run: drop in-memory handoff state from any previous invocation
+        # so stale matrices/links can never leak across runs.
+        self._matrix_df_cache = {}
+        self._trait_geno_files = {}
         out_format = kwargs.get('out_format', 'parquet')
         geno_encoding = kwargs.get('geno_encoding', '012')
         pheno_scale = kwargs.get('pheno_scale')
@@ -740,7 +782,14 @@ class GenomicDataProcessor:
 
                 self.logger.info(f"Discovered {len(trait_cols)} trait(s): {', '.join(trait_cols)}")
 
-                geno_df = _read_geno_matrix(geno_matrix_file)
+                geno_df = self._matrix_df_cache.get(geno_matrix_file)
+                if geno_df is None:
+                    geno_df = _read_geno_matrix(geno_matrix_file)
+                else:
+                    self.logger.info(
+                        "Using the in-memory genotype matrix from the conversion "
+                        "stage (skipping disk re-read)"
+                    )
                 geno_samples = set(geno_df.index)
                 self.logger.info(f"Genotype file contains {len(geno_samples)} samples")
 

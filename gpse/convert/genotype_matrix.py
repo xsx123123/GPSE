@@ -51,6 +51,45 @@ GENO_ENCODINGS = {
 }
 
 
+def _encode_tokens(token_rows, geno_dict):
+    """Vectorized re-encoding of a 2-D genotype-token array.
+
+    Maps each distinct token once (via ``np.unique`` inverse indexing) instead
+    of running a Python callable per cell, which is several times faster than
+    ``np.vectorize`` on large sample x SNP matrices.
+    """
+    import numpy as np
+
+    token_array = np.asarray(token_rows, dtype='U2')
+    if token_array.size == 0:
+        return token_array
+    uniq, inverse = np.unique(token_array, return_inverse=True)
+    mapped = np.array([geno_dict.get(token, '3') for token in uniq], dtype='U2')
+    return mapped[inverse].reshape(token_array.shape)
+
+
+def _build_matrix_frame(sample_ids, encoded_array, snpid_list):
+    """Build the samples x SNPs genotype DataFrame as a single block."""
+    import pandas as pd
+
+    encoded_array = encoded_array.reshape(len(sample_ids), len(snpid_list))
+    df = pd.DataFrame(encoded_array, index=sample_ids, columns=snpid_list)
+    df.index.name = 'ID'
+    return df
+
+
+def _write_matrix(df, out_file, out_format):
+    """Write the genotype matrix frame in the requested format."""
+    if out_format in ('parquet', 'feather'):
+        df_reset = df.reset_index()
+        if out_format == 'parquet':
+            df_reset.to_parquet(out_file, index=False)
+        else:
+            df_reset.to_feather(out_file)
+    else:
+        df.to_csv(out_file)
+
+
 def _resolve_plink(plink_path, config_path=None, auto_project_config=False):
     """Resolve the PLINK executable from config or command override."""
     return resolve_configured_tool(
@@ -209,6 +248,7 @@ def convert_to_matrix(
     out_format="parquet",
     geno_encoding="012",
     preserve_vcf_snp_ids=False,
+    collect_df=False,
     logger=None,
 ):
     """Convert PLINK PED/MAP genotype data to a numeric CSV or binary matrix.
@@ -216,6 +256,11 @@ def convert_to_matrix(
     Encoding (``geno_encoding="012"``): ``00→0, 01→1, 10→1, 11→2``,
     missing → ``3``.  With ``geno_encoding="-101"`` (Azodi et al. 2019
     style): ``00→-1, 01→0, 10→0, 11→1``, missing → ``3``.
+
+    With ``collect_df=True`` the return value is ``(out_file, df)`` where
+    ``df`` is the in-memory matrix (``None`` when conversion was skipped
+    because the output already exists), so callers can avoid re-reading
+    the file they just wrote.
     """
     log = logger or _default_logger
     if geno_encoding not in GENO_ENCODINGS:
@@ -267,7 +312,7 @@ def convert_to_matrix(
         if existing_mode == requested_mode:
             log.info(f"Matrix file already exists: {out_file}")
             log.info("Skipping conversion step...")
-            return out_file
+            return (out_file, None) if collect_df else out_file
         log.warning(
             f"Existing matrix uses SNP ID mode '{existing_mode or 'unknown'}'; "
             f"requested '{requested_mode}'. Regenerating the matrix."
@@ -290,8 +335,6 @@ def convert_to_matrix(
         feature_id_mode = "canonical"
 
     # Read sample IDs and genotypes from .ped using vectorized encoding.
-    import numpy as np
-
     sample_ids = []
     raw_rows = []
     with open(ped_path) as ped_file:
@@ -303,31 +346,9 @@ def convert_to_matrix(
             sample_ids.append(sample_id)
             raw_rows.append(parts[6:])
 
-    if raw_rows:
-        geno_array = np.array(raw_rows, dtype='U2')
-        lookup = np.vectorize(lambda g: geno_dict.get(g, '3'), otypes=['U2'])
-        encoded_array = lookup(geno_array)
-        sample_genotypes = list(zip(sample_ids, encoded_array.tolist()))
-    else:
-        sample_genotypes = []
-
-    # Write matrix based on format.
-    if out_format in ('parquet', 'feather'):
-        import pandas as pd
-        data = {sample_id: genotypes for sample_id, genotypes in sample_genotypes}
-        df = pd.DataFrame.from_dict(data, orient='index', columns=snpid_list)
-        df.index.name = 'ID'
-        df_reset = df.reset_index()
-        if out_format == 'parquet':
-            df_reset.to_parquet(out_file, index=False)
-        else:
-            df_reset.to_feather(out_file)
-    else:
-        # Write CSV matrix.
-        with open(out_file, 'w') as csv_file:
-            csv_file.write("ID," + ",".join(snpid_list) + '\n')
-            for sample_id, genotypes in sample_genotypes:
-                csv_file.write(sample_id + "," + ",".join(genotypes) + '\n')
+    encoded_array = _encode_tokens(raw_rows, geno_dict)
+    df = _build_matrix_frame(sample_ids, encoded_array, snpid_list)
+    _write_matrix(df, out_file, out_format)
 
     manifest_path = write_feature_manifest(
         os.path.dirname(out_file) or ".",
@@ -338,7 +359,7 @@ def convert_to_matrix(
     )
     log.info(f"Feature manifest written: {manifest_path}")
     log.info(f"Matrix conversion completed: {out_file}")
-    return out_file
+    return (out_file, df) if collect_df else out_file
 
 
 
@@ -410,6 +431,7 @@ def vcf_numeric_to_matrix(
     geno_encoding="012",
     preserve_vcf_snp_ids=False,
     extract_file=None,
+    collect_df=False,
     logger=None,
 ):
     """Extract genotypes directly from a numeric (0/1/2) VCF into a matrix.
@@ -466,7 +488,7 @@ def vcf_numeric_to_matrix(
         if existing_mode == requested_mode:
             log.info(f"Matrix file already exists: {out_file}")
             log.info("Skipping conversion step...")
-            return out_file
+            return (out_file, None) if collect_df else out_file
         log.warning(
             f"Existing matrix uses SNP ID mode '{existing_mode or 'unknown'}'; "
             f"requested '{requested_mode}'. Regenerating the matrix."
@@ -518,25 +540,13 @@ def vcf_numeric_to_matrix(
         )
     snpid_list = ensure_unique_feature_ids(snpid_list, source=vcf_file)
 
-    sample_genotypes = list(zip(sample_ids, map(list, zip(*columns))))
+    # Transpose per-variant columns to per-sample rows with numpy instead of
+    # Python zip(), then build the frame as a single block.
+    import numpy as np
 
-    # Write matrix based on format.
-    if out_format in ('parquet', 'feather'):
-        import pandas as pd
-        data = {sample_id: genotypes for sample_id, genotypes in sample_genotypes}
-        df = pd.DataFrame.from_dict(data, orient='index', columns=snpid_list)
-        df.index.name = 'ID'
-        df_reset = df.reset_index()
-        if out_format == 'parquet':
-            df_reset.to_parquet(out_file, index=False)
-        else:
-            df_reset.to_feather(out_file)
-    else:
-        # Write CSV matrix.
-        with open(out_file, 'w') as csv_file:
-            csv_file.write("ID," + ",".join(snpid_list) + '\n')
-            for sample_id, genotypes in sample_genotypes:
-                csv_file.write(sample_id + "," + ",".join(genotypes) + '\n')
+    encoded_array = np.asarray(columns, dtype='U2').T
+    df = _build_matrix_frame(sample_ids, encoded_array, snpid_list)
+    _write_matrix(df, out_file, out_format)
 
     feature_id_mode = "vcf" if preserve_vcf_snp_ids else "canonical"
     manifest_path = write_feature_manifest(
@@ -551,7 +561,7 @@ def vcf_numeric_to_matrix(
         f"Direct numeric VCF extraction completed: {out_file} "
         f"({len(sample_ids)} samples x {len(snpid_list)} SNPs)"
     )
-    return out_file
+    return (out_file, df) if collect_df else out_file
 
 
 # ---------------------------------------------------------------------------

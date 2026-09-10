@@ -97,6 +97,8 @@ def test_pipeline_chains_convert_then_train(tmp_path, fake_stages):
     convert_args, mode = fake_stages["convert"]
     assert mode == "pipeline"
     assert convert_args.vcf == "in.vcf"
+    # The convert stage is auto-limited to the train stage's target trait.
+    assert convert_args.trait_name == "yield"
 
     train_argv = fake_stages["train"]
     assert train_argv[train_argv.index("--geno_file") + 1] == f"{prefix}_yield_genotype.parquet"
@@ -143,6 +145,22 @@ def test_pipeline_forwards_preserve_vcf_snp_ids_to_train(tmp_path, fake_stages):
 
     assert rc == 0
     assert "--preserve-vcf-snp-ids" in fake_stages["train"]
+
+
+def test_pipeline_respects_explicit_trait_name(tmp_path, fake_stages):
+    prefix = tmp_path / "run5"
+    (tmp_path / "run5_height_genotype.parquet").write_text("geno")
+    (tmp_path / "run5_height_phenotype.parquet").write_text("pheno")
+
+    argv = _pipeline_argv(prefix, "--trait-name", "height")
+    argv[argv.index("yield")] = "height"
+    rc = pipeline_cli.main(argv)
+
+    assert rc == 0
+    convert_args, _ = fake_stages["convert"]
+    assert convert_args.trait_name == "height"
+    train_argv = fake_stages["train"]
+    assert train_argv[train_argv.index("--geno_file") + 1] == f"{prefix}_height_genotype.parquet"
 
 
 def test_pipeline_aborts_when_convert_fails(tmp_path, monkeypatch):

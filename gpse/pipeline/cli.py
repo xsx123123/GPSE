@@ -125,6 +125,12 @@ def main(
                 f"{', '.join(blocked)} must not be passed to 'gpse pipeline': "
                 "the pipeline derives the training inputs from the convert-stage outputs"
             )
+        if not args.trait_name:
+            # The train stage uses a single trait; restrict the convert stage
+            # to it so multi-trait phenotype files do not produce one genotype
+            # matrix copy per trait. Also fails fast with a clear message when
+            # --target_trait is not a column in the phenotype file.
+            args.trait_name = args.target_trait
 
     log_level = getattr(args, "log_level", "INFO")
     log_file = None
@@ -141,6 +147,8 @@ def main(
         return run_convert_workflow(args, mode)
 
     gpse_logger.info("[Pipeline] Stage 1/2: convert (raw inputs -> training-ready matrices)")
+    if args.trait_name:
+        gpse_logger.info(f"[Pipeline] Convert stage limited to trait '{args.trait_name}'")
     rc = run_convert_workflow(args, mode)
     if rc != 0:
         gpse_logger.error(f"[Pipeline] Convert stage failed (exit {rc}); train stage aborted")
