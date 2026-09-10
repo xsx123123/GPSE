@@ -58,6 +58,7 @@ https://github.com/xsx123123/GPSE （PyPI: `pip install gpse`）
 - [`gpse predict`](docs/wiki/04-cli-predict.md) — feature alignment and phenotype prediction
 - [Configuration](docs/wiki/05-configuration.md) — `gpse.yaml` and TOPSIS configuration
 - [API Reference](docs/wiki/06-api-reference.md) — public Python classes and functions
+- [Agent Skill: gpse-mcp](skills/gpse-mcp/SKILL.md) — driving the GPSE MCP server from AI agents
 - [中文文档](docs/readme_cn.md) — 简体中文说明
 
 ## 🛠️ Installation
@@ -631,6 +632,52 @@ Exposed tools: `gpse_version`, `gpse_help`, `gpse_convert`, `gpse_train`,
 (`gpse_job_list` / `gpse_job_status` / `gpse_job_log` / `gpse_job_stop`) for
 long-running training. Job logs live under `~/.gpse/mcp_jobs/` (override with
 the `GPSE_MCP_JOBS_DIR` environment variable).
+
+**How it works.** Every MCP tool invocation runs as a subprocess
+(`python -m gpse.cli ...`, list form — no shell, so arguments are never subject
+to shell injection). Short commands (`convert`, `predict`, `tools`) run
+synchronously with a 300 s default timeout and return captured
+stdout/stderr (tail-truncated to 8000 characters). Long-running commands
+(`train`, `batch`) start a **background job** by default and return an
+8-character `job_id` immediately; poll it with `gpse_job_status`, read progress
+with `gpse_job_log`, and terminate the whole process group with
+`gpse_job_stop`. Pass `wait=True` to run synchronously instead (only for quick
+runs). Relative paths resolve against the MCP server's working directory, so
+prefer absolute paths.
+
+**Typical agent workflow.** A conversation-driven analysis looks like:
+
+1. `gpse_version` — verify the server is reachable.
+2. `gpse_help("convert")` — discover exact CLI flags; pass any flag not exposed
+   as a tool parameter through `extra_args`, e.g. `["--run-qc", "--maf", "0.05"]`.
+3. `gpse_convert(vcf=..., pheno=..., out_prefix=...)` — build training-ready
+   matrices (`{prefix}_{trait}_genotype.parquet`, `_phenotype.csv`,
+   `_phenotype_info.json`).
+4. `gpse_train(task_type="regression", geno_file=..., pheno_file=...,
+   target_trait=...)` — returns a `job_id`; track it with `gpse_job_status` /
+   `gpse_job_log` until it finishes.
+5. `gpse_predict(model=<results dir or .pkl>, geno_file=..., out=...)` —
+   predict new samples with SNP-ID alignment.
+
+For multi-trait runs, write a YAML config (see `gpse batch` above) and call
+`gpse_batch(config=..., dry_run=True, wait=True)` first to preview the
+generated commands, then launch it in the background.
+
+**Bundled agent skill (`skills/gpse-mcp/`).** The repository ships a ready-made
+agent skill at [`skills/gpse-mcp/SKILL.md`](skills/gpse-mcp/SKILL.md) that
+teaches AI coding agents (Kimi Code, Claude Code, etc.) how to drive this MCP
+server: tool inventory, the convert → train → predict workflow, background-job
+handling, and the constraints to respect when modifying `gpse/mcp/server.py`.
+To activate it, copy or symlink it into your agent's project-scope skills
+directory (or just point the agent at the file):
+
+```bash
+# Kimi Code / generic agents
+mkdir -p .agents/skills && ln -s ../../skills/gpse-mcp .agents/skills/gpse-mcp
+
+# Claude Code
+mkdir -p .claude/skills && ln -s ../../skills/gpse-mcp .claude/skills/gpse-mcp
+```
 
 ## 📥 Input and Output Formats
 

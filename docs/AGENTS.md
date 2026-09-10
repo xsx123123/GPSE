@@ -45,10 +45,12 @@ gpse/
 ├── predict/                # gpse predict — 仅 stub，未实现
 ├── tasks/                  # 分类任务运行时支持（标签编码等）
 ├── train/                  # gpse train — 训练 / CV / TOPSIS / Stacking（独立业务域）
+├── mcp/                    # gpse mcp / gpse-mcp — MCP server，把全流程封装为 MCP 工具（server.py）
 ├── tools/                  # 独立工具脚本（如 analyze_phenotypes）
 └── utils/                  # 跨模块通用工具：日志、依赖检查、打印、版本
 scripts/                    # 旧脚本（向后兼容），将逐步合并到 convert/
 batch/                      # 批处理脚本
+skills/gpse-mcp/            # 项目级 AI skill：gpse MCP server（gpse/mcp/server.py）使用指南
 tests/                      # 测试（当前仅 1 个文件，覆盖严重不足）
 docs/                       # 文档、logo、截图
 gpse.yaml                   # 项目级运行时配置（外部工具路径等）
