@@ -165,6 +165,14 @@ def main(
     gpse_logger.info(f"[Pipeline] Phenotype file: {pheno_file}")
 
     train_argv = list(train_extra)
+    results_dir_supplied = any(
+        token == "--results_dir" or token.startswith("--results_dir=")
+        for token in train_argv
+    )
+    if not results_dir_supplied and getattr(args, "out_prefix", None):
+        # Run-specific default so concurrent pipeline invocations do not
+        # overwrite each other's results in the shared 'optimization_results_v2'.
+        train_argv += ["--results_dir", f"{args.out_prefix}_results"]
     if args.preserve_vcf_snp_ids:
         # The convert stage consumed this flag; the train stage needs it too so
         # the feature manifest records the VCF-id compatibility mode.

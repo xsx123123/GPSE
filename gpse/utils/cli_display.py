@@ -254,7 +254,11 @@ def _build_convert_parser(formatter_class=argparse.HelpFormatter,
     conv.add_argument("--extract", help="SNP ID list file for PLINK --extract.")
     conv.add_argument("--snp-dir", help="Directory containing SNP list .txt files.")
     conv.add_argument("--direct", action="store_true", help="Convert whole bfile to matrix.")
-    conv.add_argument("--plink-out", help="PLINK output prefix used during VCF conversion.")
+    conv.add_argument(
+        "--plink-out",
+        help="PLINK output prefix used during VCF conversion "
+        "(default: '<out_prefix>_plink', so concurrent runs do not share files).",
+    )
     conv.add_argument("--load", action="store_true", help="Load and print matrix info.")
     conv.add_argument("--skip-clean", action="store_true", help="Reserved compatibility flag.")
     conv.add_argument("--skip-match", action="store_true", help="Skip phenotype/genotype matching.")

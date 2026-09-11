@@ -652,8 +652,12 @@ class GenomicDataProcessor:
                     elif not kwargs.get('bfile'):
                         if kwargs.get('plink_out'):
                             plink_prefix = kwargs['plink_out']
+                        elif out_prefix:
+                            # Default to a run-specific prefix so concurrent
+                            # conversions do not clobber each other's PLINK files.
+                            plink_prefix = f"{out_prefix}_plink"
                         else:
-                            plink_prefix = os.path.join(os.path.dirname(out_prefix), "plink_data")
+                            plink_prefix = "plink_data"
 
                         kwargs['bfile'] = self.vcf_to_plink(vcf_file, plink_prefix)
                         self.logger.info(f"Using converted PLINK prefix: {kwargs['bfile']}")
