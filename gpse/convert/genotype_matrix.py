@@ -126,6 +126,94 @@ def _timestamp_plink_log(out_prefix, logger=None):
 
 
 # ---------------------------------------------------------------------------
+# Conversion provenance (stale-output protection)
+# ---------------------------------------------------------------------------
+#
+# Every conversion step records a small sidecar manifest
+# ``<out_prefix>.prov.json`` fingerprinting its input files (abspath, size,
+# mtime).  On reruns, existing outputs are only reused when the recorded
+# provenance matches the current inputs; a mismatch means the files are
+# stale leftovers (e.g. an earlier run aborted or converted different
+# inputs) and they are regenerated.  Outputs without a sidecar manifest
+# keep the legacy behavior and are reused as-is.
+
+def _file_fingerprint(path):
+    st = os.stat(path)
+    return {"path": os.path.abspath(path), "size": st.st_size, "mtime_ns": st.st_mtime_ns}
+
+
+def _provenance_path(out_prefix):
+    return f"{out_prefix}.prov.json"
+
+
+def _write_provenance(out_prefix, sources, logger=None):
+    manifest = {}
+    for key, path in sources.items():
+        try:
+            manifest[key] = _file_fingerprint(path)
+        except OSError:
+            manifest[key] = None
+    with open(_provenance_path(out_prefix), "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2)
+
+
+def _provenance_matches(out_prefix, sources):
+    """True = outputs match current inputs, False = stale, None = unknown."""
+    manifest_file = _provenance_path(out_prefix)
+    if not os.path.exists(manifest_file):
+        return None
+    try:
+        with open(manifest_file, encoding="utf-8") as handle:
+            recorded = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return False
+    for key, path in sources.items():
+        try:
+            current = _file_fingerprint(path)
+        except OSError:
+            return False
+        if recorded.get(key) != current:
+            return False
+    return True
+
+
+def _remove_outputs(paths, logger=None):
+    for path in paths:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _reuse_or_clean(out_prefix, outputs, sources, describe, logger):
+    """Skip when outputs exist and provenance matches; clean stale outputs.
+
+    Returns True when the existing outputs can be reused.
+    """
+    if not all(os.path.exists(p) for p in outputs):
+        return False
+    state = _provenance_matches(out_prefix, sources)
+    if state is False:
+        logger.warning(
+            f"Existing {describe} were produced from different inputs; regenerating."
+        )
+        _remove_outputs(outputs + [_provenance_path(out_prefix)])
+        return False
+    logger.info(f"{describe} already exist: {out_prefix}")
+    logger.info("Skipping conversion step...")
+    return True
+
+
+def _run_command_cleaning_outputs_on_failure(cmd, outputs, logger):
+    """Run an external command; remove partial outputs when it fails."""
+    try:
+        run_command(cmd, logger=logger)
+    except Exception:
+        _remove_outputs(outputs, logger=logger)
+        raise
+
+
+# ---------------------------------------------------------------------------
 # VCF → PLINK BED
 # ---------------------------------------------------------------------------
 
@@ -143,18 +231,19 @@ def vcf_to_plink(
     log = logger or _default_logger
     log.info(f"Converting VCF file {vcf_file} to PLINK binary format...")
 
-    # Skip when output already exists.
-    if all(os.path.exists(f"{out_prefix}{ext}") for ext in (".bed", ".bim", ".fam")):
-        log.info(f"PLINK binary files already exist: {out_prefix}")
-        log.info("Skipping conversion step...")
+    # Skip when output already exists (only if provenance matches the inputs).
+    outputs = [f"{out_prefix}{ext}" for ext in (".bed", ".bim", ".fam")]
+    sources = {"vcf": vcf_file}
+    if _reuse_or_clean(out_prefix, outputs, sources, "PLINK binary files", log):
         return out_prefix
 
     plink = _resolve_plink(plink_path, config_path, auto_project_config)
     cmd = [plink, "--vcf", vcf_file, "--make-bed", "--out", out_prefix, "--double-id"]
     if allow_extra_chr:
         cmd.extend(["--allow-extra-chr"])
-    run_command(cmd, logger=log)
+    _run_command_cleaning_outputs_on_failure(cmd, outputs, log)
     _timestamp_plink_log(out_prefix, logger=log)
+    _write_provenance(out_prefix, sources)
 
     log.info(f"VCF conversion completed: {out_prefix}.bed, {out_prefix}.bim, {out_prefix}.fam")
     return out_prefix
@@ -179,9 +268,12 @@ def extract_snps(
     log = logger or _default_logger
     log.info(f"Extracting SNPs from {bfile}...")
 
-    if os.path.exists(f"{out_prefix}.ped") and os.path.exists(f"{out_prefix}.map"):
-        log.info(f"PLINK PED/MAP files already exist: {out_prefix}")
-        log.info("Skipping extraction step...")
+    outputs = [f"{out_prefix}.ped", f"{out_prefix}.map"]
+    sources = {
+        "bed": f"{bfile}.bed", "bim": f"{bfile}.bim", "fam": f"{bfile}.fam",
+        "extract": extract_file,
+    }
+    if _reuse_or_clean(out_prefix, outputs, sources, "PLINK PED/MAP files", log):
         return out_prefix
 
     plink = _resolve_plink(plink_path, config_path, auto_project_config)
@@ -195,8 +287,9 @@ def extract_snps(
     ]
     if allow_extra_chr:
         cmd.extend(["--allow-extra-chr"])
-    run_command(cmd, logger=log)
+    _run_command_cleaning_outputs_on_failure(cmd, outputs, log)
     _timestamp_plink_log(out_prefix, logger=log)
+    _write_provenance(out_prefix, sources)
 
     log.info(f"SNP extraction completed: {out_prefix}.ped, {out_prefix}.map")
     return out_prefix
@@ -220,9 +313,9 @@ def convert_bfile_to_ped(
     log = logger or _default_logger
     log.info(f"Converting PLINK binary dataset {bfile} to PED/MAP format...")
 
-    if os.path.exists(f"{out_prefix}.ped") and os.path.exists(f"{out_prefix}.map"):
-        log.info(f"PLINK PED/MAP files already exist: {out_prefix}")
-        log.info("Skipping conversion step...")
+    outputs = [f"{out_prefix}.ped", f"{out_prefix}.map"]
+    sources = {"bed": f"{bfile}.bed", "bim": f"{bfile}.bim", "fam": f"{bfile}.fam"}
+    if _reuse_or_clean(out_prefix, outputs, sources, "PLINK PED/MAP files", log):
         return out_prefix
 
     plink = _resolve_plink(plink_path, config_path, auto_project_config)
@@ -235,8 +328,9 @@ def convert_bfile_to_ped(
     ]
     if allow_extra_chr:
         cmd.extend(["--allow-extra-chr"])
-    run_command(cmd, logger=log)
+    _run_command_cleaning_outputs_on_failure(cmd, outputs, log)
     _timestamp_plink_log(out_prefix, logger=log)
+    _write_provenance(out_prefix, sources)
 
     log.info(f"Conversion completed: {out_prefix}.ped, {out_prefix}.map")
     return out_prefix
@@ -315,9 +409,21 @@ def convert_to_matrix(
             existing_mode = None
         requested_mode = "vcf" if preserve_vcf_snp_ids else "canonical"
         if existing_mode == requested_mode:
-            log.info(f"Matrix file already exists: {out_file}")
-            log.info("Skipping conversion step...")
-            return (out_file, None) if collect_df else out_file
+            matrix_prefix = os.path.splitext(out_file)[0]
+            prov_state = _provenance_matches(
+                matrix_prefix, {"ped": ped_path, "map": map_path}
+            )
+            if prov_state is False:
+                log.warning(
+                    "Existing matrix was built from different PED/MAP inputs; regenerating it."
+                )
+                _remove_outputs(
+                    [out_file, manifest_file, _provenance_path(matrix_prefix)]
+                )
+            else:
+                log.info(f"Matrix file already exists: {out_file}")
+                log.info("Skipping conversion step...")
+                return (out_file, None) if collect_df else out_file
         log.warning(
             f"Existing matrix uses SNP ID mode '{existing_mode or 'unknown'}'; "
             f"requested '{requested_mode}'. Regenerating the matrix."
@@ -361,6 +467,9 @@ def convert_to_matrix(
         source_file=out_file,
         filename=os.path.basename(manifest_file),
         feature_id_mode=feature_id_mode,
+    )
+    _write_provenance(
+        os.path.splitext(out_file)[0], {"ped": ped_path, "map": map_path}
     )
     log.info(f"Feature manifest written: {manifest_path}")
     log.info(f"Matrix conversion completed: {out_file}")
