@@ -1242,6 +1242,92 @@ live in the corresponding workflow package.
   * All Chinese comments, docstrings, and log messages translated to **English**.
   * Moved `ModelConfig`, `ClassificationModelConfig`, `NumpyEncoder` into `config/constants.py`.
 
+## 🗺️ Roadmap
+
+### GPSE v1 — Standardized Pipeline (current)
+
+GPSE v1 delivers a standardized, reproducible pipeline for genomic prediction:
+**QC → phenotype processing → modeling → evaluation → reporting**. It is
+positioned as a domain tool plus benchmark suite, addressing two long-standing
+pain points in genomic selection (GS) / genomic prediction (GP): inconsistent
+analysis workflows and hard-to-reproduce results.
+
+* Config-driven, modular architecture with explicit input/output contracts at
+  every step — the design already reserves extension points for the agent layer.
+* Leak-free evaluation is enforced by design: the hold-out set is split once
+  outside the training loop (`split_manifest.json`, `train_ids.txt`,
+  `test_ids.txt`), phenotype scalers are fit inside training folds only,
+  feature selection is fold-local, and all model/repeat/ensemble selection
+  decisions use **train-only CV** metrics. Hold-out metrics are
+  reporting-only.
+* Full audit trail: per-repeat, per-fold results (`cv_train_only.csv`,
+  `all_predictions.json`), Optuna best params, TOPSIS selections, and
+  `run_summary.json` are all persisted for reproducibility.
+* Benchmarks on multiple public datasets (wheat, maize, and other public
+  genotype + phenotype panels) to validate the workflow.
+
+### GPSE v2 — Agent-Powered Adaptive Modeling (planned)
+
+V2 upgrades the standardized pipeline into a **domain-aware, self-adaptive
+modeling framework** via an *Evaluator–Optimizer* loop. Where v1 answers
+"*standardize the workflow*", v2 answers "*adapt the workflow to each
+dataset*".
+
+**Evaluator–Optimizer loop**
+
+* **Builder Agent** — proposes a modeling plan (model types, hyperparameters,
+  QC strategy, phenotype transformation) as a declarative spec.
+* **Reviewer Agent** — reasons over cross-validation metrics and diagnostics
+  (learning curves, overfitting gaps, feature importance, fold-to-fold
+  stability) with domain awareness, and returns concrete improvement
+  suggestions.
+* Objective signals always come from **actual cross-validation results**; the
+  agents interpret and decide — they never replace real evaluation.
+
+**Domain awareness**
+
+* Population-structure correction and structure-aware CV strategies,
+  including family/population-based fold assignment.
+* Skewed phenotype transformation selection (log / Box-Cox / Yeo-Johnson).
+* Recognition of, and advice for, genome-specific problems such as G×E.
+
+**Leak-free by construction**
+
+* All data-driven decisions (QC thresholds, phenotype transforms, feature
+  selection) are made **inside training folds only**.
+* A held-out test set is reserved before iteration begins and never
+  participates in the loop; it is used for exactly one final evaluation.
+
+**Termination, logging, reproducibility**
+
+* Stop after a maximum number of iterations, or after N consecutive
+  iterations without improvement (scored on train-only CV).
+* Every iteration logs its plan, agent feedback, and observed metrics; the
+  final locked pipeline can be exported and re-run one-click for full
+  reproducibility.
+
+**Why this is feasible now.** The v1 foundation is already in place: the
+MCP server (`gpse mcp`) exposes the full convert → train → predict workflow
+to AI agents with background-job management, the leak-free hold-out
+machinery and per-fold audit artifacts already produce every objective
+signal the Reviewer Agent needs, and the YAML-driven model registry makes
+modeling plans machine-writable. V2's main new work is the orchestration
+layer on top: a plan-spec executor, a diagnostics aggregator (learning
+curves, importance, overfitting analysis), and the agent loop itself.
+
+**Targeted milestones**
+
+1. **v2.0 — Foundation:** plan-spec schema + executor; diagnostics &
+   visualization subcommand; locked-pipeline export.
+2. **v2.1 — Agent loop:** Builder/Reviewer agents, termination criteria,
+   full iteration logging.
+3. **v2.2 — Domain depth:** phenotype transform selection, family-aware CV,
+   G×E handling.
+
+> Positioning: v1 is a *tool + benchmark* paper ("standardized workflow");
+> v2 is a *methodology* paper ("adaptive, domain-aware workflow"). The two
+> narratives are deliberately distinct.
+
 ## 🗂️ TODO
 
 Performance follow-ups for the convert stage (after the in-memory handoff, vectorized encoding, and per-trait genotype dedup landed in 0.0.5):
