@@ -31,6 +31,7 @@ GPSE 是一个面向基因组选择与预测的机器学习流水线，覆盖从
 * **稳健评估**：通过多次重复 K 折交叉验证提升稳定性；CV 折分配使用固定种子 `42`，保证折划分可复现。
 * **模型排序与筛选**：内置 **TOPSIS**（Technique for Order of Preference by Similarity to Ideal Solution）并结合熵权法进行多指标排名。
 * **Stacking Ensemble**：自动集成 Top-N 表现最佳的模型以提升预测精度。
+* **面向 AI Agent 的 MCP Server**：内置 [MCP](https://modelcontextprotocol.io) 服务器（`gpse-mcp` / `gpse mcp`），将完整的 convert → train → predict 工作流以 MCP 工具形式暴露，并支持后台任务管理（status / log / stop）以跟踪长时间训练——详见 [§6](#6-mcp-服务器gpse-mcp)。
 
 ## 📖 文档
 
@@ -41,6 +42,7 @@ GPSE 是一个面向基因组选择与预测的机器学习流水线，覆盖从
 - [`gpse predict`](wiki/04-cli-predict.md) — 特征对齐与表型预测
 - [配置说明](wiki/05-configuration.md) — `gpse.yaml` 与 TOPSIS 配置
 - [API 参考](wiki/06-api-reference.md) — 公开的 Python 类与函数
+- [Agent Skill: gpse-mcp](../skills/gpse-mcp/SKILL.md) — 让 AI Agent 驱动 GPSE MCP 服务器
 - [English README](../README.md) — 英文说明
 
 ## 🛠️ 安装
@@ -408,6 +410,46 @@ gpse train \
 > `gpse train` 会自动读取并设置 `--task_type` 和 `--n_classes`。
 > 仅在需要覆盖自动检测结果，或没有 info 文件时，才需显式传入。
 
+> **💡 自定义 TOPSIS 排名指标：`--topsis_config`**
+>
+> GPSE 使用 TOPSIS 对模型排名，指标和权重均可配置。默认情况下，回归使用
+> `Test Pearson (0.8) + Test Pearson std (0.2)`，分类使用
+> `Test Accuracy (0.8) + Test Accuracy std (0.2)`。内置配置
+> （`gpse/config/topsis.yaml`）列出了每种任务类型全部 11 个可用指标；
+> `weight: 0` 的指标仅作参考展示。
+>
+> 自定义排名（例如同时考虑 Spearman 或训练时间）：
+>
+> ```bash
+> gpse train \
+>     --geno_file data/train_genotype.csv \
+>     --pheno_file data/train_phenotype.csv \
+>     --target_trait Fruit_Weight \
+>     --task_type regression \
+>     --topsis_config my_topsis.yaml \
+>     --results_dir output_results/
+> ```
+>
+> 完整 schema 和所有可用指标见 [配置说明 → TOPSIS](wiki/05-configuration.md#topsis-configuration-topsisyaml)。
+
+> **💡 自定义模型注册表：`--model_config`**
+>
+> GPSE 内置 15 个回归 + 6 个分类模型，定义在 `gpse/config/models.yaml` 中。
+> 可以用自定义 YAML 文件新增或覆盖现有模型——简单模型无需改动代码：
+>
+> ```bash
+> gpse train \
+>     --geno_file data/train_genotype.csv \
+>     --pheno_file data/train_phenotype.csv \
+>     --target_trait Fruit_Weight \
+>     --task_type regression \
+>     --model_config my_models.yaml \
+>     --models bagging_reg \
+>     --results_dir output_results/
+> ```
+>
+> 完整 schema 和新增模型示例见 [配置说明 → Model Registry](wiki/05-configuration.md#model-registry-modelsyaml)。
+
 #### 2.2 一键式：预处理 + 训练
 
 ```bash
@@ -532,6 +574,74 @@ gpse convert --help
 gpse train --help
 gpse batch --help
 gpse tools --help
+```
+
+### 6. MCP Server（`gpse mcp`）
+
+GPSE 内置 [MCP](https://modelcontextprotocol.io)（Model Context Protocol）服务器，
+让 AI Agent 通过 MCP 工具驱动完整的分析工作流（convert → train → predict）。
+`pip install` 之后，以 stdio 方式启动，两种方式等价：
+
+```bash
+gpse-mcp        # console script
+gpse mcp        # 等价的 CLI 子命令
+```
+
+MCP 客户端配置示例：
+
+```json
+{
+  "mcpServers": {
+    "gpse": {
+      "command": "gpse-mcp"
+    }
+  }
+}
+```
+
+暴露的工具：`gpse_version`、`gpse_help`、`gpse_convert`、`gpse_train`、
+`gpse_predict`、`gpse_batch`、`gpse_tools`，以及后台任务管理
+（`gpse_job_list` / `gpse_job_status` / `gpse_job_log` / `gpse_job_stop`）。
+任务日志位于 `~/.gpse/mcp_jobs/`（可通过 `GPSE_MCP_JOBS_DIR` 环境变量覆盖）。
+
+**工作方式。** 每次 MCP 工具调用都以子进程方式运行
+（`python -m gpse.cli ...`，列表形式——不经过 shell，参数不会受到 shell 注入影响）。
+短命令（`convert`、`predict`、`tools`）同步执行，默认 300 秒超时，
+返回捕获的 stdout/stderr（尾部截断至 8000 字符）。长时间运行的命令
+（`train`、`batch`）默认启动**后台任务**并立即返回 8 位 `job_id`；
+用 `gpse_job_status` 轮询状态，用 `gpse_job_log` 读取进度，用
+`gpse_job_stop` 终止整个进程组。传 `wait=True` 可改为同步执行（仅适合快速运行）。
+相对路径基于 MCP 服务器的工作目录解析，建议使用绝对路径。
+
+**典型 Agent 工作流。** 一次对话式分析大致如下：
+
+1. `gpse_version` — 确认服务器可达。
+2. `gpse_help("convert")` — 查询确切的 CLI 参数；未作为工具参数暴露的
+   flag 可通过 `extra_args` 传入，如 `["--run-qc", "--maf", "0.05"]`。
+3. `gpse_convert(vcf=..., pheno=..., out_prefix=...)` — 生成可训练矩阵
+   （`{prefix}_{trait}_genotype.parquet`、`_phenotype.csv`、`_phenotype_info.json`）。
+4. `gpse_train(task_type="regression", geno_file=..., pheno_file=...,
+   target_trait=...)` — 返回 `job_id`；用 `gpse_job_status` /
+   `gpse_job_log` 跟踪直至完成。
+5. `gpse_predict(model=<results 目录或 .pkl>, geno_file=..., out=...)` —
+   基于 SNP ID 对齐预测新样本。
+
+多性状运行时，编写 YAML 配置（见上文 `gpse batch`），先调用
+`gpse_batch(config=..., dry_run=True, wait=True)` 预览生成的命令，
+再以后台方式启动。
+
+**内置 Agent Skill（`skills/gpse-mcp/`）。** 仓库附带一个现成的 agent skill
+（[skills/gpse-mcp/SKILL.md](../skills/gpse-mcp/SKILL.md)），指导 AI 编程 Agent
+（Kimi Code、Claude Code 等）驱动该 MCP 服务器：工具清单、convert → train →
+predict 工作流、后台任务处理，以及修改 `gpse/mcp/server.py` 时需要遵守的约束。
+激活方式：将其复制或软链到 agent 的项目级 skills 目录（或直接让 agent 指向该文件）：
+
+```bash
+# Kimi Code / 通用 agent
+mkdir -p .agents/skills && ln -s ../../skills/gpse-mcp .agents/skills/gpse-mcp
+
+# Claude Code
+mkdir -p .claude/skills && ln -s ../../skills/gpse-mcp .claude/skills/gpse-mcp
 ```
 
 ## 📥 输入与输出格式
@@ -788,14 +898,14 @@ gpse predict \
 
 ## 📁 源码结构
 
-项目按五个工作流命令组织：`convert`、`train`、`predict`、`batch` 和 `tools`。命令相关代码放在对应子包中，共享支撑代码放在 `config`、`models`、`tasks` 和 `utils` 中。
+项目按五个工作流命令组织：`convert`、`train`、`predict`、`batch` 和 `tools`。命令相关代码放在对应子包中，共享支撑代码放在 `config`、`models`、`tasks`、`tools` 和 `utils` 中。
 
 ### `gpse/`
 
 | 文件 | 作用 |
 | --- | --- |
 | `__init__.py` | 包元数据，当前导出 `__version__`。 |
-| `cli.py` | 顶层命令路由器，仅负责 `gpse {convert,train,predict,batch,tools}` 的参数路由和共享 CLI 参数。 |
+| `cli.py` | 顶层命令路由器，负责 `gpse {convert,train,predict,batch,tools}` 的子命令路由、共享 CLI 参数，并将工作流逻辑委派给对应子包。 |
 
 ### `gpse/config/`
 
@@ -805,10 +915,12 @@ gpse predict \
 | --- | --- |
 | `__init__.py` | 配置数据类和常量的公共导出。 |
 | `constants.py` | 数据类与不可变常量，包括文件名、目录名、精度设置和线程环境变量名。 |
-| `_topsis_config.py` | 读取 TOPSIS 配置、验证 criteria/weights、记录运行环境，并保存代表性模型。 |
+| `_topsis_config.py` | 读取 TOPSIS 任务配置、验证 criteria/weights、记录运行环境，并保存代表性模型。由训练预测器消费。 |
+| `_model_registry.py` | YAML 驱动的模型注册引擎：加载 `models.yaml`，延迟解析 import 路径，注入线程参数，将内联搜索空间 DSL 编译为 Optuna 可调用对象。 |
 | `default.yaml` | 默认应用/日志配置。 |
 | `software.yaml` | 软件元数据与外部工具定义，用于转换/QC 依赖检查。 |
 | `topsis.yaml` | 用于回归/分类模型排序的 TOPSIS 指标、方向和权重。 |
+| `models.yaml` | 模型注册表：15 个回归 + 6 个分类模型定义（import 路径、线程策略、默认参数、Optuna 搜索空间）。 |
 
 ### `gpse/convert/`
 
@@ -824,6 +936,88 @@ gpse predict \
 | `validators.py` | 数据校验工具：性状名验证、列名清洗（特殊字符检测/替换）、矩阵加载与摘要统计。 |
 | `processor.py` | 薄编排层（`GenomicDataProcessor`），协调上述子模块完成基因型转换、表型匹配和数据校验。 |
 | `qc.py` | PLINK/Beagle QC 工具：格式转换、基因型过滤、imputation、LD pruning 和 PED/MAP 数值重编码。 |
+
+#### Convert API 参考（函数级）
+
+下表描述 `gpse.convert` 中的所有公开函数/方法。内部辅助函数（如
+`_run_command`、`_config_context`）省略。
+
+##### `gpse.convert.qc`
+
+| 函数 | 签名（关键参数） | 描述 |
+|---|---|---|
+| `format_converter` | `(user_params, input_prefix, output_prefix)` | 检测输入格式（VCF / PED+MAP / BED）并统一为 PLINK 二进制（BED/BIM/FAM）。返回 PLINK 输入 flag（`--bfile`）。 |
+| `filter_genotype` | `(user_params, input_prefix, output_prefix, input_flag='--bfile')` | 按用户提供的 ID 列表过滤样本/SNP（`--extract`、`--exclude`、`--keep`、`--remove`），并重编码为复合基因型（`01`），缺失编码为 `3`。 |
+| `impute_genotype_beagle` | `(user_params, input_prefix, output_prefix)` | 端到端执行 Beagle 填充：**BED → VCF → Beagle → VCF.gz → BED**。预过滤缺失等位基因（BIM 中为 `0`）的变异，因为 Beagle 要求有效的 REF/ALT。将填充后的 VCF 转回 BED 时使用 `--const-fid`，以安全处理包含下划线的样本 ID。 |
+| `analyze_and_prune` | `(user_params, input_prefix, output_prefix, run_imputation=False)` | **主 QC 编排器。** 依次执行：(0) `format_converter`，(1) `impute_genotype_beagle`（当 `run_imputation=True`），(2) QC 过滤（`--geno`、`--mind`、`--maf`），(3) LD 修剪（`--indep-pairwise`）。返回 `(qc_prefix, pruned_prefix)`。 |
+| `recode_to_numeric` | `(fileprefix)` | 将 PLINK PED/MAP 复合基因型转换为加性数值编码：`00→0`、`01/10→1`、`11→2`。写出表头为 `ID,SNP1,SNP2,...` 的 `.geno` CSV 文件。 |
+
+##### `gpse.convert.genotype_matrix`
+
+| 函数 | 签名（关键参数） | 描述 |
+|---|---|---|
+| `vcf_to_plink` | `(vcf_file, out_prefix, plink_path='plink', allow_extra_chr=False)` | 将 VCF 转为 PLINK 二进制格式（BED/BIM/FAM）。输出已存在时跳过。使用 `--double-id`，使完整 VCF 样本名成为 IID。 |
+| `extract_snps` | `(bfile, extract_file, out_prefix, ...)` | 从 PLINK 二进制数据集中提取指定 SNP 到 PED/MAP。复合基因型重编码，缺失=`3`。 |
+| `convert_bfile_to_ped` | `(bfile, out_prefix, ...)` | 将**完整** PLINK 二进制数据集转为 PED/MAP（不过滤 SNP）。复合基因型重编码，缺失=`3`。 |
+| `convert_to_matrix` | `(fileprefix, out_file=None, out_format='parquet')` | 读取 PED/MAP，应用基因型编码映射（`00→0`、`01→1`、`10→1`、`11→2`、缺失→`3`），写出数值矩阵。输出格式：`csv`、`parquet`、`feather`。缺少 `pyarrow` 时回退 CSV。 |
+| `process_snp_dir` | `(bfile, snp_dir, out_dir, ...)` | 批量处理 `snp_dir` 中的每个 `.txt` SNP 列表文件：extract → PED/MAP → 数值矩阵。每个列表写一个输出文件。 |
+
+##### `gpse.convert.phenotype`
+
+| 函数 | 签名（关键参数） | 描述 |
+|---|---|---|
+| `convert_phenotype` | `(pheno_file, out_file=None, trait_name=None, trait_col=None)` | 读取 tab 或逗号分隔的表型文件，删除缺失行（`NaN` / `NA`），可选重命名性状列，返回两列 DataFrame（`ID`、trait）。 |
+| `match_genotype_phenotype` | `(pheno_df, geno_file, out_prefix, out_format='csv')` | 按 ID 取基因型与表型样本交集，按共享顺序排序，写出匹配的 `{prefix}_phenotype.{ext}` 和 `{prefix}_genotype.{ext}`。无交集时抛出 `ValueError`。 |
+| `standardize_phenotype` | `(pheno_df, trait_col)` | 对性状列做 z-score 标准化。返回 `(标准化后 DataFrame, scaler 参数)`。 |
+| `detect_phenotype_type` | `(series, max_classes=20, min_samples_per_class=5)` | 根据值分布自动判断性状应作为 `regression` 还是 `classification`（唯一值 ≤2 → classification；字符串标签 → classification；整数编码且类别数 ≤20、每类样本 ≥5 → classification；否则 → regression）。 |
+| `save_phenotype_info` | `(info, info_file)` | 持久化表型元数据（性状名、任务类型、`n_classes`、样本量、mean/std）到 JSON。 |
+| `save_scaler_params` | `(scaler_params, scaler_file)` | 将 z-score 标准化参数（`mean`、`std`）保存为 JSON，供预测阶段逆变换。 |
+
+##### `gpse.convert.validators`
+
+| 函数 | 签名 | 描述 |
+|---|---|---|
+| `validate_trait_names` | `(trait_names)` | 前置校验：任一性状名包含非法字符（空格、`%`、`:`、`/`、`\`、`|`、括号、引号、逗号）或为空时抛出 `ValueError`。 |
+| `check_special_chars` | `(column_names)` | 检测特征名中 LightGBM 不支持的字符（`:`、`|`、`[`、`]`、`{`、`}`、`"`、`\`、`,`、空格）。 |
+| `clean_column_names` | `(column_names)` | 将不支持的字符替换为下划线，使特征名对所有 ML 框架安全。 |
+| `process_file` | `(file_path, output_path)` | 清洗 CSV 文件中的列名并重写。 |
+| `load_matrix` | `(matrix_file)` | 加载基因型矩阵（CSV/Parquet/Feather），记录行/列数和样本 ID 示例。 |
+
+##### `gpse.convert.processor` — `GenomicDataProcessor`
+
+`GenomicDataProcessor` 是 `gpse convert` 使用的薄编排器。多数方法是对上述纯函数的薄封装。
+
+| 方法 | 委派给 | 描述 |
+|---|---|---|
+| `process_genomic_data(**kwargs)` | — | **主入口。** 协调整个 convert 流程：格式转换 → 可选 QC/填充 → 矩阵生成 → 表型匹配/标准化 → 按性状写出输出。 |
+| `vcf_to_plink(vcf_file, out_prefix)` | `genotype_matrix.vcf_to_plink` | VCF → PLINK BED。 |
+| `extract_snps(bfile, extract_file, out_prefix)` | `genotype_matrix.extract_snps` | 提取 SNP 子集 → PED/MAP。 |
+| `convert_bfile_to_ped(bfile, out_prefix)` | `genotype_matrix.convert_bfile_to_ped` | 完整 BED → PED/MAP。 |
+| `convert_to_matrix(fileprefix, out_file, out_format)` | `genotype_matrix.convert_to_matrix` | PED/MAP → 数值矩阵。 |
+| `process_snp_dir(bfile, snp_dir, out_dir)` | `genotype_matrix.process_snp_dir` | 批量 SNP 提取。 |
+| `convert_phenotype(pheno_file, ...)` | `phenotype.convert_phenotype` | 读取并清洗表型。 |
+| `match_genotype_phenotype(pheno_df, geno_file, out_prefix)` | `phenotype.match_genotype_phenotype` | 取交集并重排基因型/表型样本。 |
+| `standardize_phenotype(pheno_df, trait_col)` | `phenotype.standardize_phenotype` | 对性状做 z-score 标准化。 |
+| `check_special_chars(column_names)` | `validators.check_special_chars` | 检测不支持的字符。 |
+| `clean_column_names(column_names)` | `validators.clean_column_names` | 清洗列名。 |
+| `validate_trait_names(trait_names)` | `validators.validate_trait_names` | 性状名前置校验。 |
+
+##### `gpse.convert.workflow`
+
+| 函数 | 描述 |
+|---|---|
+| `run_convert_workflow(args, mode)` | 顶层分发器。根据 CLI 参数路由到 `_run_pipeline`、`_run_qc`、`_run_recode` 或 `_run_deps`。 |
+| `validate_convert_mode(parser, args)` | 判断要运行的 convert 子模式（`pipeline`、`qc`、`recode`、`deps`）并校验必需参数。 |
+
+##### `gpse.convert.external`
+
+| 函数 | 描述 |
+|---|---|
+| `run_command(cmd_list, log_file)` | 不经过 shell 执行外部命令。压缩 PLINK 进度刷屏日志，并为常见 PLINK/Beagle 失败输出友好的错误提示。 |
+| `resolve_configured_tool(name, ...)` | 依次从 (1) 显式 CLI 覆盖、(2) YAML 配置、(3) `$PATH` 解析可执行文件路径。 |
+| `ensure_existing_file(file_path, name)` | 校验 `file_path` 存在；不存在时抛出带描述信息的 `FileNotFoundError`。 |
+| `check_configured_external_tools(tools, ...)` | 检查必需的外部依赖（PLINK、Java）已安装且满足最低版本要求。 |
+| `get_convert_config(config_path, ...)` | 从打包 YAML 和可选的项目/用户覆盖中加载并合并 convert 配置。 |
 
 ### `gpse/train/`
 
@@ -865,7 +1059,7 @@ gpse predict \
 | `__init__.py` | Batch 包标记。 |
 | `cli.py` | `gpse batch` 的 CLI 解析器（`--config`、`--dry_run`）。 |
 | `runner.py` | 加载 YAML 批量配置，将 `defaults` 与性状级覆盖合并并翻译成 `gpse train` 参数（含布尔和列表参数），逐性状执行训练并打印最终汇总。 |
-| `merge.py` | 批次结束后将各性状的汇总表合并到 `<results_root>/merged/`。 |
+| `merge.py` | 将各性状的汇总表（`model_comparison*.csv` 和 holdout 汇总）合并到 `<results_root>/merged/`，并添加前置 `Trait` 列。 |
 
 ### `gpse/models/`
 
@@ -982,6 +1176,97 @@ gpse predict \
   * 将 TOPSIS 运行时配置迁移到 `gpse/config/_topsis_config.py`，YAML 默认值迁移到 `gpse/config/topsis.yaml`。
   * 将所有中文注释、docstring 和日志翻译为英文。
   * 将 `ModelConfig`、`ClassificationModelConfig`、`NumpyEncoder` 移至 `config/constants.py`。
+
+## 🗺️ Roadmap
+
+### GPSE v1 — 标准化流水线（当前）
+
+GPSE v1 提供标准化、可复现的基因组预测流水线：
+**QC → 表型处理 → 建模 → 评估 → 报告**。定位为领域工具 + 基准测试套件，
+针对基因组选择（GS）/ 基因组预测（GP）中长期存在的两个痛点：
+分析流程不一致、结果难以复现。
+
+* 配置驱动、模块化的架构，每个步骤都有显式的输入/输出契约——该设计已为
+  Agent 层预留扩展点。
+* 从设计上强制无泄漏评估：保留集在训练循环之外一次性拆分
+  （`split_manifest.json`、`train_ids.txt`、`test_ids.txt`），表型 scaler
+  只在训练折内拟合，特征选择是折局部的，所有模型/repeat/ensemble 选择决策
+  均使用**仅训练 CV** 指标。保留集指标仅用于报告。
+* 完整审计链：每 repeat、每折的结果（`cv_train_only.csv`、
+  `all_predictions.json`）、Optuna 最优参数、TOPSIS 选择和
+  `run_summary.json` 全部持久化，保证可复现。
+* 在多个公开数据集（小麦、玉米及其他公开基因型 + 表型 panel）上做基准测试，
+  验证工作流。
+
+### GPSE v2 — Agent 驱动的自适应建模（规划中）
+
+V2 通过 *Evaluator–Optimizer* 循环，将标准化流水线升级为**领域感知、
+自适应的建模框架**。V1 回答"如何标准化工作流"，V2 回答"如何让工作流
+适配每个数据集"。
+
+**Evaluator–Optimizer 循环**
+
+* **Builder Agent** — 以声明式 spec 提出建模方案（模型类型、超参数、
+  QC 策略、表型变换）。
+* **Reviewer Agent** — 以领域感知的方式推理交叉验证指标和诊断信息
+  （学习曲线、过拟合差距、特征重要性、折间稳定性），并给出具体的改进建议。
+* 目标信号始终来自**真实的交叉验证结果**；Agent 负责解释和决策——
+  它们从不取代真实评估。
+
+**领域感知**
+
+* 群体结构校正和结构感知的 CV 策略，包括基于家系/群体的折划分。
+* 偏态表型的变换选择（log / Box-Cox / Yeo-Johnson）。
+* 识别并针对基因组特有问题（如 G×E）提供建议。
+
+**从构造上无泄漏**
+
+* 所有数据驱动的决策（QC 阈值、表型变换、特征选择）都**只在训练折内**做出。
+* 保留测试集在迭代开始前预留，绝不参与循环；仅用于一次最终评估。
+
+**终止、日志、可复现性**
+
+* 达到最大迭代次数，或连续 N 次迭代无改进（以仅训练 CV 打分）后停止。
+* 每次迭代记录其方案、Agent 反馈和观测指标；最终锁定的流水线可导出，
+  一键重跑，完全可复现。
+
+**为什么现在可行。** V1 的基础已经就绪：MCP 服务器（`gpse mcp`）通过
+后台任务管理将完整的 convert → train → predict 工作流暴露给 AI Agent，
+无泄漏的保留集机制和每折审计产物已经产出 Reviewer Agent 需要的每个目标信号，
+YAML 驱动的模型注册表使建模方案可机器书写。V2 的主要新工作是上层编排：
+plan-spec 执行器、诊断聚合器（学习曲线、重要性、过拟合分析）和 Agent 循环本身。
+
+**里程碑**
+
+1. **v2.0 — 基础：** plan-spec schema + 执行器；诊断与可视化子命令；
+   锁定流水线导出。
+2. **v2.1 — Agent 循环：** Builder/Reviewer Agent、终止条件、完整迭代日志。
+3. **v2.2 — 领域深度：** 表型变换选择、家系感知 CV、G×E 处理。
+
+> 定位：V1 是*工具 + 基准*论文（"标准化工作流"）；V2 是*方法学*论文
+> （"自适应、领域感知的工作流"）。两者叙事刻意区分。
+
+## 🗂️ TODO
+
+convert 阶段的性能跟进事项（在 0.0.5 的内存交接、向量化编码和分性状基因型
+去重落地之后）：
+
+* **直接读取 PLINK BED，跳过 PED 文本往返。** 当前 VCF 路径为
+  VCF → BED → PED（文本，数 GB）→ 矩阵。用 numpy 直接读取二进制 `.bed`
+  （每基因型 2 bit）可移除 PED 中间文件和逐行 Python 解析——这是剩余最大的
+  I/O 优化点。需要仔细验证 BED 2-bit 等位基因码与当前 PLINK
+  `--recode compound-genotypes 01` 语义一致，保证 0/1/2 加性编码不变，
+  并对相同输入做并排单元测试。
+* **加速数值 VCF 解析。** `vcf_numeric_to_matrix` 目前仍逐行 Python 解析 VCF；
+  对大 VCF 切换到 `cyvcf2`（已是可选依赖）或分块/向量化解析。
+* **匹配紧随时跳过中间全矩阵写出。** 当表型匹配紧跟转换之后运行时，
+  完整的 `{prefix}.{ext}` 矩阵会被写出，但下游只消费分性状子集。一旦
+  resume / `--matrix-file` 复用路径与其解耦，可将全矩阵写出改为可选（opt-in flag）。
+* **写出数值 dtype 而非字符串。** 基因型矩阵目前以字符串（`'0'/'1'/'2'/'3'`）
+  存储；`int8`/`float32` 可缩小 parquet 文件并加快训练侧加载。因为这会改变
+  输出契约，先验证 `gpse train` / `gpse predict` 的读取端。
+* **评估 PLINK2 支持。** PLINK2 转换命令是多线程的，在大规模队列上明显快于
+  PLINK 1.9；将其作为 VCF/BED 步骤的替代后端加入。
 
 ## 📄 许可证
 
